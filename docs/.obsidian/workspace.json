@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "data-pipeline.md",
+                "file": "implementation_plan.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "data-pipeline"
+              "title": "implementation_plan"
             }
           }
         ]
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "data-pipeline.md",
+                "file": "implementation_plan.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for data-pipeline"
+              "title": "Backlinks for implementation_plan"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "data-pipeline.md",
+                "file": "implementation_plan.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from data-pipeline"
+              "title": "Outgoing links from implementation_plan"
             }
           },
           {
@@ -156,13 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "data-pipeline.md",
+                "file": "implementation_plan.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of data-pipeline"
+              "title": "Outline of implementation_plan"
             }
           }
         ]
@@ -185,6 +185,12 @@
   },
   "active": "53852902f5aa3eb5",
   "lastOpenFiles": [
-    "eval_pipeline.md"
+    "eval_pipeline.md",
+    "implementation_plan.md",
+    "data-pipeline.md",
+    "NUPEPA_ACTION_PLAN.md",
+    "nupepa_investigation_report_2026-04-29.txt",
+    "hawaiian-data-sources.json",
+    "training-pipeline.md"
   ]
 }
