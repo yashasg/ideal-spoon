@@ -507,3 +507,27 @@ Broad planner (`001`–`003` phase-numbering era) now archived in decision histo
 - English boilerplate is known (Kauakūkalahale demo sample shows English headers/footers); cleaning is downstream (your + Rusty's pipeline, not fetcher scope).
 
 **Reference:** `.squad/decisions.md` → "Decision: FineWeb-2 `haw_Latn` Access Verified Live" (appended 2026-04-29T09:18:58Z).
+
+### 2026-04-29 09:27:41Z — Rusty + Frank complete Hawaiian dataset variant audit
+
+**From Scribe:** Two major audits completed and merged into decisions.md:
+
+**Rusty (NLP Researcher) — Language/Script Code Normalization:**
+- Confirmed `haw_Latn` canonical (ISO 639-3 + ISO 15924), with three acceptable variants: `haw-Latn` (BCP-47 hyphenated), bare `haw` (OPUS/Tatoeba), `hawn_Latn` (FLORES-Plus 4-letter, real alias not a bug).
+- Provided deterministic normalization: explicit allow-list matching (never prefix-match), hard requirement for `source_language_config` (verbatim provider string) and `source_language_resolved` (our decision).
+- False-positive inventory: `hwc` (Hawaiian Pidgin, distinct language), `hau` (Hausa), filename acronyms, English boilerplate in FineWeb-2 high-LID rows (needs paragraph-level re-LID).
+- Recommended new manifest columns: `script_iso15924` (Latn), `source_language_config` (audit trail), `source_language_resolved` (our normalized interpretation).
+
+**Frank (Hawaiian Data Collector) — HF Dataset Inventory:**
+- 14 real Hawaiian configs found on HF beyond FineWeb-2 `haw_Latn`.
+- **Key new sources:** GlotCC-V1 `haw-Latn` (independent CC filter for dedup), DCAD-2000 `haw_Latn` (free second-opinion filter), finepdfs `haw_Latn` (PDF modality, likely Ulukau overlap), `haw_Latn_removed` (recall pool, contingency only).
+- **Critical finding:** FLORES / FLORES+ / FLORES-200 have **no Hawaiian**. Current `data-pipeline.md` §300 hedge ("If `hawn_Latn` is included") is false.
+- **Stage 2 eval alternatives:** global-piqa-parallel (preferred), Taxi1500, Tatoeba held-out, BibleNLP (edition-pinned).
+
+**Your follow-up actions (in order of urgency):**
+1. **Data-policy review:** Is `haw_Latn_removed` (filter-rejected pool) allowable under prototype policy, even tagged? Frank defaults to "no, unless yield gate fails."
+2. **DCAD-2000, finepdfs rights:** Confirm rights posture of these new sources.
+3. **Rusty's normalization rules:** Incorporate into `data-pipeline.md` manifest schema (add the three new columns).
+4. **FLORES correction:** Flag to Danny for docs update (FLORES is gone; eval anchor TBD).
+
+**Reference:** `.squad/decisions.md` → "ADR: Hawaiian Language/Script Code Normalization" + "Inventory: Hawaiian Dataset Variants Beyond FineWeb-2 `haw_Latn`" (appended 2026-04-29T09:27:41Z).

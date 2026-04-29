@@ -128,3 +128,21 @@ Rationale aligns with ADR "GPU compute chaining feasibility" (2026-04-29, Basher
 - 60h budget on L4/A10/A100/4090 (NOT T4 — no bf16/FA2 on Turing): ~3% setup, ~2% smoke-resume sanity, ~40% Stage 1, ~3% Stage 1 gate, ~2% fp16 merge, ~20% Stage 2, ~3% Stage 2 gate, ~25% retries/contingency, ~2% buffer. One retry budgeted, not two.
 - Provider 3 is eval-only: dtype/quant must match Provider 2; first eval point on a known checkpoint must reproduce ±0.02 PPL or eval is invalid. No training, no merging, no tweaks.
 - Reaffirms existing ADRs (chaining feasibility, checkpoint contract, two-stage plan). No new durable decision required.
+
+### 2026-04-29 09:27:41Z — Hawaiian source audit: normalization rules for pipeline slicing
+
+**From Scribe:** Rusty + Frank completed dataset variant audit. Key for your training pipeline:
+
+**Rusty's normalization scheme (critical for eval slicing):**
+- All Hawaiian rows normalize to `language=haw` (bare ISO 639-3) in manifest.
+- New columns: `source_language_config` (verbatim provider string: `haw_Latn`, `haw-Latn`, `haw`, `hawn_Latn`, etc.) and `source_language_resolved` (our decision: `haw`).
+- **When slicing eval by source:** slice on `source_language_resolved` for inclusion (`== 'haw'`), and on `source_language_config` for diagnostics (per-config breakdown of byte-fallback, ʻokina survival, PPL).
+
+**Why this matters for your stage:**
+- You'll be ingesting FineWeb-2 `haw_Latn` and likely GlotCC-V1 `haw-Latn` (independent filter). Per-config slices catch filter-specific bugs that a single `haw` aggregate hides.
+- DCAD-2000 `keep/remove/stas` jsonls (Frank's finding) give you a free second-opinion filter for calibration without re-running classifiers yourself.
+
+**Stage 2 eval shift:** FLORES has no Hawaiian. Candidates: global-piqa-parallel (preferred), Taxi1500, Tatoeba held-out, BibleNLP.
+
+**Reference:** `.squad/decisions.md` → "ADR: Hawaiian Language/Script Code Normalization" (Rusty's full normalization spec) + "Inventory: Hawaiian Dataset Variants" (Frank's source breakdown) (appended 2026-04-29T09:27:41Z).
+

@@ -1962,3 +1962,134 @@ Promote three new source-specific adapter pairs to "expansion candidate" tier in
 ### Boundaries
 
 Frank verified access + provenance + scriptability only. Not making the rights call, not editing scripts or requirements, not bulk-downloading the corpus. No raw text exposed in this note (lengths and known-public URLs only).
+
+---
+
+## ADR: Hawaiian Language/Script Code Normalization
+
+**Author:** Rusty (NLP Researcher)  
+**Date:** 2026-04-29  
+**Status:** Advisory — Operational Guidance  
+**Audience:** Frank (data collection), Linus (rights/audit), Basher (training pipeline), Scribe (cross-source provenance)
+
+### Verdict
+
+Hawaiian language codes are inconsistent across dataset providers. The canonical form is `haw_Latn` (ISO 639-3 + ISO 15924 script), but collectors will encounter `haw-Latn` (BCP-47 hyphenated), bare `haw`, and critically, `hawn_Latn` (FLORES+ 4-letter convention). A real Hawaiian alias exists (`hawn_Latn`) that naive prefix-matching will miss; false positives include Hawaiian Pidgin (`hwc`), Hausa (`hau`), and filename acronyms. Normalization rules prevent silent errors.
+
+### Canonical codes
+
+| Standard | Code | Notes |
+|---|---|---|
+| ISO 639-3 | `haw` | Canonical 3-letter code; no ISO 639-1 2-letter exists. |
+| BCP-47 | `haw` or `haw-Latn` | Bare or with script tag (hyphen separator). |
+| ISO 15924 script | `Latn` | Hawaiian is **only** written in Latin script in modern corpora. |
+| FLORES-Plus internal | `hawn_Latn` | 4-letter extension for languages beyond original FLORES-200. **Real alias, not a bug.** |
+
+### Plausible config forms in modern corpora
+
+1. **`haw_Latn`** (NLLB / FineWeb-2 / Glot500 style) — **canonical for our manifests**.
+2. **`haw-Latn`** (BCP-47 with hyphen, HF metadata fields) — semantically equivalent.
+3. **`haw`** (bare ISO 639-3, Tatoeba / OPUS / Wikipedia) — unambiguous for Hawaiian (only Latin script active); accept.
+4. **`hawn_Latn`** (FLORES-Plus extended-set) — **treat as known alias of Hawaiian, not different language.**
+5. **`Hawaiian`** (free-text name) — normalize to `haw` on ingest.
+6. **`haw_HI`** (hypothetical region tag) — rarely seen; record region only if source distinguishes.
+
+### False-positive risks
+
+**Never use substring/prefix matching.** These will collide with Hawaiian:
+
+- **`hwc` (Hawaiian Pidgin / Hawaiʻi Creole English)** — a distinct language, not Hawaiian. Some corpora label it "Hawaiian English" or just "Hawaiian" in free-text metadata. **Always check the code, not the name.**
+- **`hau_Latn` (Hausa)** — three-letter prefix collision with `haw`. NLLB-200 includes Hausa.
+- **`Hano` / `hnn` (Hanunoo, a Philippine language)** — different language.
+- **`lat_Latn` / `Latin`** — mis-recording *script* as *language* in poorly-curated metadata.
+- **Filename acronyms** — "Hawaii state data" (all English); airline codes; OCR artifacts. Signal is the **declared language metadata field**, not filename substring.
+- **English-heavy rows tagged `haw_Latn`** — Already observed in FineWeb-2: rows with `language_score > 0.995` but mostly English boilerplate + Hawaiian core. Requires **paragraph-level re-LID + char-ratio gates** (ʻokina/kahakō density vs. ASCII-only density) downstream.
+- **Mojibake / NFD-decomposed rows** — ʻokina mangled to `'` / U+2018 / U+2019; kahakō decomposed to NFD combining macrons. Poison tokenization; flag in QA.
+
+### Normalization rules for collectors
+
+1. **Manifest `language` column:** normalize to `haw` (bare ISO 639-3) for Hawaiian-only rows. Never store `haw_Latn`, `hawn_Latn`, `haw-Latn`, or `Hawaiian` in this column. (Script goes in separate columns.)
+2. **New manifest columns (advisory):**
+   - `script_iso15924` — value `Latn` for all Hawaiian rows. Asserts script invariant.
+   - `source_language_config` — verbatim provider config string (e.g., `haw_Latn`, `hawn_Latn`, `haw`, `Hawaiian`). **Audit trail; never overwrite.**
+   - `source_language_resolved` — our normalized interpretation (`haw`, `hwc`, `eng`, etc.). Decision log for re-auditing later.
+3. **Resolution logic:**
+   - Match against explicit allow-list: `{haw_Latn, haw-Latn, haw, hawn_Latn, Hawaiian, hawaiian, HAW} → haw`.
+   - **Never** use prefix / substring matching on provider config. Exact match against allow-list, case-normalized.
+   - On miss, log unrecognized config and quarantine row. Do not silently drop or default.
+4. **ʻokina + kahakō invariants:** every `language=haw` row must pass NFC normalization; ʻokina is U+02BB (not U+2018/U+0027/U+2019); kahakō present where source had it; byte-fallback rate recorded per slice.
+5. **Provenance in run reports:** record `(source, source_language_config, source_language_resolved, row_count, token_count)` per source. Auditable post-hoc filtering.
+
+### Recommendations
+
+- **Frank (collector):** hard-code config strings (`haw_Latn` for FineWeb-2, `hawn_Latn` for FLORES-Plus, bare `haw` for Tatoeba/OPUS). Record verbatim in `source_language_config`; resolve to `language=haw` in manifest. Never extend by prefix match.
+- **Linus (rights/audit):** language-config audit is independent of rights audit but feeds same manifest. `hawn_Latn` being FLORES+ 4-letter form is a normalization issue, not a rights issue.
+- **Basher (training):** when slicing eval by source, slice on `source_language_resolved` for inclusion (`== 'haw'`) and on `source_language_config` for diagnostics (per-config breakdown of byte-fallback, ʻokina survival, PPL).
+- **Scribe:** if a future ADR codifies manifest schema additions, reference this advisory.
+
+### No new ADR
+
+This advisory clarifies and extends `data-pipeline.md`'s manifest schema. Scribe folds into a schema ADR if team wants the new columns durable.
+
+---
+
+## Inventory: Hawaiian Dataset Variants Beyond FineWeb-2 `haw_Latn`
+
+**Author:** Frank (Hawaiian Data Collector)  
+**Date:** 2026-04-29  
+**Status:** Proposed — team awareness  
+**Method:** HF Hub metadata-only probe (`/api/datasets`). No bulk downloads, no raw text exposed.
+
+### Verdict
+
+Yes. Multiple real Hawaiian (`haw` / `haw_Latn`) configs exist on HF beyond FineWeb-2 `haw_Latn`. Key new findings: **`FineWeb-2 haw_Latn_removed`** (filter-rejected pool, recall-over-precision contingency), **`GlotCC-V1 haw-Latn`** (independent CC filter for cross-source dedup), **`openbmb/DCAD-2000 haw_Latn`** (free second-opinion filter), **`HuggingFaceFW/finepdfs haw_Latn`** (PDF modality, likely overlaps Ulukau).
+
+**Critical:** **FLORES / FLORES+ do not include Hawaiian.** `docs/data-pipeline.md` §300 currently hedges this ("If `hawn_Latn` is included in FLORES-200…") — false. Eval anchor for Stage 2 must come from elsewhere.
+
+### Real Hawaiian configs (text)
+
+| Dataset | Config | Modality | Use to us |
+|---|---|---|---|
+| HuggingFaceFW/fineweb-2 | `haw_Latn` (train + test) | Web text (CC) | Baseline candidate Stage 1. |
+| HuggingFaceFW/fineweb-2 | **`haw_Latn_removed`** | Web text rejected by FineWeb-2 filters | **New.** Recall pool — only if Stage 1 yield too low. Tag `quality=fineweb2_removed` for later filtering. |
+| cis-lmu/GlotCC-V1 | `haw-Latn` (note: hyphen) | CommonCrawl filtered via GlotCC pipeline | **New.** Independent CC filter vs. FineWeb-2. Best second source for MinHash dedup + filter-disagreement analysis. |
+| openbmb/DCAD-2000 | `haw_Latn` (`keep/remove/stas` jsonls) | Re-filtered FineWeb-2 + MaLA shards | **New.** Free second-opinion filter; metadata-only, useful for filter calibration without re-running classifiers. |
+| HuggingFaceFW/finepdfs | `haw_Latn` (train + test) | PDF-derived text | Different modality from web crawl. Run metadata diff (URL/SHA) before pulling to avoid re-ingesting Ulukau under different label. |
+| HuggingFaceFW/finetranslations | `haw_Latn` | Synthetic / model-translated | Synthetic, last-resort only; capped per pipeline. |
+| cis-lmu/Glot500 | `haw_Latn` | Web text (older release) | Smaller, older. Sanity comparator, not primary. |
+| wikimedia/wikipedia | `20231101.haw` | Wikipedia parquet (canonical) | Rights-clean; already in inventory. |
+| bible-nlp/biblenlp-corpus | `haw` | Bible verses | Stage 2 candidate, subject to ≤30% Bible cap per pipeline. |
+| ayymen/Weblate-Translations | `en-haw.tsv`, `en_GB-haw.tsv` | UI string parallel pairs (software-l10n) | Stage 2 candidate, register=software-l10n, cap recommended. |
+| cis-lmu/Taxi1500-RawData | `haw_Latn` | Bible-derived topic classification eval | Eval-only; possible Stage 2 dev/test anchor (Bible-aligned). |
+| mrlbenchmarks/global-piqa-parallel | `parallel_haw_latn.tsv` | Commonsense QA, parallel `en/haw` | **Candidate Stage 2 dev/test anchor** (replaces FLORES since FLORES has no Hawaiian). |
+
+### Confirmed absent (no Hawaiian config)
+
+- `facebook/flores` — **FLORES-200 does not include Hawaiian.** Critical correction to `data-pipeline.md`.
+- `openlanguagedata/flores_plus` — **FLORES-Plus does not include Hawaiian.** (Rusty found `hawn_Latn` 4-letter convention in FLORES-Plus spec, but not actually used for Hawaiian in practice.)
+- OSCAR (all versions), CulturaX, cc100, HPLT, NLLB, OPUS-100, QED, Ubuntu, MADLAD-400, XNLI, XLSum, and others (probed via sibling listing or language tag).
+
+### Recommendations
+
+1. **Keep FineWeb-2 `haw_Latn` as primary Stage 1 source.** Cleanest, most actively maintained.
+2. **Add GlotCC-V1 `haw-Latn` as second Stage 1 source.** Independent filter; cheap to evaluate; enables cross-source MinHash dedup.
+3. **Treat FineWeb-2 `haw_Latn_removed` as contingency recall pool.** Only ingest if Stage-1 token-yield gate at risk; tag `quality=fineweb2_removed`.
+4. **Inventory finepdfs `haw_Latn` separately.** Run metadata diff (URL/SHA) vs. Ulukau / archive.org before pulling.
+5. **Use DCAD-2000 `keep/remove/stas` jsonls as free second-opinion filter.** Metadata-only; useful for filter calibration.
+6. **Update Stage 2 plan: FLORES has no Hawaiian.** Candidate replacement eval anchors (priority order):
+   - `mrlbenchmarks/global-piqa-parallel` (commonsense, parallel) — preferred
+   - `cis-lmu/Taxi1500-RawData` (Bible-derived classification) — overlaps Bible cap; dev-only if Bible verses excluded from training above 30%
+   - Tatoeba `haw`↔`eng` (already inventoried) — split held-out portion as dev/test
+   - BibleNLP `haw` (hand-curated dev/test) — only with strict edition pinning, held-out from training.
+7. **Skip for now:** `saillab/alpaca-hawaiian*` (LLM-translated, fails synthetic bar), `finetranslations` (synthetic), `allenai/c4` mC4 (superseded), `graelo/wikipedia` (older snapshot), MADLAD-400 (no config), Omnilingual-ASR / MMS-ULAB (speech, out of scope).
+
+### Open questions for the team
+
+- **Linus:** Should `haw_Latn_removed` (filter-rejected pool) be allowed at all under data-policy, even tagged? Default: "no, unless yield gate fails."
+- **Rusty:** For Stage 2 eval anchoring, prefer global-piqa-parallel `haw` or held-out Tatoeba slice as primary dev set?
+- **Linus / Coordinator:** Recommend tightening `data-pipeline.md` §300 from "If `hawn_Latn` is included in FLORES-200…" to "FLORES-200 does not include Hawaiian; eval anchor TBD per alternatives below."
+
+### Boundaries
+
+Frank verified HF Hub metadata, sibling listings, language tags. No parquet bytes downloaded; no raw text inspected. Metadata-only probe.
+

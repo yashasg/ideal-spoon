@@ -72,3 +72,18 @@
 - Verified `rg -i release docs/data-pipeline.md` returns zero hits.
 - **Pattern shift from prior sweep:** previously I kept the prototype-vs-release ADR scaffolding as conditional; user's directive now is to collapse it. Prefer collapsing dual-posture framing rather than preserving "if we ever pivoted" language when the user has explicitly said the project is prototype-only.
 - No new team decision: this applies the existing prototype-scope direction, so no inbox file written.
+
+### 2026-04-29 09:27:41Z — Data audit complete; docs update needed for FLORES absence
+
+**From Scribe:** Hawaiian dataset variant audit (Rusty + Frank) complete. Key impact: **FLORES / FLORES+ do not include Hawaiian.**
+
+**Current state of docs:**
+- `data-pipeline.md` §300 currently says "If `hawn_Latn` is included in FLORES-200…" — **this is now false.**
+- Stage 2 eval anchor can no longer rely on FLORES. Candidates (per Frank's audit): global-piqa-parallel (preferred), Taxi1500, Tatoeba held-out, BibleNLP.
+
+**Your follow-up:**
+1. Update `data-pipeline.md` §300 to state clearly: "FLORES-200 does not include Hawaiian; eval anchor TBD per alternatives below."
+2. Reference Frank's inventory in decisions.md for the alternative eval sources (global-piqa-parallel, Taxi1500, Tatoeba, BibleNLP).
+
+**Reference:** `.squad/decisions.md` → "Inventory: Hawaiian Dataset Variants Beyond FineWeb-2" (appended 2026-04-29T09:27:41Z). Also Rusty's normalization advisory for manifest schema context if you want to coordinate with Linus on schema tightening.
+

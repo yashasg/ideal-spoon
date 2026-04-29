@@ -340,3 +340,63 @@ Re-verified before any script work, per yashasg "1 sounds good, lets verify it w
   - No quality/toxicity filtering done by FineWeb-2 at this tier beyond LID + minhash — downstream cleaning is on us.
 - **Verdict:** **Works.** Proceed to script planning. Proposed script names (per existing decision): `105_collect_fineweb2_haw.py` (planner: emit manifest of the 2 parquet URLs + per-row count + license snapshot) and `205_fetch_fineweb2_haw_raw.py` (fetcher: stream parquet to `data/raw/fineweb2/haw_Latn/{train,test}/0000.parquet` with sha256 + ETag + fetch-date + license-tag manifest).
 - **Still blocked on (not by Frank):** Linus rights ruling on FineWeb-2 wrapper-vs-row posture for prototype use, and the `huggingface_hub`/`pyarrow` dependency call. Verification itself is unblocked.
+
+### 2026-04-29 — `haw_*` variant survey across HF Hub (metadata-only)
+
+Triggered by yashasg asking whether other `haw_*` dataset forms exist beyond FineWeb-2 `haw_Latn`. Probed HF Hub API only (sibling listings + `language:haw` filter). No bulk downloads; no raw text inspected.
+
+Real Hawaiian text configs found (beyond FineWeb-2 `haw_Latn` train/test):
+
+- `HuggingFaceFW/fineweb-2` **`haw_Latn_removed`** — filter-rejected pool from the same pipeline. New finding; recall-only contingency.
+- `HuggingFaceFW/finepdfs` `haw_Latn` (train+test) — PDF-derived; likely overlaps Ulukau/archive.org. Run URL/SHA diff before pulling.
+- `HuggingFaceFW/finetranslations` `haw_Latn` — synthetic/model-translated; synthetic-last-resort under our policy.
+- `cis-lmu/GlotCC-V1` `haw-Latn` — independent CC filter; best second-source for cross-source dedup.
+- `cis-lmu/Glot500` `haw_Latn` — older, smaller; comparator only.
+- `cis-lmu/Taxi1500-RawData` `haw_Latn` — Bible-derived classification eval.
+- `openbmb/DCAD-2000` `haw_Latn/{fineweb-2,mala}_*_{keep,remove,stas}.jsonl` — explicit second-filter `keep/remove` decisions over FineWeb-2 + MaLA shards.
+- `wikimedia/wikipedia` `20231101.haw` — canonical Wikipedia parquet (already in our inventory).
+- `graelo/wikipedia` `haw` (2023-06/09) — older Wikipedia snapshots; redundant.
+- `allenai/c4` `multilingual/c4-haw*` — mC4 predecessor of FineWeb-2 lineage; skip.
+- `bible-nlp/biblenlp-corpus` — `haw` present in language manifest (Bible verses).
+- `ayymen/Weblate-Translations` `en-haw.tsv`, `en_GB-haw.tsv` — UI-string parallel; tag `register=software-l10n`.
+- `mrlbenchmarks/global-piqa-parallel` `parallel_haw_latn.tsv` — eval-only commonsense parallel.
+- `saillab/alpaca_hawaiian_taco`, `saillab/alpaca-hawaiian-cleaned` — LLM-translated alpaca; excluded under synthetic-quality rule.
+
+Out-of-scope but tracked: `facebook/omnilingual-asr-corpus` `haw_Latn`, `espnet/mms_ulab_v2` (speech).
+
+False positives: `und_Shaw` / `und-Shaw` (Shavian script for English; appears in FineWeb-2, GlotCC, DCAD-2000, Weblate). Not Hawaiian.
+
+Confirmed **absent**: OSCAR (2301/2201/2109/colossal), CulturaX, CC100, HPLT 2.0, NLLB mined, OPUS-100, MADLAD-400 (only contamination canaries — no `data/haw/` config), and — important — **FLORES / FLORES+ / FLORES-200 have no Hawaiian.** This invalidates the "If `hawn_Latn` is included in FLORES-200…" hedge in `docs/data-pipeline.md` §Stage 2; eval anchor must come from elsewhere (global-piqa-parallel `haw`, Taxi1500 `haw_Latn`, held-out Tatoeba, BibleNLP `haw`).
+
+Recommendation persisted to `.squad/decisions/inbox/frank-haw-variants.md`:
+
+1. Keep FineWeb-2 `haw_Latn` as primary Stage-1 web text.
+2. Add GlotCC-V1 `haw-Latn` as independent second source for cross-source dedup and filter-disagreement analysis.
+3. Hold `haw_Latn_removed` as recall contingency only, behind data-policy review (Linus).
+4. Inventory finepdfs `haw_Latn` separately and dedup against archive.org/Ulukau before any pull.
+5. Use DCAD-2000 `keep/remove/stas` jsonls as a free second-opinion filter (metadata-level).
+6. Replace FLORES eval-anchor assumption with global-piqa-parallel / Taxi1500 / Tatoeba held-out (Rusty's call on which is primary).
+
+No bytes pulled. No new entries added to `data-sources/hawaiian-data-sources.json` yet — pending Linus/Rusty review of the inbox note.
+
+### 2026-04-29 09:27:41Z — Hawaiian dataset inventory audit complete; merged to decisions.md
+
+**From Scribe:** Your full HF metadata probe is now in decisions.md as "Inventory: Hawaiian Dataset Variants Beyond FineWeb-2 `haw_Latn`" (appended 2026-04-29T09:27:41Z). Rusty's complementary normalization advisory is also merged.
+
+**Key additions to your next collector scripts:**
+- Use Rusty's allow-list approach: `{haw_Latn, haw-Latn, haw, hawn_Latn, Hawaiian, hawaiian, HAW} → haw` (case-normalized, exact match, no prefix matching).
+- Record verbatim `source_language_config` (e.g., `haw_Latn`, `hawn_Latn`, `haw`) and our normalized `source_language_resolved` (always `haw` for Hawaiian).
+- For FineWeb-2: hard-code `haw_Latn`; for FLORES-Plus (when you hit it), hard-code `hawn_Latn` with a note.
+
+**New sources from your audit to inventory:**
+- GlotCC-V1 `haw-Latn` (independent CC filter) — recommended as second Stage-1 source.
+- DCAD-2000 `haw_Latn` (keep/remove/stas splits) — metadata-level filter comparison tool.
+- finepdfs `haw_Latn` (PDF modality) — defer until metadata diff vs. Ulukau/archive.org is done.
+- `haw_Latn_removed` (FineWeb-2 reject pool) — contingency only; needs Linus data-policy sign-off.
+
+**Eval anchor shift:** FLORES has no Hawaiian. Candidates (your recommendation): global-piqa-parallel (preferred), Taxi1500, Tatoeba held-out, BibleNLP.
+
+**Open question for you:** Should finepdfs `haw_Latn` be pulled (after dedup check), or is it too-likely Ulukau re-ingest? Coordinate with Linus on archive-dedup strategy if you move forward.
+
+**Reference:** `.squad/decisions.md` → your full inventory + Rusty's normalization rules (appended 2026-04-29T09:27:41Z).
+

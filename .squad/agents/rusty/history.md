@@ -197,3 +197,38 @@ No new ADR / no decision-inbox file: this operationalizes the existing two-stage
 **Blocked by:** Linus rights + dependency decision. Once approved, Frank will write the fetch script and stream the parquet. Then you can audit a representative slice (say, 1–5% of rows) on tokenizer + LID.
 
 **Reference:** `.squad/decisions.md` → "Decision: FineWeb-2 `haw_Latn` Access Verified Live" (appended 2026-04-29T09:18:58Z).
+
+### 2026-04-29 — `haw_*` dataset code-variants sanity check (advisory)
+
+User asked whether there are forms of `haw_*` datasets beyond FineWeb-2's `haw_Latn`. Wrote `.squad/decisions/inbox/rusty-haw-code-variants.md`. Headline points the team should remember:
+
+- **Canonical:** ISO 639-3 / BCP-47 language code is `haw` (no ISO 639-1 two-letter exists). Script is always `Latn`. Underscore form `haw_Latn` (NLLB/FineWeb-2/Glot500 style) is the canonical config. Hyphen form `haw-Latn` is BCP-47-equivalent. Bare `haw` is fine when script is implicit (Tatoeba, OPUS, hawwiki, Common Voice).
+- **Real alias to handle:** **`hawn_Latn`** — FLORES-Plus extended-set 4-letter convention for Hawaiian. Already present in our `data-sources/hawaiian-data-sources.json` for FLORES paths. Naive `^haw` regex / `== 'haw'` filtering will mis-handle it. Treat as known alias of `haw`, not a different language.
+- **No non-Latin script variant** of modern Hawaiian exists in any corpus we'd ingest. Pre-contact Hawaiian was unwritten; modern orthography is Latin-only. Any non-`Latn` script tag on a `haw` row = mislabel, quarantine.
+- **False-positive risks to defend against:**
+  - **Hawaiian Pidgin = `hwc` (Hawaiʻi Creole English), NOT Hawaiian.** Common in free-text "language: Hawaiian" labels.
+  - **Hausa `hau_Latn`** — fuzzy-match collision with `haw`.
+  - **`lat_Latn` / Latin** — language/script confusion in poorly-curated metadata.
+  - **Filename-acronym matches** — "haw" in filenames as unrelated acronym (Hawaii state English-only datasets, airport codes, "hawking" substrings). Never derive language from filename substring alone.
+  - **English-heavy FineWeb-2 rows** with `language_score > 0.995` — already observed (Kauakūkalahale columns). Row-level LID is necessary but not sufficient; Stage-1 must do paragraph-level re-LID + char-ratio gates regardless of what `haw_Latn` says on the box.
+  - **Mojibake/NFD-decomposed `haw_Latn` rows** — technically Hawaiian but tokenization-poisoned. Caught in normalization, not LID.
+- **Normalization rule for collectors:** manifest `language` column = bare ISO 639-3 (`haw`, `eng`, `haw+eng`, `mixed`). Add columns `source_language_config` (verbatim provider string, audit trail) and `source_language_resolved` (our normalized decision). Resolution = exact match against an explicit allow-list `{haw_Latn, haw-Latn, haw, hawn_Latn, Hawaiian, ...} → haw`. **Never prefix/substring match.** Misses go to quarantine, not silent drop.
+- **For Frank:** hard-code `haw_Latn` for FineWeb-2 fetcher; hard-code `hawn_Latn` separately for FLORES-Plus with a code comment noting the 4-letter exception; record verbatim config in `source_language_config`.
+- **For Basher:** slice eval on `source_language_resolved == 'haw'` for inclusion; per-`source_language_config` breakdown for byte-fallback / ʻokina survival / PPL diagnostics — provider-specific normalization bugs hide inside a single `haw` aggregate.
+
+No new ADR. This is operational guidance extending `data-pipeline.md` manifest schema; Scribe to fold in if a schema ADR follows.
+
+### 2026-04-29 09:27:41Z — Hawaiian language/script code normalization advisory merged to decisions.md
+
+**From Scribe:** Your Hawaiian code-variant audit is now part of the official record: "ADR: Hawaiian Language/Script Code Normalization" in decisions.md (appended 2026-04-29T09:27:41Z).
+
+**Key moves your advisory enables:**
+1. **Frank's FineWeb-2 fetcher:** Use your allow-list (no prefix matching); hard-code `haw_Latn`, record verbatim in `source_language_config`, resolve to `language=haw`.
+2. **Basher's training pipeline:** Per-config eval slicing (byte-fallback, ʻokina survival, PPL per `source_language_config`, aggregation on `source_language_resolved`).
+3. **Linus's data-policy:** New manifest columns (`script_iso15924`, `source_language_config`, `source_language_resolved`) to be incorporated into `data-pipeline.md`.
+4. **Future ingest scripts:** Reference your deterministic resolution logic (allow-list, exact match, no prefix matching) to avoid silent false-positive misses.
+
+**Open question for you (from Frank):** For Stage 2 eval anchoring, do you prefer global-piqa-parallel `haw` or held-out Tatoeba slice as the primary dev set, now that FLORES has no Hawaiian?
+
+**Reference:** `.squad/decisions.md` → your full advisory; also Frank's complementary inventory (appended 2026-04-29T09:27:41Z).
+
