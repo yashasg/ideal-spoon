@@ -1,6 +1,116 @@
 # Decisions
 
-> Updated 2026-04-29T12:40:50Z: Archived older entries to decisions-archive.md (file reduced from 260KB to 5.6KB). Recent batch below.
+> Updated 2026-04-29T22:58:20Z: Added Frank quality-4 scan (zero-volume result) and Linus eval-safety contract for future quality-4 candidates. Recent batch below.
+
+---
+
+## Decision: Frank — Hawaiian Wikisource quality=4 (Validated) eval-candidate scan
+
+**Date:** 2026-04-29T22:56Z  
+**Owner:** Frank (Hawaiian Data Collector)  
+**Status:** Team recorded — additive eval scan; zero-volume result; no replacement of existing data
+
+### Context
+
+User asked: "ok lets fetch the quality level 4 data for eval, i want to see how much data is there." Per the standing user directive (2026-04-29T21:27:53Z), do not replace existing W1/Stage 1/hawwikisource data; treat any found Wikisource Validated material as new eval-candidate data.
+
+### Execution Summary
+
+Added one-off script `scripts/106_scan_hawwikisource_quality4.py` that reads existing `data/local/hawwikisource/page_plan.jsonl` (159 ns=0 rows, read-only) and runs a MediaWiki transclusion-walk (`prop=templates&tlnamespace=104`) to discover every Page: subpage transcluded into each main-namespace page. For each unique Page: title, batches `prop=proofread` queries (50/call, 1.5s rate limit, 429-aware backoff) and filters for `quality_text == "Validated"`.
+
+### Result
+
+**End-to-end scan of all 159 Hawaiian main-namespace pages: zero Validated rows found.**
+
+| Count | Value |
+|-------|-------|
+| main_ns pages inspected | 159 |
+| unique Page: titles discovered | 0 |
+| proofread queries issued | 0 |
+| validated (q=4) rows | 0 |
+| chars / bytes / tokens | 0 / 0 / 0 |
+
+Confirmation probes:
+- `Category:ʻŌlelo Hawaiʻi` with `cmnamespace=104` → 0 members
+- `Category:ʻŌlelo Hawaiʻi` with `cmnamespace=106` (Index:) → 0 members
+- `srsearch=haw, srnamespace=104` returns language false positives, no Hawaiian presence
+
+### Data Integrity
+
+Existing data preserved (byte-for-byte):
+- `data/raw/hawwikisource/fetch.jsonl` (42 rows)
+- `data/local/hawwikisource/page_plan.jsonl` (159 rows)
+- W1 ledger, Stage 1 manifest, eval hashes
+
+New local-only artifacts (gitignored):
+- `data/raw/hawwikisource_quality4_candidates/20260429/manifest.json`
+- `data/raw/hawwikisource_quality4_candidates/20260429/per_main_stats.jsonl` (159 rows)
+- `data/raw/hawwikisource_quality4_candidates/20260429/validated_pages.jsonl` (0 rows)
+- `data/raw/hawwikisource_quality4_candidates/20260429/all_quality_rows.jsonl` (0 rows)
+- `data/raw/hawwikisource_quality4_candidates/20260429/content/` (empty)
+
+### Decision / Method Note
+
+**Validated Hawaiian Wikisource material reachable today is 0 rows / 0 chars / 0 tokens.** This quantitatively confirms the 2026-04-29T21:34Z metadata-only finding. The transclusion-walk path is sound and will auto-populate if Hawaiian contributors add Index:/Page: scans. For immediate eval sourcing, W1 candidates must come from hand-authored or other pipeline sources.
+
+### What Was Not Done
+
+- No changes to scripts/102 or scripts/202 (existing quality metadata capture is correct)
+- No promotion into W1 candidate ledger (nothing to promote)
+- No data committed; all artifacts gitignored under `/data/`
+- No new dependencies added; script uses stdlib only
+
+---
+
+## Decision: Linus — Quality-4 Wikisource fetch is count-only; eval contract established
+
+**Date:** 2026-04-29T22:58Z  
+**Owner:** Linus (Data Engineer)  
+**Status:** Team approved — reconnaissance only; no W1 TSV/eval ledger writes; non-replacement policy honored
+
+### Context
+
+Frank's quality-4 scan is volume reconnaissance, not eval ingest. Any future Validated rows discovered require an established safety contract.
+
+### Scope
+
+**Count-only pass:**
+1. Frank's fetch produces local artifact enumerating `proofread_quality == 4` Hawaiian Wikisource items
+2. **No W1 rows created; no ledger writes; no TSV mutations**
+3. Non-replacement per standing user directive: all returned rows are new artifacts; equivalence to existing Wikisource rows is a later dedupe concern, not this pass
+4. Quality-4 is necessary signal for W1 candidate, not sufficient; acceptance requires Hawaiian-literate review (#7)
+5. Any surfaced candidates remain `eval_consumable=false`, `prototype_local=true` if/when entering ledger as candidates
+
+### Required Fields (Future Candidates)
+
+When Frank's fetch surfaces candidates, local manifest (suggested: `data/evals/manual_w1/wikisource_quality4_candidates.jsonl`, gitignored) must carry:
+
+- `source_url`, `page_title`, `page_id`, `revision_id` (MediaWiki metadata)
+- `namespace` (truthful ns: 0 for main, 104 for Page:)
+- `proofread_quality` (must equal 4), `quality_text` (must equal "Validated")
+- `sha256_normalized` (SHA-256 over UTF-8 NFC-normalized text), `normalization_method` ("NFC"), `hash_method` ("sha256")
+- `candidate_stage` ("eval-candidate"), `candidate_split` ("w1_candidate")
+- `eval_consumable` (false), `prototype_local` (true), `release_eligible` (false)
+- `origin_hint` ("wikisource_validated"), `fetched_at` (ISO-8601 UTC)
+
+### Invariants Preserved
+
+- `train ∩ eval_hashes = ∅` unaffected (no ledger writes this pass)
+- `data/evals/eval_hashes.jsonl` schema unchanged (eval-hashes-jsonl-v1)
+- Existing `data/raw/hawwikisource/fetch.jsonl` not replaced; new outputs additive
+
+### Out of Scope This Pass
+
+- No ledger writes to `data/evals/eval_hashes.jsonl`
+- No W1 TSV writes to canonical `w1-haw-micro-eval.tsv`
+- No new helper scripts (e.g., scripts/316_seed_w1_from_wikisource.py); lands only after count known and motivation clear
+- No documentation changes; existing eval_pipeline.md already documents Validated→W1-candidate semantics
+
+### Status
+
+Ready to receive Frank's candidate manifest. Count and ns=0 vs ns=104 split will inform feasibility of transclusion walking before seeding.
+
+**Open:** Coordinator clarification owed on whether wikisource-derived candidates can flip to W1 `accepted` (#7), or remain a separate `W1-wikisource` slice.
 
 ---
 

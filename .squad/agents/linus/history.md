@@ -85,6 +85,50 @@
 
 **Open asks:** Frank to confirm reachability of ProofreadPage quality from main-ns category enumeration; Coordinator to confirm whether wikisource-derived candidates may merge into W1 proper or live as a separate `W1-wikisource` slice.
 
+## 2026-04-29 — Quality-4 Wikisource fetch: count-only contract (parallel to Frank)
+
+**Ask:** yashasg — "fetch the quality level 4 data for eval, i want to see how much data is there."
+
+**Read:** count-only volume reconnaissance. Not eval ingest, not W1 acceptance.
+
+**Stance (no code changes this pass):**
+- No W1 rows created; no writes to `data/evals/eval_hashes.jsonl` or `data/evals/manual_w1/w1-haw-micro-eval.tsv`.
+- Quality-4 (`quality_text=="Validated"`) remains *necessary, not sufficient* for W1 — Hawaiian-literate review (#7) still gates acceptance.
+- Non-replacement (user directive 2026-04-29T21:27:53Z) holds: Frank's output is additive, lives in its own file under ignored `data/`, and existing `data/raw/hawwikisource/fetch.jsonl` rows are untouched. Equivalence to prior fetches is a later dedupe-pass question.
+- Confirmed candidate-manifest field list for whenever seeding does happen: `source_url`, `page_title`, `page_id`, `revision_id` (or explicit null + `fetched_at`), `namespace`, `proofread_quality=4`, `quality_text="Validated"`, `sha256_normalized` (NFC + SHA-256), `normalization_method="NFC"`, `hash_method="sha256"`, `candidate_stage="eval-candidate"`, `candidate_split="w1_candidate"`, `eval_consumable=false`, `prototype_local=true`, `release_eligible=false`, `origin_hint="wikisource_validated"`, `fetched_at`. These let later dedupe/contamination passes validate without replacing existing data.
+- Docs check: `docs/data-pipeline.md` §ProofreadPage quality and `docs/eval_pipeline.md` §W1 already cover Validated→W1-candidate semantics and `eval_consumable=false` for draft/preflight rows. No doc edit warranted until a count motivates the seeding script.
+
+**Decision recorded:** `.squad/decisions/inbox/linus-quality4-eval-contract.md`.
+
+**Open asks:** Frank — share count + ns=0 vs ns=104 split when fetch lands; Coordinator — still owed call on whether wikisource candidates may flip to W1 `accepted` or live as a separate `W1-wikisource` slice.
+
+## 2026-04-29T22:58:20Z — Quality-4 Wikisource eval-safety contract session recorded
+
+**From:** Scribe (orchestration checkpoint)
+
+**Outcome:** ✓ Count-only contract established; zero-volume result confirmed; decisions merged; session logs written.
+
+Established eval-safety contract for future Validated (quality=4) Wikisource candidates: reconnaissance-only this pass, no ledger writes, no W1 TSV mutations, non-replacement policy honored.
+
+**Contract fields (future candidates):**
+- Metadata: `source_url`, `page_title`, `page_id`, `revision_id`, `namespace`, `proofread_quality=4`, `quality_text="Validated"`
+- Content: `sha256_normalized` (NFC-SHA256), `normalization_method="NFC"`, `hash_method="sha256"`
+- Flags: `candidate_stage="eval-candidate"`, `candidate_split="w1_candidate"`, `eval_consumable=false`, `prototype_local=true`, `release_eligible=false`, `origin_hint="wikisource_validated"`, `fetched_at`
+
+**Invariants preserved:**
+- `train ∩ eval_hashes = ∅` unaffected (no ledger writes this pass)
+- Existing `data/raw/hawwikisource/fetch.jsonl` not replaced; outputs additive
+- `data/evals/eval_hashes.jsonl` schema unchanged
+
+**Session artifacts:**
+- Orchestration log: `.squad/orchestration-log/2026-04-29T22:58:20Z-linus.md`
+- Session log: `.squad/log/2026-04-29T22:58:20Z-wikisource-quality4-scan.md`
+- Decisions merged to `.squad/decisions.md`
+
+**Status:** Ready to receive Frank's candidate manifest (0 rows this round). Count and ns=0 vs ns=104 split will inform transclusion-walk feasibility for future seeding.
+
+**Open:** Coordinator clarification owed on wikisource-candidates merge path (issue #7).
+
 ## 2026-04-29T21:34:03Z — W1 from Wikisource proofread/validated (Session complete)
 
 **From:** Scribe (orchestration checkpoint)

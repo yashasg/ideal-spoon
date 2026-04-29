@@ -147,3 +147,75 @@ Verified via metadata-only `wikisource.org` API probes that ProofreadPage extens
 - Orchestration log: `.squad/orchestration-log/2026-04-29T21-34-03Z-frank.md`
 - Session log: `.squad/log/2026-04-29T21-34-03Z-wikisource-w1-quality.md`
 - Decisions merged to `.squad/decisions.md`
+
+## 2026-04-29T22:56Z — Wikisource quality=4 (Validated) eval scan: zero reachable rows
+
+User asked to fetch Validated Hawaiian Wikisource for eval to size the
+volume. Wrote a one-off, additive scanner: `scripts/106_scan_hawwikisource_quality4.py`.
+Output goes to a fresh path `data/raw/hawwikisource_quality4_candidates/<date>/`
+(gitignored under `/data/`). Existing W1/Stage 1 artifacts untouched
+(`data/raw/hawwikisource/fetch.jsonl` 42 lines, `page_plan.jsonl` 159
+lines — byte-for-byte preserved). Eval-candidate-only by construction;
+manifest carries `eval_candidate_only=true` and a non-replacement note.
+
+**Method:** for each of the 159 ns=0 pages in `page_plan.jsonl`, GET
+`prop=templates&tlnamespace=104` (with continuation, polite 1.5s rate
+limit, 429-aware retry-after backoff), aggregate unique Page: titles,
+batch `prop=proofread` 50 titles/call, filter `quality_text=="Validated"`.
+
+**Counts (final):**
+- main_ns pages inspected: 159 / 159
+- unique Page: ns titles discovered via transclusion: **0**
+- proofread quality probes: 0
+- validated (q=4): **0**
+- content records written: 0
+- chars/bytes/tokens: 0 / 0 / 0
+
+**Sanity cross-checks** (one-off probes, no artifacts):
+- `Category:ʻŌlelo Hawaiʻi` cmnamespace=104 → 0 members
+- `Category:ʻŌlelo Hawaiʻi` cmnamespace=106 (Index:) → 0 members
+- `srsearch=haw, srnamespace=104` → top 5 hits are Sundanese / Old
+  Irish / Cebuano / Hiligaynon (false positives on the `haw` substring),
+  no Hawaiian Page: pages.
+
+**Conclusion / volume estimate:** Validated (q=4) Hawaiian Wikisource
+material reachable today via the Hawaiian tagging path is **zero rows /
+zero chars / zero tokens**. The 159 main-ns pages are hand-typed
+mele/songs/portal pages with no scan-backed Page: subpages transcluded.
+This is the same shape as the prior 2026-04-29T21:34Z finding, now
+quantitatively confirmed end-to-end. The metadata field captured by
+102/202 will continue to populate `null` until either (a) Hawaiian
+contributors upload Index:/Page: scans, or (b) we widen the discovery
+path to non-category sources (e.g., scanned Hawaiian-language books on
+Wikimedia Commons indexed manually).
+
+**Artifacts written (local only):**
+- `data/raw/hawwikisource_quality4_candidates/20260429/manifest.json`
+- `data/raw/hawwikisource_quality4_candidates/20260429/per_main_stats.jsonl` (159 rows)
+- `data/raw/hawwikisource_quality4_candidates/20260429/validated_pages.jsonl` (0 rows)
+- `data/raw/hawwikisource_quality4_candidates/20260429/all_quality_rows.jsonl` (0 rows)
+- `data/raw/hawwikisource_quality4_candidates/20260429/content/` (empty)
+
+**Validated** by `python3 -m py_compile` and a real end-to-end run on
+all 159 main pages with polite 1.5s rate limit and 429-aware backoff.
+No raw text printed; no commits.
+
+Decision note: `.squad/decisions/inbox/frank-quality4-fetch.md`.
+
+## 2026-04-29T22:58:20Z — Wikisource quality=4 eval scan session recorded
+
+**From:** Scribe (orchestration checkpoint)
+
+**Outcome:** ✓ Zero-volume result recorded; decisions merged; session logs written.
+
+Quality=4 (Validated) Hawaiian Wikisource scan quantitatively confirmed the metadata-only finding: **0 reachable rows / 0 chars / 0 tokens** via the Hawaiian-category transclusion path. The transclusion-walk method is sound and will auto-populate if Hawaiian contributors add Index:/Page: scans in the future.
+
+**Session artifacts:**
+- Orchestration log: `.squad/orchestration-log/2026-04-29T22:58:20Z-frank.md`
+- Session log: `.squad/log/2026-04-29T22:58:20Z-wikisource-quality4-scan.md`
+- Decisions merged to `.squad/decisions.md`
+
+**Cross-team status:**
+- Linus: W1-from-Wikisource path confirmed empty today; no candidate seeding this round
+- Rusty: no language-fit work needed; zero candidate text
+- User: non-replacement directive honored; scan is additive only
