@@ -300,3 +300,20 @@ and extracted.jsonl.gz. Decision note written to `.squad/decisions/inbox/linus-s
 - **Stage-1 contract:** Output format is JSONL (`data/stage1/stage1_manifest.jsonl`), not Parquet. Parquet deferred until corpus > 50k docs or first DuckDB analytical query in CI.
 - **Frank handoff:** Stage-1 consumes `data/raw/<source>/fetch.jsonl` (stable ProvenanceRecord schema, additive-only). Manifest-first discipline enforced.
 - **Downstream ready:** Basher (contamination guard) and Rusty (tokenizer audit) aware; one-line change each to read JSONL until Parquet promotion.
+
+## Learnings — Numbered pipeline script contract
+
+- Pipeline scripts are now numbered to encode execution order. Current contract:
+  1. `scripts/001_collect_rightslight.py` — plan rights-light sources (Frank).
+  2. `scripts/002_fetch_rightslight_raw.py` — fetch raw artifacts + provenance JSONL (Frank).
+  3. `scripts/003_build_stage1_dataset.py` — Stage-1 manifest from raw (Linus).
+- Run order is `001 → 002 → 003`. New stages take the next free `NNN_` prefix; do not reorder old numbers.
+- Updated docstrings, `generated_by`, `fetcher_tool_and_version`, cross-script comments, and `decisions.md` references. History logs left intact (mention old names as history).
+- Validated: `python3 -m py_compile` and `--help` clean for all three; `002 --dry-run` and `003 --dry-run` exercise the new paths. Behavior and local-only data policy preserved.
+
+## 2026-04-29T06:59:23Z — Orchestration: numbered scripts coordination logged
+
+- Scribe wrote `.squad/orchestration-log/2026-04-29T06-59-23Z-numbered-pipeline-scripts.md` and `.squad/log/2026-04-29T06-59-23Z-numbered-pipeline-scripts.md`.
+- Confirmed Linus references updated to numbered filenames throughout history and decisions.
+- Frank history also appended with current filenames and manifest discipline note.
+- All `.squad/` changes committed with trailer.

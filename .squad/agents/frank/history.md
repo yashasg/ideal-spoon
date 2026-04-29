@@ -152,3 +152,14 @@ This pilot replaces the current ±2× ranges with ±20% bands without committing
 - **Decisions merged:** `frank-fetch-raw-jsonl-schema.md` and `linus-stage1-jsonl-first.md` merged into `.squad/decisions.md`; inbox files deleted.
 - **Coordinator directive:** Python-scripts directive persisted in decisions.
 - **Frank's fetch contract locked:** ProvenanceRecord schema (14 fields + extension point) is additive-only; future Linus coordination point for any new fields.
+
+## 2026-04-29T06:59:23Z — Numbered pipeline scripts orchestration
+
+- Pipeline scripts renamed and numbered to encode execution order for clarity:
+  1. `scripts/001_collect_rightslight.py` — Frank's rights-light source planning.
+  2. `scripts/002_fetch_rightslight_raw.py` — Frank's raw artifact fetcher (replaces `fetch_rightslight_raw.py`).
+  3. `scripts/003_build_stage1_dataset.py` — Linus's Stage-1 manifest builder.
+- All docstrings, `generated_by` fields, `fetcher_tool_and_version` references, and decision notes updated to reflect numbered filenames.
+- Validated: `python3 -m py_compile scripts/001_collect_rightslight.py scripts/002_fetch_rightslight_raw.py scripts/003_build_stage1_dataset.py` — all clean.
+- Manifest-first discipline confirmed: every fetch-time field (ToS snapshot, source URL, fetch date, sha256_raw) is captured at ingest and unrecoverable later.
+- Scribe logged coordination in `.squad/orchestration-log/` and `.squad/log/`. All `.squad/` changes committed.

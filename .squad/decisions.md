@@ -1386,7 +1386,7 @@ inventory entries, all tagged `open_license_candidate` (CC BY-SA 4.0):
 3. `Hawaiian Wiktionary — dump`
 4. `Hawaiian Wikisource — public-domain Hawaiian texts`
 
-Everything else in the inventory is **deferred** by `scripts/collect_rightslight.py`
+Everything else in the inventory is **deferred** by `scripts/001_collect_rightslight.py`
 with a machine-readable reason — no silent inclusion. Specifically:
 
 - **Baibala Hemolele (official site + archive.org scans):** deferred. The issue
@@ -1423,7 +1423,7 @@ with a machine-readable reason — no silent inclusion. Specifically:
   pre-1925 edition.
 - Pull Tatoeba haw exports without a per-source review note.
 - Promote any deferred source to selected by editing the allow-list silently —
-  the allow-list is a code-review surface in `scripts/collect_rightslight.py`.
+  the allow-list is a code-review surface in `scripts/001_collect_rightslight.py`.
 
 ## Storage receipts
 
@@ -1450,9 +1450,9 @@ User requested Python as the default implementation language for scripts (data c
 
 ### Implementation
 
-- `scripts/collect_rightslight.py`: Python stdlib-only rights-light source collector.
-- `scripts/fetch_rightslight_raw.py`: Python stdlib-only raw-data fetcher (Frank).
-- `scripts/build_stage1_dataset.py`: Python stdlib-only Stage-1 processing scaffold (Linus).
+- `scripts/001_collect_rightslight.py`: Python stdlib-only rights-light source collector.
+- `scripts/002_fetch_rightslight_raw.py`: Python stdlib-only raw-data fetcher (Frank).
+- `scripts/003_build_stage1_dataset.py`: Python stdlib-only Stage-1 processing scaffold (Linus).
 - All three scripts validate via `python3 -m py_compile` and have working CLI help.
 
 ---
@@ -1465,7 +1465,7 @@ User requested Python as the default implementation language for scripts (data c
 
 ### Decision
 
-Per-source raw-fetch provenance is recorded as JSONL at `data/raw/<source>/fetch.jsonl`, one object per fetched artifact, with a stable 14-field schema (implemented in `scripts/fetch_rightslight_raw.py` as the `ProvenanceRecord` dataclass):
+Per-source raw-fetch provenance is recorded as JSONL at `data/raw/<source>/fetch.jsonl`, one object per fetched artifact, with a stable 14-field schema (implemented in `scripts/002_fetch_rightslight_raw.py` as the `ProvenanceRecord` dataclass):
 
 ```
 source_id
@@ -1501,7 +1501,7 @@ notes
 
 ### Owners / Consumers
 
-- **Producer:** Frank — `scripts/fetch_rightslight_raw.py` and future per-source adapters.
+- **Producer:** Frank — `scripts/002_fetch_rightslight_raw.py` and future per-source adapters.
 - **Consumer:** Linus — downstream Stage-1 raw-to-training pipeline.
 - **Reviewers:** Linus (data policy), Rusty (language/modeling fit).
 
