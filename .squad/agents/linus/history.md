@@ -489,3 +489,21 @@ Frank's source-specific 100-phase split is now the active standard across the te
 Future sources should follow the same pattern: new `10X_collect_<source>.py` script → JSON plan → corresponding `2XX_fetch_<source>_raw.py` with optional plan-consumption flag → 301 source dispatch unchanged.
 
 Broad planner (`001`–`003` phase-numbering era) now archived in decision history.
+
+### 2026-04-29 09:18:58Z — Frank FineWeb-2 verification complete; Linus rights & dependency call pending
+
+**From Scribe:** Frank (Hawaiian Data Collector) has verified FineWeb-2 `haw_Latn` dataset access:
+- **95,507 train + 887 test rows, confirmed live**, ODC-By wrapper license, ungated + unauthenticated access.
+- **12 fields including provenance** (url, date, dump, language_score, etc.) ship in-row.
+- **Two access paths both working:** `datasets-server.huggingface.co/rows` (stdlib-friendly) and parquet auto-conversion (stable URLs).
+
+**Your blocking decision (in order of urgency):**
+1. **Rights posture:** ODC-By wrapper vs. per-URL allow/deny — accept FineWeb-2 rows wholesale at prototype scope, or impose blocklist (e.g., drop `*.staradvertiser.com`, keep `*.wikipedia.org`)?
+2. **Dependency:** add `pyarrow` (+ optionally `huggingface_hub`) to `requirements.txt`, or stay stdlib-only via slower rows API?
+
+**Implications:**
+- Pending your rights call, scripts `105_collect_fineweb2_haw.py` + `205_fetch_fineweb2_haw_raw.py` can land as the next numbered adapters (or `104`/`204` if renumbering the existing FineWeb slot).
+- Estimated yield: 40–80M raw tokens, single biggest unblocker for Stage-1 floor without touching nūpepa.
+- English boilerplate is known (Kauakūkalahale demo sample shows English headers/footers); cleaning is downstream (your + Rusty's pipeline, not fetcher scope).
+
+**Reference:** `.squad/decisions.md` → "Decision: FineWeb-2 `haw_Latn` Access Verified Live" (appended 2026-04-29T09:18:58Z).

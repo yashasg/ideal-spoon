@@ -1925,3 +1925,40 @@ Promote three new source-specific adapter pairs to "expansion candidate" tier in
 - Live probes of: HF datasets-server (FineWeb-2 haw_Latn, Glot500 haw_Latn), eBible.org details + Scriptures index, Internet Archive advancedsearch.php, UH eVols OAI-PMH, Awaiaulu resource list, Hawaiian Mission Houses Omeka tree, statmt CC-100 manifest, Mozilla Common Voice locale API, Hawaiʻi Star-Advertiser sample row from FineWeb-2 (Kauakūkalahale column).
 - Confirmed-blocked: Chronicling America (Cloudflare 308→403), HathiTrust (Cloudflare interstitial), Papakilo (403), digitalcollections.hawaii.gov (TCP fail this round).
 - No corpus bytes fetched; no scripts written; no `requirements.txt` edits; no commits.
+
+---
+
+## Decision: FineWeb-2 `haw_Latn` Access Verified Live
+
+**Author:** Frank (Hawaiian Data Collector)  
+**Date:** 2026-04-29  
+**Status:** Proposed — ready for Linus/Rusty review before scripts land.
+
+### Verdict
+
+**Works.** FineWeb-2 `haw_Latn` is reachable, ungated, schema-stable, and scriptable without HF authentication. Proceed to write `105_collect_fineweb2_haw.py` (planner) and `205_fetch_fineweb2_haw_raw.py` (fetcher) — pending Linus's rights ruling and dependency call.
+
+### Evidence (live, 2026-04-29)
+
+- **Dataset:** `HuggingFaceFW/fineweb-2`, config `haw_Latn`. `gated:false`, `private:false`, license tag `odc-by` (wrapper).
+- **Rows:** train **95,507** (≈127 MB parquet, ≈415 MB in-memory), test **887**. `partial:false` — earlier 95,507 figure holds exactly.
+- **Fields (12):** `text, id, dump, url, date, file_path, language, language_score, language_script, minhash_cluster_size, wordlist_ratio, top_langs`. Provenance ships in-row.
+- **Access paths (both no-auth):**
+  1. `datasets-server.huggingface.co/rows` — stdlib paginated rows API. Verified rows returned with real Hawaiian-script text.
+  2. Parquet auto-conversion: 2 files at `…/resolve/refs%2Fconvert%2Fparquet/haw_Latn/{train,test}/0000.parquet`. Stable, deterministic.
+- **Tiny sample (lengths only):** 2 train rows, text lens 3215 / 3292, `language_score>0.995`, both `staradvertiser.com` Kauakūkalahale columns with English header/footer boilerplate around Hawaiian body.
+
+### Recommendation
+
+1. **Greenlight scripts** named `105_collect_fineweb2_haw.py` + `205_fetch_fineweb2_haw_raw.py` (renumbered from earlier 104/204 to match current ordering convention if applicable; otherwise keep 104/204 — coordinator's call). Planner emits manifest (2 parquet URLs, row counts, ODC-By snapshot, fetch date, our UA). Fetcher streams parquet to `data/raw/fineweb2/haw_Latn/{train,test}/0000.parquet` and records sha256 + ETag + Last-Modified + license tag per file.
+2. **Dependency:** stdlib + `pyarrow` is the minimal path; `huggingface_hub` is ergonomic but optional. **Don't edit `requirements.txt` yet** — Linus owns that call.
+3. **Cleaning is downstream:** the corpus contains English boilerplate inside high-LID-score Hawaiian docs. Boilerplate-strip + paragraph-level re-LID belong to Linus/Rusty's pipeline, not to the fetcher.
+
+### Open questions for the team
+
+- **Linus:** (a) ODC-By wrapper vs. per-URL third-party rights — accept FineWeb-2 rows wholesale at prototype scope, or impose a per-URL allow/deny list (e.g., drop `*.staradvertiser.com`, keep `*.wikipedia.org`)? (b) Add `pyarrow` (and optionally `huggingface_hub`) to `requirements.txt`, or stay stdlib-only via the rows API at the cost of slower bulk pulls?
+- **Rusty:** Tokenizer-fragmentation sanity-check on a FineWeb-2 sample once fetched; LID/quality threshold for Stage-1 inclusion given the boilerplate-mixed reality.
+
+### Boundaries
+
+Frank verified access + provenance + scriptability only. Not making the rights call, not editing scripts or requirements, not bulk-downloading the corpus. No raw text exposed in this note (lengths and known-public URLs only).

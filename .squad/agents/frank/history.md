@@ -319,3 +319,24 @@ Tier-2 follow-ups (after top 3 land): Glot500 `haw_Latn` LID-filtered slice; UH 
 Scribe filed orchestration log (`.squad/orchestration-log/2026-04-29T09-13-49Z-frank.md`) and session log (`.squad/log/2026-04-29T09-13-49Z-new-data-sources.md`). Inbox decision merged into `.squad/decisions.md`. All three new data source candidates (FineWeb-2, eBible, Internet Archive PD) now tracked as formal decisions awaiting Linus/Rusty coordination input.
 
 Ready for adapter implementation once rights/LID policy green-light received.
+
+## Learnings — 2026-04-29 FineWeb-2 `haw_Latn` live re-verification
+
+Re-verified before any script work, per yashasg "1 sounds good, lets verify it works before we write scripts".
+
+- **Dataset ID:** `HuggingFaceFW/fineweb-2`, config `haw_Latn`. Public, **not gated**, not private (`/api/datasets/...`: `gated:false, private:false, disabled:false`). License tag: `odc-by` (wrapper only — underlying CC URLs carry independent third-party rights; Linus call still pending).
+- **Row counts (re-confirmed live, `partial:false`):** train **95,507** rows / 414,538,487 bytes in-memory / 127,502,750 bytes parquet; test **887** rows / 3,575,816 bytes in-memory. Earlier "95,507" claim ✅ holds exactly.
+- **Schema (12 fields, all `Value`):** `text:str, id:str, dump:str, url:str, date:str, file_path:str, language:str, language_score:f64, language_script:str, minhash_cluster_size:i64, wordlist_ratio:f64, top_langs:str`. Provenance (CC dump id, original URL, crawl date, WARC s3 path) is in-row — fetcher gets receipts for free.
+- **Access methods that work without auth:**
+  1. `datasets-server.huggingface.co/rows?...&offset=N&length=K` — paginated rows API, stdlib-only. Confirmed returning real rows + `num_rows_total:95507`.
+  2. Parquet auto-conversion endpoint: 2 files only — `train/0000.parquet` (127 MB) and `test/0000.parquet` (1.2 MB) at `https://huggingface.co/datasets/HuggingFaceFW/fineweb-2/resolve/refs%2Fconvert%2Fparquet/haw_Latn/{split}/0000.parquet`. Stable, deterministic, streamable with `pyarrow`/`requests`-range or `huggingface_hub.hf_hub_download`.
+- **Tiny sample (2 rows, redacted lengths only):** row 0 `text` len=3215, row 1 len=3292. Both `language_score>0.995`, `language_script=Latn`. **But** both are Star-Advertiser "Kauakūkalahale" columns: text starts with English boilerplate ("POSTED: 01:30 a.m. HST, Oct 22, 2011 / Synopsis: ...") and ends with English bio line. So even at high LID score, documents contain English headers/footers — Stage-1 cleaning will need boilerplate strip, and Linus's per-URL allow-list discussion (`*.staradvertiser.com` posture) is sharper, not weaker.
+- **Dependency reality check:** `requirements.txt` currently has **no `huggingface_hub`, no `datasets`, no `pyarrow`**. The rows-API path works on stdlib alone; parquet-bulk path needs at least `pyarrow` (or `huggingface_hub` for download + `pyarrow` to read). No script needs `datasets` proper. **Do not change `requirements.txt` yet** — that's tied to Linus's open question on hub-vs-stdlib path.
+- **Risks (carry forward to scripts):**
+  - Wrapper licence `odc-by` ≠ content licence on underlying CC URLs (e.g., staradvertiser.com). Per-URL allow-list still owed by Linus.
+  - LID noise: 99% language_score documents still contain English boilerplate; Rusty/Linus pipeline must boilerplate-strip + re-LID at line/paragraph granularity.
+  - Document boundaries: rows are CC-WET docs, already minhash-clustered (`minhash_cluster_size` provided). Our Stage-1 dedup needs to either trust their clusters or re-MinHash; ADR called for our own MinHash, so treat their field as provenance metadata, not a dedup decision.
+  - HF rate limits: anonymous datasets-server is fine for metadata + tiny samples; for the 127 MB parquet bulk pull, polite single-file fetch is well within unauthenticated limits but still log UA + ETag.
+  - No quality/toxicity filtering done by FineWeb-2 at this tier beyond LID + minhash — downstream cleaning is on us.
+- **Verdict:** **Works.** Proceed to script planning. Proposed script names (per existing decision): `105_collect_fineweb2_haw.py` (planner: emit manifest of the 2 parquet URLs + per-row count + license snapshot) and `205_fetch_fineweb2_haw_raw.py` (fetcher: stream parquet to `data/raw/fineweb2/haw_Latn/{train,test}/0000.parquet` with sha256 + ETag + fetch-date + license-tag manifest).
+- **Still blocked on (not by Frank):** Linus rights ruling on FineWeb-2 wrapper-vs-row posture for prototype use, and the `huggingface_hub`/`pyarrow` dependency call. Verification itself is unblocked.

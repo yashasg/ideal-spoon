@@ -186,3 +186,14 @@ User asked whether the publishable / right-clearable Stage 1 budget — hawwiki 
 **Net:** Stage 1 on the right-clearable tier is the right *first* run. Frame it as pipeline + tokenizer + adapter validation with honest slices, not as "we trained a Hawaiian model." Plan the trigger conditions now so the decision to add nūpepa later is data-driven, not vibes-driven.
 
 No new ADR / no decision-inbox file: this operationalizes the existing two-stage ADR and the eval-pipeline doc; no durable team-wide decision is being changed.
+
+### 2026-04-29 09:18:58Z — Frank FineWeb-2 verification complete; Rusty tokenizer-audit requested
+
+**From Scribe:** Frank (Hawaiian Data Collector) has verified FineWeb-2 `haw_Latn` dataset access. Linus is making the rights/dependency call; your input is requested on:
+
+1. **Tokenizer fragmentation:** Sanity-check FineWeb-2 sample (once fetched) for diacritic survival + ʻokina handling. No Glot500-caliber noise confirmed yet, but corpus is large (95k rows) — baseline tokenizer audit on even a small FineWeb-2 slice is useful signal.
+2. **LID/quality threshold:** English boilerplate confirmed in demo sample (Kauakūkalahale Kauakūkalahale columns with English headers/footers around Hawaiian body). Given that `language_score > 0.995` on those rows, how aggressive should the Stage-1 LID gate be? (Or does paragraph-level re-LID in the pipeline replace the row-level score check?)
+
+**Blocked by:** Linus rights + dependency decision. Once approved, Frank will write the fetch script and stream the parquet. Then you can audit a representative slice (say, 1–5% of rows) on tokenizer + LID.
+
+**Reference:** `.squad/decisions.md` → "Decision: FineWeb-2 `haw_Latn` Access Verified Live" (appended 2026-04-29T09:18:58Z).
