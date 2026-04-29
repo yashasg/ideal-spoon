@@ -87,3 +87,9 @@
 
 **Reference:** `.squad/decisions.md` → "Inventory: Hawaiian Dataset Variants Beyond FineWeb-2" (appended 2026-04-29T09:27:41Z). Also Rusty's normalization advisory for manifest schema context if you want to coordinate with Linus on schema tightening.
 
+
+### 2026-04-29 09:40:34Z — FineWeb-2 Hawaiian scripts landed and merged to decisions.md
+
+**From Scribe:** Frank's 100/200 fetcher/planner delivered and integrated. Docs updated. Two open decisions escalated to Linus (dependency call, per-URL rights posture) and Rusty (tokenizer sanity check).
+
+**Reference:** `.squad/decisions.md` → "Decision Note: FineWeb-2 `haw_Latn` 100/200 Scripts Landed" (merged 2026-04-29T09:40:34Z).

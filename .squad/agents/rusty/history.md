@@ -232,3 +232,13 @@ No new ADR. This is operational guidance extending `data-pipeline.md` manifest s
 
 **Reference:** `.squad/decisions.md` → your full advisory; also Frank's complementary inventory (appended 2026-04-29T09:27:41Z).
 
+
+### 2026-04-29 09:40:34Z — Frank delivered FineWeb-2 haw_Latn fetcher; awaiting Rusty tokenizer feedback
+
+**From Scribe:** Frank's 100/200 scripts are live. Smoke test: 2 real rows, 1,028 raw whitespace tokens from staradvertiser.com editorial pages.
+
+**Your open question:** Tokenizer-fragmentation sanity check on a FineWeb-2 sample once bulk pull authorized. LID/quality threshold for Stage-1 inclusion given boilerplate mix (paragraph-level re-LID + ʻokina/kahakō density gate are candidates).
+
+**Context:** FineWeb-2 `haw_Latn` contains English boilerplate inside Hawaiian-LID rows; Stage-1 inclusion criteria TBD pending tokenizer analysis.
+
+**Reference:** `.squad/decisions.md` → "Decision Note: FineWeb-2 `haw_Latn` 100/200 Scripts Landed" (merged 2026-04-29T09:40:34Z).

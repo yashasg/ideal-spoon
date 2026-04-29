@@ -531,3 +531,13 @@ Broad planner (`001`–`003` phase-numbering era) now archived in decision histo
 4. **FLORES correction:** Flag to Danny for docs update (FLORES is gone; eval anchor TBD).
 
 **Reference:** `.squad/decisions.md` → "ADR: Hawaiian Language/Script Code Normalization" + "Inventory: Hawaiian Dataset Variants Beyond FineWeb-2 `haw_Latn`" (appended 2026-04-29T09:27:41Z).
+
+### 2026-04-29 09:40:34Z — FineWeb-2 haw_Latn 100/200 scripts landed, awaiting Linus dep + rights ruling
+
+**From Scribe:** Frank delivered `scripts/105_collect_fineweb2_haw.py` (100-phase planner) and `scripts/205_fetch_fineweb2_haw_raw.py` (200-phase fetcher) for FineWeb-2 `haw_Latn`. Live smoke test confirmed 2 real rows, 1,028 raw whitespace tokens from staradvertiser.com.
+
+**Your open decisions:**
+1. Dependency call: add `pyarrow`/`huggingface_hub` to `requirements.txt` or stay stdlib-only? Scripts default to rows API; parquet is opt-in with loud failure.
+2. Per-URL rights posture: accept rows wholesale at prototype scope, or enforce per-URL allow/deny list? (205 preserves per-row `url` for downstream policy enforcement in 301.)
+
+**Reference:** `.squad/decisions.md` → "Decision Note: FineWeb-2 `haw_Latn` 100/200 Scripts Landed" (merged 2026-04-29T09:40:34Z).

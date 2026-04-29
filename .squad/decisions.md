@@ -1,5 +1,33 @@
 # Decisions
 
+## Decision Note: FineWeb-2 `haw_Latn` 100/200 Scripts Landed
+
+**From:** Frank (Hawaiian Data Collector)  
+**Date:** 2026-04-29  
+**Status:** Implementation in place; awaits Linus dep + rights ruling
+
+### What landed
+
+- `scripts/105_collect_fineweb2_haw.py` — 100-phase planner. Writes `data/local/fineweb2_haw/collect_plan.json` with dataset id (`HuggingFaceFW/fineweb-2`), config (`haw_Latn`), verified row counts (train **95,507** / test **887**), parquet URLs, datasets-server rows-API URL templates, per-row schema, license tag (`odc-by`), and known caveats (English boilerplate inside Hawaiian-LID rows, per-URL third-party rights). No corpus text fetched.
+- `scripts/205_fetch_fineweb2_haw_raw.py` — 200-phase fetcher. Dry-run by default; `--execute --split {train,test} --limit N` to fetch. Default path is HF datasets-server `/rows` (stdlib only, polite paginated). Optional `--use-parquet` uses `pyarrow` and fails loudly if dep absent. Writes per-row JSONL under `data/raw/fineweb2_haw/<YYYYMMDD>/<split>.jsonl` and `ProvenanceRecord` ledger. Schema-validated; raw whitespace token counts from fetched text only.
+- `docs/data-pipeline.md` updated: 105/205 documented; FineWeb-2 noted as primary verified web source for Stage 1.
+- **Verified live:** `--execute --split test --limit 2` returned 2 real rows, 1,028 raw whitespace tokens from staradvertiser.com editorial pages — confirms per-URL rights caveat is real, not theoretical.
+
+### Open questions for Linus
+
+1. **Dependency call:** Add `pyarrow` / `huggingface_hub` to `requirements.txt` or stay stdlib-only via rows API? Scripts default to rows API; parquet is opt-in. Bulk pull of all 95,507 train rows via rows API is workable (~955 paginated calls @ length=100).
+2. **Per-URL rights posture:** Accept rows wholesale at prototype scope, or enforce per-URL allow/deny list downstream? 205 preserves per-row `url` for either policy.
+
+### Open question for Rusty
+
+- Tokenizer-fragmentation sanity check on FineWeb-2 sample once bulk pull authorized; LID/quality threshold for Stage-1 inclusion given boilerplate mix.
+
+### Status
+
+✅ Scripts ready for integration. Awaiting Linus (dependency + rights ruling) and Rusty (tokenizer feedback) before Stage 2 planning.
+
+---
+
 ## ADR: Hawaiian LLM Planning Repository README
 
 **Date:** 2026-04-29  

@@ -400,3 +400,44 @@ No bytes pulled. No new entries added to `data-sources/hawaiian-data-sources.jso
 
 **Reference:** `.squad/decisions.md` → your full inventory + Rusty's normalization rules (appended 2026-04-29T09:27:41Z).
 
+
+## Learnings — 2026-04-29 FineWeb-2 `haw_Latn` 100/200 scripts landed
+
+Triggered by yashasg: "ok lets create the 100 and 200 scripts for this data set". Implemented
+`scripts/105_collect_fineweb2_haw.py` (planner) and `scripts/205_fetch_fineweb2_haw_raw.py`
+(fetcher) following the 10X/20X source-specific convention.
+
+Design choices that future-Frank should preserve:
+
+- **Default fetch path = HF datasets-server `/rows` JSON API**, not parquet. Reason: stdlib + `urllib`
+  only, no `pyarrow`/`huggingface_hub` dep added to `requirements.txt` (Linus's call still
+  pending). Parquet is gated behind `--use-parquet`, which fails loudly with a clear
+  message if `pyarrow` is missing. Do **not** silently fall back; the dep choice is a real
+  open question and silent fallback hides it.
+- **Verified row counts hard-coded as constants** (`EXPECTED_ROWS = {train: 95_507, test: 887}`).
+  These are the frozen verification from the 2026-04-29 re-verification entry; 105 emits them
+  into the plan and 205 surfaces them in the run banner. If HF re-verification ever shows a
+  different `num_rows_total`, that's a real upstream change worth a new history entry, not a
+  silent diff.
+- **Plan JSON is the single source of truth for 205.** Splits, parquet URLs, rows-API templates,
+  per-row schema (`fields` + `text_field`), license tag, ToS URL all live in the plan. 205
+  does no hard-coded URL construction beyond `_split_block` lookups, so future re-verification
+  only has to update 105.
+- **Raw record schema mirrors source verbatim.** 205 preserves `text, id (→fineweb2_row_id),
+  dump, url, date, file_path, language, language_score, language_script, top_langs` plus
+  `raw_whitespace_token_count` and `char_count` measured from the actual fetched text.
+  No cleanup. No estimates. `prototype_only=true` and `release_eligible=false` baked in.
+- **Provenance ledger uses the same `ProvenanceRecord` shape as 201/202/204** so 301 can
+  treat fineweb2_haw as just-another source ledger. `extraction_method` is
+  `fineweb2-rows-api` or `fineweb2-parquet` so 301 can dispatch by content shape.
+- **Live smoke verified** (`--execute --split test --limit 2`): 2 rows, 1,028 raw whitespace
+  tokens, 4,974 chars. Both rows came from `staradvertiser.com` editorial pages — concrete
+  proof that the per-URL third-party rights concern (Linus's open ruling) is real, not
+  theoretical.
+- **What I deliberately did *not* do:** modify `requirements.txt`; add a parquet bulk path
+  by default; pre-filter English boilerplate inside Hawaiian-LID rows (downstream concern;
+  301 owns it); claim cleaned token counts (raw whitespace tokens only).
+
+Decision-inbox file: `.squad/decisions/inbox/frank-fineweb2-scripts.md` flags Linus's
+two open questions (dep call, per-URL rights posture) and Rusty's tokenizer-fragmentation
+sanity check.
