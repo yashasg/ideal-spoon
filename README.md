@@ -68,7 +68,7 @@ Working plan, not commitments:
 
 ## Evaluation
 
-Evaluation is treated as a **first-class deliverable**, not an afterthought.
+Evaluation is treated as a **first-class deliverable**, not an afterthought. Operational details — cadence, metrics, diagnostic slicing, attribution matrix, run-report schema — live in [`docs/eval_pipeline.md`](./docs/eval_pipeline.md).
 
 - Build a small, **curated Hawaiian eval set** with held-out items: comprehension, generation, basic grammaticality, diacritic preservation, code-switching with English.
 - Include **human review** by speakers/learners for at least a sampled subset; automatic metrics alone are not trusted for a low-resource language.

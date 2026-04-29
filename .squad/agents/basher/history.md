@@ -120,3 +120,11 @@ Rationale aligns with ADR "GPU compute chaining feasibility" (2026-04-29, Basher
 - Sanity gate after resume on new provider: first cheap-eval point on B must match A's last within ±0.02 PPL; otherwise env isn't really restored — stop.
 - Acceptable to switch: Stage 1 prototype, smokes, ablations, eval re-runs. Pin to one provider for: release-candidate Stage 1+2 final runs, gate-threshold-close decisions, anything FSDP/ZeRO-sharded.
 - No new team-level decision; reaffirms existing "Chaining Free GPU Providers" ADR and Stage-1/Stage-2 pinning rules.
+
+### Three-provider 60h window plan (advisory, 2026-04-29)
+- User proposal: free-tier provider for prelim evals + data validation; 60h-compute provider for Stage 1 + merge + Stage 2 + evals; third provider for final eval. Approved in shape.
+- Hard rule: Stage 1 + merge + Stage 2 stay pinned to one provider (one GPU class) inside the 60h. Provider switch only at stage *boundaries* with a ±0.02 PPL reproducibility gate on resume.
+- Provider 1 owns the Stage-0 readiness gates: tokenizer audit, data foundation, eval harness, 0.5B smoke (local + Kaggle), pre-FT baseline on chosen 7B/8B, resume-from-HF demonstrated, ≤1h 7B warmup confirming bnb NF4 + FA2 throughput. None of this may bleed into the 60h.
+- 60h budget on L4/A10/A100/4090 (NOT T4 — no bf16/FA2 on Turing): ~3% setup, ~2% smoke-resume sanity, ~40% Stage 1, ~3% Stage 1 gate, ~2% fp16 merge, ~20% Stage 2, ~3% Stage 2 gate, ~25% retries/contingency, ~2% buffer. One retry budgeted, not two.
+- Provider 3 is eval-only: dtype/quant must match Provider 2; first eval point on a known checkpoint must reproduce ±0.02 PPL or eval is invalid. No training, no merging, no tweaks.
+- Reaffirms existing ADRs (chaining feasibility, checkpoint contract, two-stage plan). No new durable decision required.

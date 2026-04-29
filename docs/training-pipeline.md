@@ -295,4 +295,5 @@ Until the release gate is cleared, every artifact directory carries the markers 
 - `.squad/decisions.md` — Decision Note "Base-model recommendation for Hawaiian adaptation".
 - `.squad/decisions.md` — Decision Notes on Azure credit fit and training-work fit.
 - [`data-pipeline.md`](./data-pipeline.md) — Stage 1 + Stage 2 data ingest, manifests, and contamination guards that feed this training pipeline.
+- [`eval_pipeline.md`](./eval_pipeline.md) — metrics, cadence, diagnostic slicing, attribution matrix, and run-report schema that backs the gates in this doc.
 - `README.md` — project goals, non-goals, and overall planning posture.
