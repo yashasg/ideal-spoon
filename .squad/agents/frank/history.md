@@ -117,3 +117,38 @@ This pilot replaces the current ±2× ranges with ±20% bands without committing
 
 **Orchestration log:** `.squad/orchestration-log/2026-04-29T06-43-21Z-linus-raw-to-training-plan.md`
 
+
+### 2026-04-29 — Issue #1 raw fetch script (scripts/fetch_rightslight_raw.py)
+
+- **New file:** `scripts/fetch_rightslight_raw.py` — concrete stdlib-only raw-data fetcher for the rights-light allow-list (hawwiki, hawwiktionary, hawwikisource). Companion to `scripts/collect_rightslight.py`; same allow-list, no new requirements.
+- **Safety posture (CLI contract):**
+  - `--source {hawwiki,hawwiktionary,hawwikisource,all}`, default `hawwiki` (smallest vertical slice).
+  - `--limit N` caps enumerative metadata calls (Wikisource `aplimit`, default 50, max 500).
+  - `--metadata-only` and `--smoke` (alias) restrict to checksum manifests / dumpstatus / API enumeration. No corpus bytes.
+  - `--execute` is required to download corpus-bearing dump files (`*-pages-articles.xml.bz2`). Without it, corpus artefacts are listed and skipped.
+  - `--dry-run` forces print-only behaviour (no GETs).
+  - Anything outside the allow-list is unreachable through this script — Baibala/nūpepa/OHA/DOE/UH/Awaiaulu/OPUS/NLLB/FLORES/JW300 stay out.
+- **Storage:** `data/raw/<source>/<YYYYMMDD>/<sha256>.<ext>`, gitignored under the existing `/data/` rule. No `.gitignore` change needed (verified with `git check-ignore`). Per-source ledger at `data/raw/<source>/fetch.jsonl`.
+- **Provenance schema (stable for Linus, do not rename):** `source_id, source_url, fetch_timestamp_utc, http_status, content_type, content_length, raw_sha256, raw_storage_path, tos_or_license_url, license_observed, fetcher_user_agent, fetcher_tool_and_version, source_specific_ids{}, notes`. Implemented as `ProvenanceRecord` dataclass; appended one JSON object per line via `_append_provenance`.
+- **Reliability:**
+  - Polite retry/backoff (exponential + jitter, 4 attempts) on transient `URLError`/`TimeoutError` and on short reads (Content-Length vs body bytes).
+  - Hard fail on non-2xx terminal status, repeated transient errors, or sha1 mismatch vs. the Wikimedia `*-sha1sums.txt` manifest entry (matched by suffix `-pages-articles.xml.bz2`).
+  - Atomic-ish writes: `.part` temp file then rename, so a crash never leaves a corrupt `<sha>.<ext>`.
+  - User-Agent identifies project + contact (`ideal-spoon/0.1.0 (frank rights-light raw fetcher; ...issue #1)`); also sent as `Api-User-Agent` for MediaWiki etiquette.
+- **Wikimedia plumbing detail learned:** `dumpstatus.json` is **only** published under the dated path (`/<wiki>/<YYYYMMDD>/dumpstatus.json`), not under `/latest/`. Script discovers the date by parsing dated filenames in `<wiki>-latest-sha1sums.txt`, then fetches the dated `dumpstatus.json` automatically. Worth remembering for any future Wikimedia adapter.
+- **Known upstream gap:** `hawwiktionary-latest-sha1sums.txt` returns 404 — Wikimedia is not publishing dump artefacts for the Hawaiian Wiktionary subdomain right now. Script fails loudly (exit 3) on that source, which is the correct posture; users can simply pass `--source hawwiki` or `--source hawwikisource` until Wikimedia starts publishing it. Re-check before bulk runs.
+- **Validation performed (no commit, no push):**
+  - `python3 -m py_compile scripts/fetch_rightslight_raw.py` clean.
+  - `python3 scripts/fetch_rightslight_raw.py --source hawwiki --dry-run` — prints planned URLs, no fetches.
+  - `python3 scripts/fetch_rightslight_raw.py --source all --smoke` — fetched hawwiki sha1sums (3,048 B) + dated dumpstatus.json (11,312 B) + hawwikisource allpages API (117 KB metadata JSON, 50 page titles); hawwiktionary failed loudly as expected. All three records appended to per-source `fetch.jsonl`.
+  - `git status --short data/` empty; `git check-ignore -v data/raw/hawwiki/fetch.jsonl` confirms `/data/` rule covers it.
+- **Files touched:** `scripts/fetch_rightslight_raw.py` (new). No edits to `.gitignore`, `requirements.txt`, `data-sources/hawaiian-data-sources.json`, or `scripts/collect_rightslight.py` were required.
+- **Linus handoff contract:** consume `data/raw/<source>/fetch.jsonl` (one JSON object per line, schema above) plus `raw_storage_path` for downstream registration / LID / extraction. Schema is additive-only; new fields go at the end.
+
+## 2026-04-29T06:56:07Z — Python Script Contracts: Validation & Merge
+
+- **Scripts:** `scripts/collect_rightslight.py`, `scripts/fetch_rightslight_raw.py` validated via `python3 -m py_compile` — both compile clean.
+- **CLI help:** Help text for all three Python scripts (Frank + Linus + Coordinator collect script) printed successfully.
+- **Decisions merged:** `frank-fetch-raw-jsonl-schema.md` and `linus-stage1-jsonl-first.md` merged into `.squad/decisions.md`; inbox files deleted.
+- **Coordinator directive:** Python-scripts directive persisted in decisions.
+- **Frank's fetch contract locked:** ProvenanceRecord schema (14 fields + extension point) is additive-only; future Linus coordination point for any new fields.

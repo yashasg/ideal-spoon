@@ -26,3 +26,10 @@
 ## 2026-04-29T03:13:13Z — Stage-1 + Stage-2 data pipeline consolidation
 
 Wrote orchestration-log entries for both Linus pipeline passes; wrote session log `2026-04-29T03:13:13Z-data-pipeline-stage1-stage2.md`; merged both inbox proposals into `.squad/decisions.md` as a single ADR; deleted the two inbox files. No archive needed (all decisions dated 2026-04-29). README not edited per spawn directive; flagged for later.
+
+## 2026-04-29T06:56:07Z — Session Log: Python Script Contracts
+
+- **Decisions merged:** Three inbox files merged into `.squad/decisions.md`: (1) Python-scripts directive (Coordinator/yashasg), (2) frank-fetch-raw-jsonl-schema.md, (3) linus-stage1-jsonl-first.md. Inbox files deleted. No duplicates.
+- **Orchestration log:** `.squad/orchestration-log/2026-04-29T06-56-07Z-python-script-contracts.md`
+- **Session log:** `.squad/log/2026-04-29T06-56-07Z-python-script-contracts.md`
+- **Agent histories updated:** Frank (validation + merge), Linus (Stage-1 JSONL approval), Scribe (this session).

@@ -231,3 +231,72 @@ the user asked for a plan, not a new decision.
 
 **Orchestration log:** `.squad/orchestration-log/2026-04-29T06-43-21Z-linus-raw-to-training-plan.md`
 
+
+## 2026-04-29 — Stage-1 build script scaffolded
+
+User asked: "how is linus going to do all of that, show me the scripts" (Python OK).
+Wrote `scripts/build_stage1_dataset.py` — stdlib-only, wiki-only vertical slice.
+
+Files touched:
+- `scripts/build_stage1_dataset.py` (new, ~430 LOC, executable)
+
+Script usage:
+- `python scripts/build_stage1_dataset.py --dry-run` — validate provenance + heuristics, no writes.
+- `python scripts/build_stage1_dataset.py --source hawwiki [--limit N]` — vertical slice.
+- `python scripts/build_stage1_dataset.py --strict` — exits 2 on any quality-gate failure.
+
+Upstream contract (Frank → Linus):
+- Reads `data/raw/{source}/{fetch_date}/fetch.jsonl`, one JSON object per line, with at least:
+  `path` (or `raw_path`/`filename`), `source_url`, `http_status`, `sha256_raw`, `content_type`,
+  `license_observed`, `tos_snapshot_id`. Anything missing → recorded skip, not a guess.
+- Raw blobs live untouched at `data/raw/{source}/{fetch_date}/...`. Wiki XML may be `.xml`,
+  `.xml.gz`, or `.xml.bz2`; stdlib decompressors used.
+
+Downstream contract (Linus → Rusty/Basher):
+- `data/extracted/{source}/{fetch_date}/extracted.jsonl.gz` — per-doc cleaned text + sha hashes.
+- `data/stage1/stage1_manifest.jsonl` — one row per surviving doc, schema = subset of the
+  `stage1_manifest.parquet` ADR. Parquet is a follow-up read-this-jsonl pass once `pyarrow`
+  is justified; deferred on purpose to keep stdlib-only.
+- `data/stage1/stage1.jsonl.gz` — trainer-facing only:
+  `{doc_id, text, source, register, split, prototype_only}`. Manifest fields excluded so the
+  model can't memorize provenance. Only `language_id == "haw"` train rows go in.
+
+Quality gates implemented (skip-with-reason, plus aggregate fail list):
+- missing license_observed / sha256_raw / raw path → recorded skip.
+- train ∩ (dev ∪ test) overlap on sha256_clean → failure.
+- per-source token share > 60% → warn; Bible/Baibala > 10% → fail (placeholder; no Bible
+  source in slice yet).
+- missing sha256_clean / license per emitted doc → failure.
+
+Normalization:
+- NFC; ʻokina → U+02BB only when between two letters (conservative); kahakō untouched.
+- Counter of swap events stored on each manifest row (`unicode_changes`).
+
+Heuristic LID:
+- Vowel-share + kahakō/ʻokina presence + foreign-letter penalty. Below 0.55 → `language_id`
+  recorded as `unknown` with reason. Real LID is its own task; this only filters obvious junk.
+- Verified end-to-end on a 3-page synthetic dump: 1 emitted to train JSONL, 1 retained in
+  manifest as `unknown`, 1 empty page dropped.
+
+Split assignment: deterministic `int(sha256(sha256_clean)[:8],16) % 100` → 0..89 train,
+90..94 dev, 95..99 test. Stable across reruns.
+
+What this script does NOT do (deferred, on purpose):
+- MinHash dedup (`dedup_cluster_id` is currently sha256_clean stub).
+- Real LID.
+- Wiki markup cleanup beyond a crude regex pass.
+- Parquet manifest.
+- Cultural-flag inference (defaults to `none`).
+- Eval-hash union write to `eval_hashes.parquet`.
+
+Validated: `python3 -m py_compile`, `--dry-run`, real run on synthetic fixture, `--strict` exits 2.
+No corpus committed. `.gitignore` confirms `/data/` ignores manifest, train JSONL, fetch.jsonl,
+and extracted.jsonl.gz. Decision note written to `.squad/decisions/inbox/linus-stage1-jsonl-first.md`.
+
+## 2026-04-29T06:56:07Z — Python Script Contracts: Stage-1 JSONL-First Approved
+
+- **Scripts:** `scripts/build_stage1_dataset.py` validated via `python3 -m py_compile` — compiles clean.
+- **Decision merged:** `linus-stage1-jsonl-first.md` approved and merged into `.squad/decisions.md` (inbox file deleted).
+- **Stage-1 contract:** Output format is JSONL (`data/stage1/stage1_manifest.jsonl`), not Parquet. Parquet deferred until corpus > 50k docs or first DuckDB analytical query in CI.
+- **Frank handoff:** Stage-1 consumes `data/raw/<source>/fetch.jsonl` (stable ProvenanceRecord schema, additive-only). Manifest-first discipline enforced.
+- **Downstream ready:** Basher (contamination guard) and Rusty (tokenizer audit) aware; one-line change each to read JSONL until Parquet promotion.

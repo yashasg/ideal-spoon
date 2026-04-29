@@ -1431,3 +1431,112 @@ with a machine-readable reason — no silent inclusion. Specifically:
 - Provenance ledger: `data/local/rightslight/fetch.jsonl` (gitignored).
 - Smoke-fetch artifact: `hawwiki-latest-sha1sums.txt`, ~3 KB, full provenance
   recorded, stored under `data/local/rightslight/hawwiki/{YYYYMMDD}/{sha256}.txt`.
+
+---
+
+## Directive: Use Python for project scripts
+
+**Date:** 2026-04-29T06:47:43Z
+**Source:** yashasg (via Copilot)
+**Status:** Directive
+
+### Decision
+
+Use Python for project scripts.
+
+### Rationale
+
+User requested Python as the default implementation language for scripts (data collection, data processing, etc.).
+
+### Implementation
+
+- `scripts/collect_rightslight.py`: Python stdlib-only rights-light source collector.
+- `scripts/fetch_rightslight_raw.py`: Python stdlib-only raw-data fetcher (Frank).
+- `scripts/build_stage1_dataset.py`: Python stdlib-only Stage-1 processing scaffold (Linus).
+- All three scripts validate via `python3 -m py_compile` and have working CLI help.
+
+---
+
+## Decision: Stable raw-fetch provenance ledger schema
+
+**Date:** 2026-04-29
+**Author:** Frank (Hawaiian Data Collector)
+**Status:** Accepted
+
+### Decision
+
+Per-source raw-fetch provenance is recorded as JSONL at `data/raw/<source>/fetch.jsonl`, one object per fetched artifact, with a stable 14-field schema (implemented in `scripts/fetch_rightslight_raw.py` as the `ProvenanceRecord` dataclass):
+
+```
+source_id
+source_url
+fetch_timestamp_utc
+http_status
+content_type
+content_length
+raw_sha256
+raw_storage_path
+tos_or_license_url
+license_observed
+fetcher_user_agent
+fetcher_tool_and_version
+source_specific_ids (object, extension point)
+notes
+```
+
+### Rules
+
+1. **Additive-only.** New fields appended at end; no renames without coordinated migration (Linus + Frank).
+2. **Path canonical:** `data/raw/<source>/fetch.jsonl` is the consumer contract.
+3. **No corpus text** in records — metadata only.
+4. **One line per artifact.** Multi-file dumps → multiple lines.
+5. **`raw_storage_path` repo-relative** for portable resolution.
+6. **`source_specific_ids` is extension point** for source-specific identifiers, keeping top-level stable.
+
+### Why This Matters
+
+- Linus reads this ledger for Stage-1 registration/LID/extraction/dedup decisions.
+- Fetch-time fields (ToS snapshot URL, timestamp, raw sha256, observed license) are unrecoverable later — must be captured at ingest.
+- Locking schema prevents downstream rewrites when new source adapters land.
+
+### Owners / Consumers
+
+- **Producer:** Frank — `scripts/fetch_rightslight_raw.py` and future per-source adapters.
+- **Consumer:** Linus — downstream Stage-1 raw-to-training pipeline.
+- **Reviewers:** Linus (data policy), Rusty (language/modeling fit).
+
+---
+
+## Decision: Stage-1 manifest JSONL-first, Parquet later
+
+**Date:** 2026-04-29
+**Author:** Linus (Data Engineer)
+**Status:** Accepted
+
+### Decision
+
+For the Stage-1 prototype, emit `data/stage1/stage1_manifest.jsonl` (not `.parquet`). Parquet is a follow-up once `pyarrow` is justified.
+
+### Why
+
+- ADR locks schema, not on-disk format. Field names, types, contamination guards unchanged.
+- Stdlib-only keeps `requirements.txt` honest. No premature `pyarrow`/`polars`/`duckdb` pick.
+- JSONL is grep-able, diff-able, trivial to inspect for small wiki-only vertical slice.
+- Promotion mechanical: 20-line `pyarrow` writer can consume this JSONL and produce `.parquet` once corpus > 50k docs or first analytical query lands.
+
+### What This Is NOT
+
+- Not a relaxation of ADR field completeness. Every field from `docs/data-pipeline.md §Stage 1 manifest schema` is present.
+- Not permanent. When threshold (default ~50k docs or first DuckDB query) crosses, add `pyarrow` to `requirements.txt` and switch.
+- Not a workaround for missing data. Missing `license_observed`/`sha256_raw`/raw path still causes doc skip with reason recorded.
+
+### Implications for Downstream
+
+- **Rusty:** tokenizer audit reads `data/stage1/stage1.jsonl.gz` (trainer text) — unaffected.
+- **Basher:** contamination guard (`stage1_train ∩ eval_hashes = ∅`) needs JSONL-aware read until switch. One-line change.
+- **Frank:** `fetch.jsonl` schema unaffected.
+
+### Tracking Item
+
+Promote to Parquet once corpus > 50k docs OR first DuckDB analytical query in CI. Default threshold: 50k unless team consensus differs.
+
