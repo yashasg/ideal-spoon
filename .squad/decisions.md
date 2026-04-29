@@ -51,3 +51,31 @@ README needed to reflect this without lying about implementation status: no data
 1. **Keep the stub**: "training an llc on Hawaiian language" — too vague, doesn't help onboard new contributors
 2. **Write full implementation spec**: too much detail for a planning artifact; belongs in ADRs + team docs, not README
 3. **Link to external wiki**: GitHub wiki is often abandoned; README stays with code
+
+---
+
+## ADR: Default model is `claude-opus-4.7`
+
+**Date:** 2026-04-29
+**Status:** Accepted
+**Owner:** yashasg (via Coordinator)
+
+### Decision
+
+Every Squad agent uses `claude-opus-4.7` as the default model. Persisted in `.squad/config.json` as `defaultModel`.
+
+### Context
+
+User directed that `claude-opus-4.7` be the team default and explicitly confirmed it is a valid model, overriding any stale internal model lists.
+
+### Implementation
+
+- `.squad/config.json` holds `{"defaultModel": "claude-opus-4.7"}`.
+- Coordinator reads this file when spawning agents and passes the value as the model parameter unless the spawn explicitly overrides.
+- Charters declaring `Preferred: auto` resolve to this default.
+
+### Implications
+
+- Agents previously using mixed models (haiku/sonnet/opus) now uniformly run on `claude-opus-4.7` unless a task-specific override is justified.
+- If the user changes the default later, update `.squad/config.json` and append a new ADR; do not silently rewrite this one.
+
