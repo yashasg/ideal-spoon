@@ -64,3 +64,20 @@ Scribe merged `linus-stage1-data-pipeline.md` and `linus-stage2-data-pipeline.md
 - Authored `docs/data-pipeline.md`: Stage 1 monolingual Hawaiian DAPT/CPT + Stage 2 bidirectional en↔haw SFT.
 - Includes source tiers, NFC/ʻokina/kahakō normalization, MinHash dedup, manifests (`stage1_manifest.parquet`, `stage2_manifest.parquet`), JSONL schemas, `eval_hashes.parquet` contamination guard, risks, next steps.
 - Cross-linked with `docs/training-pipeline.md` (Basher) after Danny's polish.
+
+## 2026-04-29 — Raw data gathering volume guidance (advisory)
+
+User asked what to use for raw gathering and how much. Advisory only, no new ADR — gathering plan is consistent with existing Stage-1/Stage-2 ADRs in `.squad/decisions.md` and `docs/data-pipeline.md`.
+
+Stage 1 raw-gathering order: hawwiki dump (validates pipeline) → Hawaiian Wikisource → one pinned Bible edition → Ulukau nūpepa (~125k OCR'd pages, the volume play, biggest unknown) → Awaiaulu/OHA/DOE/UH PDFs (manual, small).
+- Cleaned-token target Stage 1: **10–30M Hawaiian tokens realistic, 5M floor below which DAPT probably isn't worth running, ~50M aspirational ceiling.** Confidence on nūpepa yield is low.
+- Honest go/no-go gate: pilot ~5–10k nūpepa pages + run Rusty's tokenizer audit + token-count report before committing to bulk nūpepa pull.
+
+Stage 2 raw-gathering order is hard-sequenced: **FLORES-200 first into `eval_hashes.parquet`** (~2k sentences, dev/test only, never train), then Bible verse-aligned (~31k verses, ≤30% cap), then Tatoeba, OPUS `haw` subsets (JW300 excluded pending ToS), NLLB-mined `haw`-`eng` (train-only, comparable), Wiki interlanguage + LaBSE alignment (<5k usable), Awaiaulu/OHA/DOE/UH bilingual PDFs.
+- Cleaned-pair target Stage 2: **10k–30k parallel train pairs, ~1–2k dev/test pairs.** Binding constraint is the Bible ≤30% cap: if non-Bible parallel ends up <5k pairs, Bible has to be sampled down too.
+
+What NOT to gather (unchanged from prior ADRs but reaffirmed): generic CommonCrawl haw-LID, social/forum content without permission, HF/Kaggle "Hawaiian dataset" artifacts as primary sources (use as pointers), JW300, hard-escalate cultural categories.
+
+Manifest fields that must be captured **at fetch time** (unrecoverable later) — already in schema but worth restating: ToS snapshot per source/date, source_url fetch-resolved, fetch_date + http_status, sha256_raw, license_observed verbatim with license_inferred=null, source-specific IDs (Ulukau paper+issue+page, Bible edition+translator+year, OPUS subset+version, Wiki dump date, HF→upstream origin), cultural_flag pre-tagged at ingest, prototype_only=true default.
+
+Flagged for a future Scribe / Linus edit (not done now): add a "raw-collection volume targets" subsection to `docs/data-pipeline.md` capturing the gathering-order rule (FLORES first), volume ranges, and the Stage-1 nūpepa-pilot go/no-go gate. Existing doc has cleaned-yield estimates and schemas but not raw-gathering volume guidance at this level.

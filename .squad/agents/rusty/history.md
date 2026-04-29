@@ -112,3 +112,40 @@ User proposed: Provider 1 (free tier) for prelim evals + data validation, Provid
 - **Safe to run elsewhere:** tokenizer audit, leakage/n-gram checks, orthography survival, slicing analysis, human spot eval, COMET — these are deterministic-ish text ops or human work, not GPU-numeric.
 - **Risks of switching providers for final eval:** dtype drift (bf16 vs fp16 vs 4-bit at inference), tokenizer/transformers version drift, sampler/decoding defaults, COMET model version, locale/Unicode normalization differences. Mitigations: ship a pinned eval container (or `requirements.txt` + harness SHA); pin inference dtype + decoding params in the run report; require Provider 3 to first reproduce Provider 2's last gate numbers within tolerance on the *same checkpoint* before any Provider-3-only number is reported as headline; reject any "Provider 3 score" that wasn't preceded by a passing reproducibility eval.
 - **Sequencing constraint:** Provider 3 should not be the *first* environment a checkpoint sees. Reproducibility eval first, then the new evals. Without that gate, any Provider 3 number is uninterpretable.
+
+## 2026-04-29 — Raw-data sizing guidance (advisory)
+
+User asked what to gather and how much for the prototype. Captured as advice; no new ADR — refines `data-pipeline.md` (Stage 1 ceiling already says "<50M, possibly <10M tokens") and existing two-stage ADR.
+
+**Stage 1 (Hawaiian monolingual, CPT/DAPT) — cleaned token targets:**
+- **Floor (smoke / Qwen2.5-0.5B end-to-end):** ~0.5–1M cleaned Hawaiian tokens. Enough to run both stages, exercise the pipeline, catch tokenizer/orthography bugs. Not enough to claim DAPT quality gain.
+- **Minimal viable prototype (7B QLoRA Stage 1):** ~3–10M cleaned tokens, register-balanced, with Bible/religious-archaic ≤10% per pipeline cap. Below ~3M, expect overfitting + register collapse on a 7B; PPL improvements will be largely memorization.
+- **Better prototype:** ~15–40M cleaned tokens with real register diversity (news/nūpepa cleaned, contemporary, encyclopedic, Wikisource, dictionary examples). This is near the realistic ceiling per `data-pipeline.md`.
+- **Diminishing returns:** above ~40–50M, additional Hawaiian tokens at this base size + LoRA rank give sub-linear gains; tokenizer fragmentation + register skew dominate.
+
+**Stage 2 (bidirectional en↔haw SFT) — cleaned pair targets:**
+- **Floor (smoke):** ~2–5k verified pairs, sentence-aligned, eval-set isolated.
+- **Minimal viable prototype:** ~20–50k verified sentence-aligned pairs, with Bible ≤30% of train and 0% of dev/test (per pipeline cap), bidirectional weighted roughly symmetric.
+- **Better prototype:** ~80–150k verified pairs across ≥3 source families (Bible, Wikipedia comparable, dictionary/curated, optional back-translation ≤25% train, 0% eval).
+- Pair *quality* (alignment correctness, register coverage, no dev/test leakage from Bible reprints) dominates pair count by a wide margin. 30k clean > 100k noisy.
+
+**Held-out eval needs (carve out *before* training, not after):**
+- Stage 1: ≥200k cleaned Hawaiian tokens for held-out PPL, stratified by source/register, cluster-aware split (no near-dupes across train/dev/test).
+- Stage 2: ≥1k pairs dev + ≥1k pairs test, **0% Bible**, balanced by direction and register; isolated by document cluster, not just by row.
+- Eval-hash file (`eval_hashes.parquet`) built before any training run; CI assertion that no train doc shares an n-gram cluster with eval.
+
+**What to gather first, ranked by quality leverage (not volume):**
+1. **Hawaiian Wikipedia + Wikisource dump.** Cleanest license (CC BY-SA 4.0), low OCR noise, modern register. Runs the pipeline end-to-end and gives a clean tokenizer-audit substrate.
+2. **A representative nūpepa slice (~50 docs across decades 1860–1940).** Manual-review batch for OCR-quality stats and orthography variance *before* bulk ingest. This is what the tokenizer audit + go/no-go gate runs on.
+3. **Baibala Hemolele (one pinned edition) + English KJV/ASV verse-aligned.** Largest reliable Stage-2 parallel; cap ≤30% of Stage-2 train, 0% eval.
+4. **Pukui-Elbert / Andrews dictionary examples.** Small-volume but high-coverage register for orthography and lexical diversity.
+5. **Bulk nūpepa OCR.** Only after (1)–(4) prove the pipeline; OCR cleaning eats most of the engineering time and is the largest noise risk. Gather widely, expect aggressive filtering (mean-confidence + char-ratio + paragraph-level LID).
+
+**Quality-over-volume cautions (for Linus + Basher):**
+- **OCR noise dominates.** Pre-1900 nūpepa byte-fallback rate and ʻokina/kahakō survival on OCR are the binding quality constraint. A 30M-token corpus where 60% is sub-threshold OCR is *worse* than a 10M-token clean corpus — the model learns the noise distribution.
+- **Register skew is silent failure.** If Bible + religious-archaic creep above the 10% Stage-1 cap, the model will output King-James-Hawaiian on contemporary prompts and ace held-out PPL anyway. Track register distribution per-checkpoint, not just per-corpus.
+- **Tokenizer fragmentation gates everything.** A 40M-token corpus on a base whose tokenizer fragments ʻokina words will train slower and worse than 10M tokens on a base that handles diacritics cleanly. Final corpus-size target is downstream of the tokenizer audit verdict.
+- **Dedup before counting.** Bible reprints, nūpepa article reprints, Wikipedia mirrors inflate raw counts 2–5×. Cluster-aware MinHash dedup is the *real* token count.
+- **Final numbers are eval-baseline-anchored.** Once base-model PPL baseline + tokenizer audit land on Provider 1, re-cost the corpus targets against the measured fragmentation rate. The ranges above are priors, not contracts.
+
+No new decision file written — this is operational sizing advice within the existing data-pipeline ceiling and two-stage ADR.
