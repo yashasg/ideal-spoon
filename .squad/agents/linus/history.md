@@ -103,3 +103,24 @@ Recommendation: start with `requests + tenacity + warcio + trafilatura`, add Scr
 - Updated `.gitignore` to exclude `.venv/`, `.venv-*/`, `__pycache__/`, `*.pyc`. No README edit; the script is self-documenting and README is a design narrative, not a getting-started.
 - Validation: `sh -n` and `bash -n` clean; no shellcheck available locally; full network install not run.
 - No ADR — implements existing tooling guidance from prior data-pipeline notes; no decision file written.
+
+## 2026-04-29 — Storage formats consolidated in data-pipeline.md
+
+User asked what format the data should be stored in. Existing ADRs implied Parquet manifests + JSONL training text + `eval_hashes.parquet`, but `docs/data-pipeline.md` had no single subsection naming formats per layer. Added a "Storage formats" subsection (after Cross-stage invariants, before Stage 1) with a per-layer table.
+
+Locked formats per layer:
+- URL inventory: JSON in git (`docs/hawaiian-data-sources.json`).
+- Raw web fetch: WARC (`.warc.gz`) via warcio/scrapy-warc; preserves request/response + ToS snapshot.
+- Raw non-HTML originals: native bytes untouched, named by `sha256`, with `fetch.jsonl` sidecar.
+- Extraction/intermediate: gzipped JSONL, one record per doc/page, OCR confidences attached here.
+- Stage 1 manifest: `stage1_manifest.parquet` (zstd).
+- Stage 1 training text: `stage1.jsonl.gz`; manifest fields stay out of training lines.
+- Stage 1 packed: `.bin/.npy` + `index.json` sidecar with tokenizer hash.
+- Stage 2 manifest: `stage2_manifest.parquet` (zstd).
+- Stage 2 training text: `stage2.jsonl.gz` (two directional rows per pair + retention slice); `templates.json` separate.
+- Contamination ledger: `eval_hashes.parquet` (zstd).
+- Schemas & docs: JSON Schema + Markdown, in git.
+
+Format rules captured: Parquet for manifests/hashes, JSONL for trainer-facing text; gzip (`.jsonl.gz`) for text >few MB, zstd for Parquet; one file per (source, fetch_date) at raw/extracted layers (re-fetches make new dirs); no CSV past bootstrap (quoting eats diacritics); hashes are the cross-layer join keys, never paths.
+
+Wrote inbox decision proposal `linus-storage-formats.md` to lock this.

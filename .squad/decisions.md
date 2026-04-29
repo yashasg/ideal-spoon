@@ -936,3 +936,99 @@ Big Chinese enterprise clouds (Alibaba, Tencent, Huawei, Baidu) at list price ar
 - **Export controls:** US BIS Oct-2022 / Oct-2023 (A800/H800/L20/H20 specs)
 
 ---
+
+## Decision Note: Hawaiian source URL inventory routed by installed tool
+
+**Date:** 2026-04-29  
+**Status:** Proposed — team awareness  
+**Owner:** Frank (Hawaiian Data Collector)
+
+### Decision
+
+Landed `docs/hawaiian-data-sources.json` as the canonical, tool-bucketed URL inventory for Hawaiian-language and Hawaiian-parallel sources. Each entry is routed to exactly one of the tools installed by `scripts/setup.sh` / `requirements.txt`.
+
+### Bucket → tool routing
+
+- `requests_tenacity` — Wikimedia dumps (`hawwiki`, `hawwiktionary`), Wikipedia langlinks API, FLORES-200 hawn_Latn (eval-only), Tatoeba haw exports, OPUS haw subsets, baibala.org verse pages, eBible KJV/ASV USFM.
+- `internetarchive` — archive.org Ulukau-mirrored nūpepa items, Hawaiian books / dictionaries / readers, archival Baibala Hemolele scans.
+- `wayback_cdx_toolkit` — Historical snapshots of Ulukau, nupepa.org / nupepa-hawaii.com, OHA, DOE Kaiapuni, UH PDFs.
+- `scrapy_scrapy_warc` — Live polite crawls of Ulukau, Hawaiian Wikisource, Awaiaulu, OHA / Ka Wai Ola, DOE Kaiapuni, UH ScholarSpace, with WARC + ToS snapshot per crawl.
+- `trafilatura_selectolax` — Post-fetch main-text extraction; not a fetcher.
+- `yt_dlp` — Captions-only, intentionally empty until per-channel rights confirmation.
+
+### Rights posture
+
+- Default to `rights_status_hint` values (`public_domain_candidate`, `open_license_candidate`, `rights_review_required`, `eval_only`, `unknown_review_required`). No bare "public domain" claims.
+- FLORES-200 is `eval_only`, P0, and must be hashed into `eval_hashes.parquet` before any other ingest (per `docs/data-pipeline.md` §Stage 2).
+- Pre-1925 nūpepa kept `prototype_only=true`; bulk publication remains out of scope.
+- JW300 and hard-escalate cultural categories (mele, oli, pule, moʻolelo from named tradition-bearers, moʻokūʻauhau) are listed under `deferred_or_excluded` so future agents don't re-add them by accident.
+
+### Why this matters to the team
+
+- **Linus** — the JSON is the per-source manifest seed. Every entry already enumerates the provenance fields adapters must capture, plus a `tos_or_license_url` to snapshot at fetch time. Please flag any source I should downgrade before adapter work begins (especially Awaiaulu / OHA / DOE / UH and the OPUS subsets).
+- **Rusty** — Wikimedia dumps and Hawaiian Wiktionary are P0/P2 and are the cleanest fodder for the tokenizer audit (ʻokina U+02BB + kahakō, NFC). Bible is capped per the Stage-2 ADR (≤30% parallel-train, 0% dev/test).
+- **Coordinator** — first build-out should be the P0 entries (`hawwiki` dump, FLORES-200 eval hashing, Tatoeba haw, baibala.org + eBible verse anchor). Everything else is gated on rights review.
+
+### Open questions
+
+1. Pinned Hawaiian Bible edition (e.g., 1868 Andrews/Bingham) — needs a human pick before adapter work.
+2. Whether OHA / DOE / UH bilingual PDFs are in scope for this prototype, or deferred entirely.
+3. Whether any Hawaiian-language YouTube channel has an explicit reuse license; until confirmed, the `yt_dlp` bucket stays empty.
+
+### Artifact
+
+- `docs/hawaiian-data-sources.json` (validated to parse with Python).
+
+---
+
+## Decision Note: Storage formats per pipeline layer
+
+**Date:** 2026-04-29  
+**Status:** Proposed — team awareness  
+**Owner:** Linus (Data Engineer)
+
+### Context
+
+Existing ADRs name `stage1_manifest.parquet`, `stage2_manifest.parquet`, `eval_hashes.parquet`, and JSONL training text, but the *raw fetch*, *extraction/intermediate*, *URL inventory*, and *packed/tokenized* layers were not pinned to formats in one place. Adapters need a contract before the first source lands.
+
+### Decision
+
+One format per layer. Manifests are queryable; training text is line-streamable; raw is replayable.
+
+| Layer | Format | Path |
+|---|---|---|
+| URL inventory (input contract, in git) | JSON | `docs/hawaiian-data-sources.json` |
+| Raw web/HTML fetch | WARC (`.warc.gz`) | `data/raw/{source}/{fetch_date}/*.warc.gz` |
+| Raw non-HTML originals (PDF, dump tar, TSV, IA items) | Native bytes, untouched, sha256-named, with `fetch.jsonl` sidecar | `data/raw/{source}/{fetch_date}/{sha256}.{ext}` |
+| Extraction / intermediate text (incl. OCR) | Gzipped JSONL, one record per doc/page | `data/extracted/{source}/{fetch_date}/*.jsonl.gz` |
+| Stage 1 manifest | Parquet (zstd) | `data/stage1/stage1_manifest.parquet` |
+| Stage 1 training text | Gzipped JSONL | `data/stage1/stage1.jsonl.gz` |
+| Stage 1 packed/tokenized | `.bin`/`.npy` + sidecar `index.json` | `data/stage1/packed/` |
+| Stage 2 manifest | Parquet (zstd) | `data/stage2/stage2_manifest.parquet` |
+| Stage 2 training text | Gzipped JSONL (two directional rows per pair + retention slice) + `templates.json` | `data/stage2/stage2.jsonl.gz`, `data/stage2/templates.json` |
+| Eval / contamination ledger | Parquet (zstd) | `data/eval/eval_hashes.parquet` |
+| Schemas (in git) | JSON Schema | `docs/schemas/*.json` |
+
+### Format rules
+
+1. **Parquet for manifests / hashes**, JSONL for trainer-facing text.
+2. **Gzip** (`.jsonl.gz`) for any text artifact larger than a few MB. **Zstd** for Parquet.
+3. **One file per (source, fetch_date)** at raw and extracted layers; never append across fetches. Re-fetches produce a new directory.
+4. **No CSV** past bootstrap — quoting/encoding bugs eat Hawaiian diacritics. The `.csv` bootstrap noted in the prototype-manifest ADR is for first-day scaffolding; promote to Parquet as soon as the validator runs.
+5. **Hashes are the join keys** across layers (`sha256_raw`, `sha256_clean`, `sha256_pair`); never join on path.
+6. **Manifest fields stay out of training JSONL lines** so the model can't memorize URLs, dates, or licenses.
+7. **Nothing in `data/` is committed to git.** Only the URL inventory and schemas are in-repo. Raw archive storage location remains a Livingston-input open gap.
+
+### Consequences
+
+- Adapters have a single contract: read URL inventory JSON → write WARC + `fetch.jsonl` → emit `extracted/*.jsonl.gz` → manifest validator writes the Parquet row.
+- Tooling already in `requirements.txt` covers this stack: `warcio`, `scrapy-warc`, `trafilatura`, `selectolax`, `datasketch`. Parquet/Arrow is a new (small) dep — `pyarrow` to be added to `requirements.txt` when the manifest validator lands.
+- Promotion to release-eligible later does not require a re-encode: schemas are a strict subset of the release schema (per prior ADR).
+
+### Non-decisions (deferred)
+
+- Raw archive storage location (local disk vs. cheap blob) — Livingston cost input still pending.
+- Compression codec for Parquet (zstd default; revisit only if a tool can't read it).
+- Sharding strategy for `stage1.jsonl.gz` / `stage2.jsonl.gz` — flat single file until size forces sharding.
+
+---
