@@ -997,7 +997,7 @@ One format per layer. Manifests are queryable; training text is line-streamable;
 
 | Layer | Format | Path |
 |---|---|---|
-| URL inventory (input contract, in git) | JSON | `docs/hawaiian-data-sources.json` |
+| URL inventory (input contract, in git) | JSON | `data-sources/hawaiian-data-sources.json` |
 | Raw web/HTML fetch | WARC (`.warc.gz`) | `data/raw/{source}/{fetch_date}/*.warc.gz` |
 | Raw non-HTML originals (PDF, dump tar, TSV, IA items) | Native bytes, untouched, sha256-named, with `fetch.jsonl` sidecar | `data/raw/{source}/{fetch_date}/{sha256}.{ext}` |
 | Extraction / intermediate text (incl. OCR) | Gzipped JSONL, one record per doc/page | `data/extracted/{source}/{fetch_date}/*.jsonl.gz` |
@@ -1030,5 +1030,27 @@ One format per layer. Manifests are queryable; training text is line-streamable;
 - Raw archive storage location (local disk vs. cheap blob) — Livingston cost input still pending.
 - Compression codec for Parquet (zstd default; revisit only if a tool can't read it).
 - Sharding strategy for `stage1.jsonl.gz` / `stage2.jsonl.gz` — flat single file until size forces sharding.
+
+---
+
+## User Directive: Directory structure — Markdown in `docs/`, data inventories in `data-sources/`
+
+**Date:** 2026-04-29T05:51:08Z  
+**Status:** Accepted (user directive)  
+**Owner:** yashasg (via Copilot)
+
+### Decision
+
+`docs/` is reserved for Markdown documentation and ADRs. Data-source inventories (JSON, CSV, manifests, reference files) belong in a top-level `data-sources/` directory.
+
+### Context
+
+Project structure clarification to avoid mixing documentation markup with data reference files.
+
+### Consequence
+
+- `.squad/` references to `docs/hawaiian-data-sources.json` are now outdated provenance; the canonical path is `data-sources/hawaiian-data-sources.json`.
+- Future data-source inventory, manifest templates, and schema files go in `data-sources/` instead of `docs/`.
+- `docs/` remains the home for all Markdown specs, ADRs, and architectural documentation.
 
 ---

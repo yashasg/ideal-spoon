@@ -40,3 +40,37 @@
 - Key file paths to remember: `docs/data-pipeline.md` (canonical source spec), `docs/hawaiian-data-sources.json` (URL routing config), `requirements.txt` / `scripts/setup.sh` (the only sanctioned tool surface).
 - **2026-04-29 path move:** Per Coordinator directive (yashasg), `docs/` is reserved for Markdown only. Moved the URL inventory to `data-sources/hawaiian-data-sources.json` (canonical path going forward). Updated `docs/data-pipeline.md` Stage 1 row to match. JSON re-validated with `python3 -m json.tool`. Earlier history entries and dated `.squad/log/`, `.squad/orchestration-log/`, and prior `inbox/` decision files still cite `docs/hawaiian-data-sources.json` — left as-is because they are dated provenance, not live references.
 - **New canonical layout:** `data-sources/` for rights-aware data-source inventories (JSON, CSV, manifests); `docs/` for Markdown specs/ADRs; tool surface remains `scripts/setup.sh` + `requirements.txt`.
+
+### 2026-04-29 — First-pass token-yield estimate across the 26 sources (no fetches yet)
+
+Estimate is from URLs + public knowledge of the corpora; no bytes pulled. Token counts assume a SentencePiece-ish ~1.3× word→token factor; bands are conservative / base / upside.
+
+- **Raw Stage-1 Hawaiian tokens (pre-clean, pre-dedup, pre-rights-filter):** ~45M / ~75M / ~120M. ≥90% of this is the **nūpepa OCR corpus** reachable via three overlapping routes (Ulukau crawl, archive.org/Ulukau-mirrored items, Wayback CDX of ulukau.org / nupepa.org). Treat the three as one corpus — heavy dedup expected.
+- **Train-eligible Stage-1 Hawaiian tokens, publishable posture (no nūpepa bulk, per ADR `prototype_only=true` on pre-1925 nūpepa):** ~2.5M / ~4.5M / ~7M. Dominated by **hawwiki dump (~1.5–3M)** + **Wikisource (~0.5–1.5M)** + small contributions from ScholarSpace/OHA/Awaiaulu/Wiktionary that survive per-doc rights review. Bible capped at ≤10% in Stage 1 per data-pipeline.md §125.
+- **Train-eligible Stage-1, prototype-only posture (nūpepa OCR included, never published):** ~30M / ~50M / ~80M after OCR cleaning + paragraph-level LID + MinHash dedup. This is the only path that produces a "real" pretraining-scale Hawaiian set.
+- **Stage-2 parallel (haw side, train-eligible):** pipeline already states realistic clean yield is "<50k pairs, possibly <10k" (data-pipeline.md §250). At ~25 haw tokens/sentence that's ~250k / ~700k / ~1.25M tokens of *clean parallel*. With the Bible cap binding (≤30% of parallel-train tokens), total parallel-train haw side likely lands around **1–3M tokens**, Bible-dominant, with Tatoeba + OPUS-non-JW300 + any OHA/UH bilingual extracts contributing the long tail. NLLB-mined treated last-resort and excluded from base case.
+- **Eval-only:** FLORES-200 hawn_Latn dev (997) + devtest (1012) ≈ ~50k haw tokens. Must be hashed into `eval_hashes.parquet` before any other ingest. Never train.
+
+Sources that dominate raw volume vs. publishable yield:
+- **Raw volume king:** Ulukau/nūpepa newspapers — and they're the *only* source that can move the order of magnitude. Also the source with the strictest publication block.
+- **Publishable Stage-1 backbone:** hawwiki dump (largest open-licensed clean text), Wikisource (clean PD).
+- **Stage-2 backbone:** Baibala Hemolele × KJV/ASV verse-aligned (cap-bound). Everything else combined is rounding noise on the Bible.
+- **Small but high-value:** FLORES (eval anchor, non-negotiable), Tatoeba (clean human-curated parallel), Wiktionary (lexicon/diacritic audit), Awaiaulu (modern register, low volume).
+
+Biggest uncertainty sources, in priority order:
+1. **Nūpepa OCR yield rate** post-cleaning (could be 30% or 70% surviving) and the publishability ADR (drives whether the corpus counts toward training at all).
+2. **Tokenizer choice** — Hawaiian's ʻokina/kahakō and short syllable structure make BPE token counts notably different from word counts; my 1.3× factor could be off ±30%.
+3. **NLLB hawn coverage** — unknown until pulled; could add 0–2M parallel tokens.
+4. **OHA/UH/DOE per-doc rights review pass rate** — bilingual PDFs are the only realistic non-Bible parallel source at scale.
+5. **Cross-source dedup loss** between Bible editions, Wikipedia mirrors, and the three nūpepa routes.
+
+Tightening plan (pilot, ~1–2 days, no bulk fetch):
+- Pull hawwiki + hawwiktionary dumps; run exact SentencePiece token count after WikiExtractor pass.
+- Pull Tatoeba haw export + FLORES dev/devtest; exact line + token counts (small, definitive).
+- Pull one Hawaiian Bible edition + KJV + ASV USFM; verse-aligned exact counts.
+- Inventory OPUS haw subsets via the per-corpus index (line counts only, no full unzip).
+- `internetarchive` client: enumerate `language:haw mediatype:texts`; sample 50 random items; record OCR-confidence + word counts; extrapolate corpus-wide with CI bands.
+- Wikisource: API `list=allpages&aplimit=500`; sample 20 pages for token density.
+- Land all of the above in `data-sources/pilot_token_counts.parquet` (one row per source: `sample_size`, `observed_haw_tokens`, `extrapolated_total`, `ci_low`, `ci_high`, `rights_posture`, `prototype_only`).
+
+This pilot replaces the current ±2× ranges with ±20% bands without committing to any rights-questionable bulk pull.
