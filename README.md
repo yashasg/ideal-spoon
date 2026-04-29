@@ -119,6 +119,12 @@ Most of these directories do not exist yet; they are the intended shape as work 
 ├── tokenizer/               # (planned) tokenizer audits, vocab artifacts
 ├── training/                # (planned) configs, adapters, run reports
 ├── eval/                    # (planned) eval harness, eval sets, baselines
+├── code/                    # prototype training/eval code; learning skeleton
+│                            # under code/llm_hawaii/ uses PyTorch + Hugging
+│                            # Face as the educational path. ML deps are
+│                            # lazy-imported and NOT pinned in root
+│                            # requirements.txt. Final framework choice for
+│                            # any production run remains gated by an ADR.
 └── docs/                    # (planned) model cards, methodology notes
 ```
 

@@ -1,0 +1,39 @@
+{
+  "base_model": "Qwen/Qwen2.5-0.5B",
+  "tokenizer_name": null,
+  "unicode_normalization": "NFC",
+
+  "train_path": "examples/train.jsonl.example",
+  "eval_path": null,
+  "text_field": "text",
+  "max_seq_len": 256,
+
+  "use_qlora": false,
+  "lora_rank": 8,
+  "lora_alpha": 16,
+  "lora_dropout": 0.05,
+  "lora_target_modules": "all-linear",
+
+  "learning_rate": 0.0002,
+  "num_train_epochs": 1.0,
+  "per_device_train_batch_size": 1,
+  "gradient_accumulation_steps": 1,
+  "warmup_ratio": 0.03,
+  "weight_decay": 0.0,
+  "lr_scheduler_type": "cosine",
+  "gradient_checkpointing": true,
+  "bf16": false,
+  "fp16": false,
+  "seed": 7,
+
+  "output_dir": "runs/smoke",
+  "logging_steps": 1,
+  "save_steps": 50,
+  "eval_steps": null,
+  "save_total_limit": 1,
+
+  "stage": "smoke",
+  "notes": {
+    "purpose": "End-to-end pipeline smoke. Not a quality run."
+  }
+}

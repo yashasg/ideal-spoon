@@ -1,0 +1,44 @@
+{
+  "base_model": "meta-llama/Llama-3.1-8B",
+  "tokenizer_name": null,
+  "unicode_normalization": "NFC",
+
+  "train_path": "examples/train.jsonl.example",
+  "eval_path": null,
+  "text_field": "text",
+  "max_seq_len": 2048,
+
+  "use_qlora": true,
+  "lora_rank": 32,
+  "lora_alpha": 64,
+  "lora_dropout": 0.05,
+  "lora_target_modules": "all-linear",
+
+  "learning_rate": 0.0002,
+  "num_train_epochs": 1.0,
+  "per_device_train_batch_size": 1,
+  "gradient_accumulation_steps": 16,
+  "warmup_ratio": 0.03,
+  "weight_decay": 0.0,
+  "lr_scheduler_type": "cosine",
+  "gradient_checkpointing": true,
+  "bf16": true,
+  "fp16": false,
+  "seed": 7,
+
+  "output_dir": "runs/llama31-8b-a100",
+  "logging_steps": 10,
+  "save_steps": 200,
+  "eval_steps": null,
+  "save_total_limit": 2,
+
+  "stage": "stage1-cpt",
+  "hardware_profile": "a100-40gb-single",
+  "run_name": "llama31-8b-a100-prototype",
+  "notes": {
+    "purpose": "Prototype-tier serious run target: Llama-3.1-8B + QLoRA on a single A100.",
+    "hardware": "Tuned for 1x A100 40GB (or 80GB). bf16 requires Ampere or newer; A100 qualifies.",
+    "gate": "Requires HF access to meta-llama/Llama-3.1-8B and a real data manifest. Do NOT run against placeholder JSONL.",
+    "notreal": "Paths here are local placeholders. Replace train_path/eval_path with the gated Hawaiian corpus before training."
+  }
+}
