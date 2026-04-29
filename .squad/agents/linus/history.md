@@ -81,3 +81,16 @@ What NOT to gather (unchanged from prior ADRs but reaffirmed): generic CommonCra
 Manifest fields that must be captured **at fetch time** (unrecoverable later) — already in schema but worth restating: ToS snapshot per source/date, source_url fetch-resolved, fetch_date + http_status, sha256_raw, license_observed verbatim with license_inferred=null, source-specific IDs (Ulukau paper+issue+page, Bible edition+translator+year, OPUS subset+version, Wiki dump date, HF→upstream origin), cultural_flag pre-tagged at ingest, prototype_only=true default.
 
 Flagged for a future Scribe / Linus edit (not done now): add a "raw-collection volume targets" subsection to `docs/data-pipeline.md` capturing the gathering-order rule (FLORES first), volume ranges, and the Stage-1 nūpepa-pilot go/no-go gate. Existing doc has cleaned-yield estimates and schemas but not raw-gathering volume guidance at this level.
+
+## Learning — Tooling shortlist for raw data gathering (asked by yashasg)
+
+For this prototype's Tier A/B sources (Ulukau, gov pages, curated dumps):
+- **Default fetcher:** `requests` + `tenacity` (retry/backoff) for known URL lists; capture WARC via `warcio` so ToS snapshot + raw bytes are preserved per ADR.
+- **HTML → text:** `trafilatura` (best signal/noise for prose; emits metadata) with `selectolax` or `lxml` as fallback.
+- **Crawler framework:** `scrapy` only when a source needs link-following + politeness policies; `scrapy-warc` plugin to keep WARCs.
+- **JS-heavy pages:** `playwright` (headless chromium) — last resort, slow, costlier provenance.
+- **Bulk archive pulls:** `internetarchive` CLI + `wayback` for snapshots; `warcio`/`cdxj-indexer` to read.
+- **OCR (nūpepa):** out of scope of "fetch," but pair with `pdf2image`+`tesserocr` or pre-OCR'd Ulukau exports.
+- **Dedup helpers:** `datasketch` (MinHash) downstream — not a fetcher but lives in same pipeline.
+
+Recommendation: start with `requests + tenacity + warcio + trafilatura`, add Scrapy only if a source's adapter needs crawl logic. Skip Playwright unless a source forces it.
