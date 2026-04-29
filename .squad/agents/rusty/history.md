@@ -34,3 +34,8 @@
 ## 2026-04-29T02:53:51Z — Two-stage curriculum approved
 
 Pressure-tested user directive (2026-04-28). Approved Stage 1 = DAPT/CPT on Hawaiian monolingual text, Stage 2 = bidirectional en↔haw SFT with **10–20% monolingual retention slice** in Stage 2 batches to prevent catastrophic forgetting. Stage-2 release adapter strategy was overridden by Coordinator: Basher's merge-then-fresh-LoRA path is the release default; my stacking/continuation path retained for ablations only. Smoke test scope expanded: Qwen2.5-0.5B runs **both stages** end-to-end. Tokenizer audit becomes more load-bearing — may require unfrozen embeddings/lm_head before Stage 1. Per-stage eval gates locked into ADR (orthography hard-fail on ʻokina collapse; chrF + bidirectional + human eval on Stage 2). See `.squad/decisions.md` ADR "Two-stage training plan" and orchestration log `2026-04-29T02:53:51Z-rusty-two-stage-curriculum.md`.
+
+### Cross-agent: prototype scope adds tokenizer-audit sub-tasks (2026-04-29T03:01:58Z)
+- Re-run tokenizer audit on a representative nūpepa sample and on *Baibala Hemolele* — period orthography (inconsistent ʻokina/kahakō) distorts generic Hawaiian audits.
+- If Bible text is non-trivial in the corpus, register-balance diagnostics fall to you + a Hawaiian reader; flag as explicit scope.
+- Tokenizer freeze across stages and base+tokenizer SHA in run manifest still mandatory at prototype scope.

@@ -38,3 +38,7 @@
 - Microsoft employee Azure credit caveat: personal/non-commercial only; do NOT host project services on employee benefit; fine for personal QLoRA experiments but not as durable infra.
 - Model recommendation for QLoRA on Hawaiian: top candidates are **Gemma 2 9B**, **Llama 3.1 8B**, **Qwen2.5 7B**. Selection blocked on Rusty's tokenizer audit (diacritics: ʻokina, kahakō). All three are open-weight, run in QLoRA on a single 16GB GPU (Kaggle P100 / Colab T4 borderline at 7B; 2×T4 on Kaggle is the comfortable choice).
 - Practical stance: Kaggle for QLoRA iteration → cheap rented A100/H100 hours (Lambda/RunPod/Vast) for the final candidate run, paid from the $10k–$30k practical tier. Don't gate the project on grants; pursue grants in parallel.
+
+### Cross-agent: prototype-vs-release split (2026-04-29T03:01:58Z)
+- Budget framing unchanged. Prototype scope reduces pressure on the upper-tier full-fine-tune contingency since release-quality runs are now explicitly gated separately.
+- Qwen2.5-0.5B smoke test remains the right first artifact under prototype scope.

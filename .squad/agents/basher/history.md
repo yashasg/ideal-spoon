@@ -44,3 +44,8 @@
 ## 2026-04-29T02:53:51Z — Two-stage implementation plan accepted
 
 Delivered QLoRA recipe + compute mapping for the two-stage plan. Stage 1: r=64/α=128, lr 2e-4, seq 2048, 1 epoch, 5–10% English rehearsal. Stage 2: r=32/α=64, lr 1e-4, seq 1024, 2–3 epochs, masked-target loss, 50/50 direction balance. **Release adapter path adopted:** merge Stage 1 LoRA into fp16 base → train fresh Stage 2 LoRA on the merged model (avoids stacked-adapter merge headaches, double-quant noise, ambiguous active-adapter bugs at inference). One quantization, not two. Compute: 0.5B smoke local + Kaggle dry-run; 7B/8B Stage 1 on Kaggle (T4×2/P100); Stage 2 on Kaggle or single Azure A100 40GB spot. Hard gate: Linus's data foundation must pass before Stage 1 launch — data is now the long pole, not compute. See ADR "Two-stage training plan" in `.squad/decisions.md`.
+
+### Cross-agent: prototype-vs-release split (2026-04-29T03:01:58Z)
+- New ADR splits gates into prototype (private, lighter) and release (public, full clearance). Training recipe unchanged.
+- Loader will enforce: `release_candidate` runs reject `prototype_private` / `unreviewed*` / `unclear` rows. Plan training jobs against the right `intended_use`.
+- No prototype-tainted weights in the released chain; cleared-corpus retrain required for release.

@@ -375,3 +375,180 @@ Two parquet files, versioned and committed alongside the corpus snapshot, plus a
 
 Consolidates four inbox proposals (now deleted): `copilot-directive-2026-04-28T19-46-26-0700-two-stage-training.md`, `rusty-two-stage-training.md`, `basher-two-stage-training.md`, `linus-two-stage-data-gates.md`. See the matching orchestration-log entries dated 2026-04-29T02:53:51Z.
 
+
+---
+
+## ADR: Prototype-vs-release split for data gates and release artifacts
+
+**Date:** 2026-04-29
+**Status:** Accepted
+**Owner:** Danny (Lead), with Linus (Data Engineer) on data posture
+**Trigger:** User directive 2026-04-28T19:55:04-07:00 — "this is just a prototype, a learning project, i wont be able to find legal/safe training data, we will try to use publically available data like ulukau.org newspapers, parallel texts like the Bible."
+**Related:** ADR "Two-stage training plan…" (2026-04-29), ADR "Hawaiian LLM Planning Repository README" (2026-04-29).
+**Disclaimer:** Not a legal opinion. Source-specific terms still bind us. "Publicly available" ≠ "openly licensed" ≠ "training-permitted."
+
+### Decision
+
+Reframe the project as an **explicitly prototype / learning effort** and split engineering gates into two tiers:
+
+1. **Prototype gate** — what must hold for a *private* experiment to count as honest learning.
+2. **Release gate** — what must additionally hold before any artifact (weights, adapters, generations, eval scores, datasets, demos, hosted endpoints) is shared outside the contributor's machine.
+
+The two-stage curriculum (Stage 1 CPT → Stage 2 bidirectional SFT) **stays**. What changes is the bar each stage clears and the meaning of "done." This ADR does not loosen any release-time obligation; it tightens the boundary around the word *release*.
+
+### Bright line: what counts as "release"
+
+Any of the following leaving a contributor's local environment is a release:
+
+- Dataset files, manifests, or derived corpora (raw or normalized).
+- Model weights, LoRA adapters, merged checkpoints, quantizations.
+- Tokenizers trained on restricted corpora.
+- Public demos / hosted inference endpoints / Spaces.
+- Sample generations or screenshots posted publicly that could leak training text.
+- Eval outputs or scores, including release-like benchmark numbers.
+
+Pushing to a public GitHub repo, HuggingFace, a public bucket, or a shared link counts as release. "Unlisted" ≠ private. Anything else — local training, local inference, private notebooks, internal-only metrics — is **prototype scope** and uses the lighter gate.
+
+### Prototype scope (what becomes acceptable for *private learning only*)
+
+- Training on public-domain-by-copyright sources (e.g., pre-1929 ulukau.org nūpepa, *Baibala Hemolele* 1839) without per-source cultural clearance, **provided** the resulting weights, adapters, generations, eval numbers, and derived datasets stay private.
+- Training on openly-licensed sources (CC0, CC-BY, CC-BY-SA, permissively-licensed government works) under their attribution terms.
+- Using "license unclear" sources for **inspection and analysis only** by default; if used as training input, they must be tagged `license_status=unclear` and the resulting artifacts are prototype-only.
+- Synthetic / back-translation experiments at any ratio, **provided** the prototype boundary is honored and the source-model ToS is respected.
+- Per-source-row manifest acceptable to bootstrap; per-document rows can come later for prototype.
+
+### Non-negotiables even at prototype scope
+
+These are cheap and they preserve optionality. They hold for the smallest prototype run.
+
+1. **Source tracking** — every byte traceable to a source URL or local archive path and a fetch date. No "miscellaneous scrape" buckets.
+2. **Provenance hash** — SHA-256 of each raw file at ingest.
+3. **Attribution metadata** — author / publication / date where known. Missing is allowed; *unrecorded-because-we-didn't-bother* is not.
+4. **Contamination isolation** — `eval_hashes.parquet` and the dataloader CI assertion stay on. A leaked eval is a wasted run.
+5. **Cultural-sensitivity tagging at ingest** — hard-escalate categories (mele/oli/pule, moʻolelo from named tradition-bearers, moʻokūʻauhau, place-name lore tied to specific ʻohana/ahupuaʻa, restricted-archive material, **bulk pre-1925 nūpepa**) tagged at ingest even when used. Tagging now is what makes a future cultural review tractable.
+6. **NFC + ʻokina U+02BB + kahakō preservation**, exact + near-dup dedup, language-ID filter — these are interpretability hygiene, not release polish.
+7. **Tokenizer freeze across stages**, base+tokenizer SHA in run manifest, fp16-merge-then-fresh-LoRA convention from the two-stage ADR.
+8. **Redistribution warnings** — manifest, README, dataset/model card, and any artifact directory carry "prototype-only, do not redistribute" markers (see *Repo-level labels* below).
+9. **No public weights from unclear/flagged data, full stop.** Weights inherit the dirtiest data they saw.
+10. **Source-specific terms override "publicly available."** A ToS line forbidding scraping or model training overrides the fact that the page is reachable.
+
+### Release gate (unchanged from prior ADR; restated for clarity)
+
+Required before anything leaves the prototype boundary:
+
+1. **Per-source cultural review by a named Hawaiian-speaking reviewer**, with each source marked `cleared`, `flagged`, or `restricted`. Only `cleared` sources may be in the released training mix. Hard-escalate categories require an explicit, recorded clearance — not silence.
+2. **Per-source training-rights review**, distinct from copyright (archive ToS, community expectations, attribution carried into the model card).
+3. **License whitelist re-applied** with no `unreviewed_prototype` rows in the training shard. CC0 / CC-BY / CC-BY-SA / explicit permissive only.
+4. **Contamination + cluster-aware split isolation**, synthetic ≤25% Stage 2 train and 0% dev/test, tokenizer audit locked.
+5. **Human eval** per the two-stage ADR's Stage 1 and Stage 2 gates (N=50–100 ideal, N=20/30 minimum) by a Hawaiian-reading reviewer.
+6. **Model card** documenting data provenance with each source's license, the prototype lineage, register skew (e.g., "X% of Stage 1 tokens are Bible-register"), known failure modes from prototype runs, and explicit not-fit-for statements (ceremonial / cultural / official translation use).
+7. **No prototype-tainted weights leak into the released chain.** A released model is trained from a corpus where every row is `cleared` and every license is whitelisted; it is *not* a prototype checkpoint relabeled. The merge convention (Stage 1 → fp16 → fresh Stage 2 LoRA) is reused, but the inputs are the cleared corpus.
+
+### Manifest schema
+
+Single prototype manifest file `prototype_manifest.parquet` (`.csv` while bootstrapping). One row per ingested document. Stage 1 / Stage 2 release manifests gain corresponding fields (`manifest_schema_version` bumps).
+
+| field | required | notes |
+|---|---|---|
+| `doc_id` | ✅ | stable, e.g. `ulukau-nupepa-kuokoa-1861-09-26-p3` |
+| `source` | ✅ | short slug: `ulukau-nupepa`, `baibala-hemolele-1868`, `wikipedia-haw`, … |
+| `source_url` | ✅ | direct URL fetched, or local archive path |
+| `fetch_date` | ✅ | ISO-8601 UTC |
+| `sha256_raw` | ✅ | hash of bytes as fetched, before normalization |
+| `bytes_raw` | ✅ | raw size |
+| `language` | ✅ | `haw`, `en`, `haw+en`, `mixed` |
+| `license_status` | ✅ | `cc0` \| `cc-by` \| `cc-by-sa` \| `public-domain-claimed` \| `permissive-other` \| `unclear` \| `restricted` |
+| `license_note` | ⬜ | free text; cite the page where status came from |
+| `terms_snapshot_path` | ⬜ | path to saved ToS / rights page |
+| `cultural_review_required` | ✅ | bool; true for hard-escalate categories |
+| `cultural_review` | ✅ | `unreviewed_prototype` \| `unreviewed` \| `cleared` \| `flagged` \| `restricted` |
+| `cultural_tags` | ⬜ | array: `mele`, `oli`, `pule`, `moolelo`, `mookuauhau`, `place-name-lore`, `nupepa-pre-1925`, `restricted-archive`, … |
+| `register` | ⬜ | `news`, `religious`, `legal`, `narrative`, `reference`, `conversational`, … |
+| `original_direction` | ⬜ | parallel only: `en→haw`, `haw→en`, `unknown` |
+| `normalization` | ✅ | semicolon-joined: `nfc;okina-u02bb;kahako-preserved;ocr-cleaned-vN` |
+| `split` | ⬜ | `train` \| `dev` \| `test` \| `holdout` \| `unassigned` |
+| `intended_use` | ✅ | `prototype_private` (default) \| `release_candidate` |
+| `prototype_only_reason` | ⬜ | free text, required when `intended_use=prototype_private` and the row would not pass release gates |
+| `release_eligible` | ✅ | bool; default **false**; flip only after release-gate review |
+| `notes` | ⬜ | OCR caveats, alignment quality, source quirks |
+
+**Loader enforcement:** a run tagged `release_candidate` rejects any row whose `intended_use=prototype_private` or `cultural_review ∈ {unreviewed, unreviewed_prototype, flagged, restricted}` or `license_status ∈ {unclear, restricted}`. CI check.
+
+Promotion path prototype → release: add per-pair rows for parallel data, fill optional fields the release schema requires, run cultural review, populate `release_eligible=true` per row.
+
+### Source-specific notes (engineering, not legal)
+
+**Ulukau.org newspapers (nūpepa).** High-value Hawaiian corpus and the most culturally loaded. **Pre-1925 nūpepa bulk ingestion stays on the hard-escalate list.** Tag every doc with `cultural_review_required=true`, `source=ulukau-nupepa`, paper title + issue date. Capture Ulukau's terms-of-use and any per-collection notices into a `terms_snapshot/` directory keyed by source; link from the manifest, don't paraphrase. OCR confidence is a normalization-stage field; don't silently train on garbage. Until a cultural-review owner is named, nūpepa stays prototype-only, not for release.
+
+**Bible / parallel texts.** Useful for Stage 2 (parallel en↔haw). Register is narrow (religious, archaic) — useful but not representative. Tag `register=religious`, `original_direction=en→haw` where known. Multiple Hawaiian Bible translations exist with different copyright statuses; record the specific edition, translator, and publication year per text — "Bible = public domain" is not assumed. Verse-level alignment is usually safe; chapter-level is not. Bible-heavy training data biases the model toward mission-era register; document the bias and include a non-Biblical held-out probe so register memorization isn't mistaken for fluency.
+
+**General "publicly available" sources.** Public availability ≠ open license ≠ training-permitted. Prefer sources with a clear license statement; when absent, tag `license_status=unclear` and treat as prototype-only.
+
+### Two-stage plan under prototype scope
+
+The two-stage plan remains valid. Adjusted gate semantics:
+
+- **Stage 1 prototype gate:** pipeline runs end-to-end; NFC + ʻokina + kahakō integrity preserved through tokenizer and generation; contamination guard green; English-PPL not catastrophically blown up; Hawaiian-PPL moves in the expected direction on a held-out slice. Native-speaker eval encouraged but **not blocking**; if it happens, log as a learning, not as a ship gate.
+- **Stage 2 prototype gate:** chrF/chrF++ in both directions reported separately on a held-out test set with verified zero-overlap to Stage 1 corpus and Stage 2 train; contamination guard green; no-translation-leakage check green. Human adequacy/fluency eval encouraged but **not blocking**.
+- **Bible-text caveat:** if Bible text is a non-trivial share of the corpus, the run report calls out register skew explicitly and includes a non-Biblical held-out probe.
+- **Nūpepa caveat:** Rusty's tokenizer audit must be re-run on a representative nūpepa sample and on *Baibala Hemolele* before drawing conclusions; period orthographic conventions distort generic Hawaiian audits.
+
+### Repo-level labels and warnings
+
+Until a release-gate pass exists, the repo and any artifact dir carry these markers somewhere visible (README, dataset card, model card, artifact dir `README.md`):
+
+- `Status: PROTOTYPE — learning project, not for redistribution.`
+- `Training data: includes sources with unclear or unreviewed status. Do not redistribute.`
+- `Weights / adapters: not for public release until data is cleared and cultural review is complete.`
+- `Cultural review: pending. Hawaiian cultural materials may be present without community consultation.`
+- For any artifact that ships out: explicit `LICENSE-DATA-NOTES.md` summarizing what's inside and why it's not redistributable.
+
+Suggested git-tracked tags for commits / branches that touch training data: `prototype-data`, `do-not-release`.
+
+### README follow-up (recommendation, not edited here)
+
+Queue a follow-up README pass:
+
+- **Prototype banner** at the top: this repo is a learning prototype; nothing here is intended for public release without a separate clearance pass.
+- Reframe **Goals**: soften "Publish weights, tokenizer, eval harness, and data manifests under permissive terms" into a conditional — *if and when* the release gates in this ADR are met. Replace the implicit promise with an explicit two-tier statement.
+- Reframe **Non-Goals**: add "Releasing weights or generations from prototype runs."
+- Rewrite **Data & Provenance** to describe the public-source exploration plan honestly: ulukau.org nūpepa and parallel Bible texts are candidate prototype inputs; copyright posture, archive-access posture, and cultural-clearance posture are three separate things; only the first is satisfied by "public-domain."
+- Rewrite **License (intent)** to clarify code/configs/eval-harness intent stays permissive; weights and data manifests are not promised for release and require the release gates above.
+- Add a short **Prototype vs. Release** section pointing at this ADR.
+
+### Trade-offs
+
+| Option | Pros | Cons |
+|---|---|---|
+| **Prototype/release split (chosen)** | Lets the project actually run; preserves release-quality bar; keeps engineering discipline (manifests, contamination guard, hygiene) that makes the work reusable later; honest about what's private vs public. | Requires loader-level enforcement of `intended_use`; adds manifest fields; relies on contributor honoring the boundary. |
+| Drop cultural/license gates entirely | Simplest; matches "prototype" framing literally. | Burns the option to ever release; corrupts the manifest discipline that makes the prototype itself useful; wrong norm for a Hawaiian-language project. |
+| Keep prior ADR as written | Maximum integrity. | Project cannot proceed with sources the user can actually access; ADR gets violated silently or work stalls — both worse than a documented relaxation. |
+| Pivot to *only* fully cleared sources | Keeps release path live. | Likely no usable Hawaiian corpus at this budget; defeats learning purpose. |
+
+### Implications
+
+- Linus's prior data-gate posture is **not repealed**; it is **scoped** to `intended_use=release_candidate`. Prototype rows live under the relaxed posture defined here. The loader is the enforcement point.
+- Basher's training recipe is unchanged.
+- Rusty's tokenizer audit gains a sub-task: run on a representative nūpepa sample and on *Baibala Hemolele*.
+- Livingston's budget framing is unchanged; prototype scope reduces pressure on the upper-tier full-fine-tune contingency.
+- The Qwen2.5-0.5B smoke test is even more clearly the right first artifact: it validates the pipeline on prototype-scope data with no release ambiguity.
+- README is out of date with respect to this ADR — flagged for a follow-up pass, not edited here.
+- Next data-side task: stand up `prototype_manifest.parquet` validator script; draft Ulukau / Bible ingestion checklist that captures terms snapshots and cultural tags at fetch time.
+
+### Open team gaps
+
+- **Cultural-review owner remains unassigned.** Softer at prototype scope (runs can proceed with `unreviewed_prototype`); for any release path it is **the** blocking gap.
+- **Archive / community-relations owner unassigned.** Distinct from cultural review; needed if release becomes real (Ulukau / Awaiaulu / Bishop Museum / Kamehameha Schools contact).
+- **Register-balance reviewer.** If Bible text dominates the prototype corpus, someone (Rusty + a Hawaiian reader) owns "is this model just doing 19th-century missionary register?" diagnostics. Should be made explicit in Rusty's scope.
+
+### Alternatives considered
+
+1. Treat the user directive as overriding the data gates entirely — rejected; the gates' engineering content (manifests, contamination guard, normalization) is what makes a prototype worth running.
+2. Define prototype as "train on whatever, no manifest" — rejected; produces an unreproducible run that teaches nothing transferable.
+3. Block the project until a cultural reviewer is named — rejected; the block applies to release, not to learning.
+4. Require Bible text be excluded as too register-skewed — rejected; measure and disclose the skew, not ban it.
+5. Promise public release "eventually" in the README without a gate definition — rejected; that's the failure mode this ADR exists to prevent.
+
+### Provenance
+
+Consolidates three inbox proposals (now deleted): `copilot-directive-2026-04-28T19-55-04-0700-prototype-public-data.md`, `linus-prototype-data-posture.md`, `danny-prototype-scope.md`. See orchestration-log entries dated 2026-04-29T03:01:58Z.
