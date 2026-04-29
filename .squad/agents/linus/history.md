@@ -94,3 +94,12 @@ For this prototype's Tier A/B sources (Ulukau, gov pages, curated dumps):
 - **Dedup helpers:** `datasketch` (MinHash) downstream — not a fetcher but lives in same pipeline.
 
 Recommendation: start with `requests + tenacity + warcio + trafilatura`, add Scrapy only if a source's adapter needs crawl logic. Skip Playwright unless a source forces it.
+
+## 2026-04-29 — Raw data deps setup script
+
+- Added `scripts/setup.sh` (POSIX `sh`, idempotent) + `requirements.txt` at repo root. Script creates a local `./.venv`, upgrades pip/wheel, installs requirements; respects `PYTHON`, `VENV_DIR`, `REQ_FILE` env overrides; refuses to clobber a non-venv dir of the same name.
+- Default stack: `requests`, `tenacity`, `warcio`, `trafilatura`, `selectolax`, `scrapy`, `scrapy-warc`, `internetarchive`, `wayback`, `cdx_toolkit`, `yt-dlp`, `datasketch`.
+- **Playwright deliberately omitted** for the prototype. Ulukau/Wikisource/Bible/archive.org/Tatoeba/FLORES targets are static HTML or downloadable archives; JS rendering not worth the install cost yet. Revisit per-source if needed.
+- Updated `.gitignore` to exclude `.venv/`, `.venv-*/`, `__pycache__/`, `*.pyc`. No README edit; the script is self-documenting and README is a design narrative, not a getting-started.
+- Validation: `sh -n` and `bash -n` clean; no shellcheck available locally; full network install not run.
+- No ADR — implements existing tooling guidance from prior data-pipeline notes; no decision file written.
