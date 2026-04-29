@@ -441,3 +441,39 @@ Design choices that future-Frank should preserve:
 Decision-inbox file: `.squad/decisions/inbox/frank-fineweb2-scripts.md` flags Linus's
 two open questions (dep call, per-URL rights posture) and Rusty's tokenizer-fragmentation
 sanity check.
+
+## Learnings — 2026-04-29 Stage-0 eval source shortlist
+
+Triggered by yashasg: "lets make a list of stage - 0 eval data sources". Memo
+filed at `.squad/decisions/inbox/frank-stage0-eval-sources.md`. No fetches, no
+scripts.
+
+- **Stage-0 ≠ Stage-2 dev/test anchor.** Stage-0 is internal smoke-test slices for
+  prototype loops; the FLORES-replacement eval-anchor question is a separate, larger
+  decision. Keep them filed apart so the smaller, faster Stage-0 unblock isn't held
+  up by the anchor debate.
+- **First-wave shortlist (W1):** FineWeb-2 `haw_Latn` `test` split (887 rows, already
+  fetchable via existing 205 script), `hawwiki` held-out page-ID slice from the dump
+  we already have, eBible `haw1868_readaloud.zip` + KJV verse-anchor pair,
+  `mrlbenchmarks/global-piqa-parallel` `parallel_haw_latn.tsv`, and a hand-curated
+  manual-seed TSV under `data/eval/manual_seed/`. All five are zero-or-trivial
+  blocker.
+- **Second-wave (W2):** BibleNLP `haw`, Weblate `en-haw.tsv`, Taxi1500 `haw_Latn`,
+  Tatoeba `haw↔eng`, IA PD micro-slice, hawwikisource (only as training register),
+  Hawaiian Corpus Project (research-gated; URL/licence not pinned).
+- **Avoid:** FLORES (no Hawaiian), `hwc` (Hawaiian Pidgin/Creole, not Hawaiian),
+  Nupepa CGI (Cloudflare; no bypass), automated Ulukau bulk fetch, Common Voice
+  (no Hawaiian locale), CC-100 (no `haw`).
+- **Stage-0-specific rights nuance:** FineWeb-2 wrapper is `odc-by`; the per-URL
+  third-party rights concern that blocks Stage-1 *training* use is *narrower* for
+  eval-only Stage-0 because we never redistribute the rows. Flagged for Linus as a
+  scoped question rather than waiting on the full Stage-1 ruling.
+- **Manual-seed is underrated.** The fastest path to a non-noisy "does the model
+  output Hawaiian at all" probe is a tiny hand-curated TSV with per-row attribution.
+  Quality is the blocker, not access — needs a fluent reviewer before it's trusted.
+- **Eval-hash discipline carries through.** Whatever Stage-0 slices we pick get
+  hashed into `data/eval/eval_hashes.parquet` *before* any Stage-1 / Stage-2 train
+  ingest re-runs, same rule as the Stage-2 anchor.
+- **Did not modify** `data-sources/hawaiian-data-sources.json`: that's a routing
+  config for collectors, and Stage-0 eval-only slices belong in
+  `data/eval/...` + per-source manifests, not the routing config.

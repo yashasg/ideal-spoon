@@ -2121,3 +2121,112 @@ Yes. Multiple real Hawaiian (`haw` / `haw_Latn`) configs exist on HF beyond Fine
 
 Frank verified HF Hub metadata, sibling listings, language tags. No parquet bytes downloaded; no raw text inspected. Metadata-only probe.
 
+
+---
+
+## Merged Decision: Stage-0 Evaluation Data Source Candidates
+
+**Authors:** Rusty (NLP Researcher), Frank (Hawaiian Data Collector)  
+**Date:** 2026-04-29  
+**Status:** Accepted — W1 (first wave) sources approved; W2 sources queued; Linus decisions pending  
+**Scribe orchestration:** orchestration-log/2026-04-29T09-54-52Z-stage0-eval-sources.md
+
+### Scope
+
+Stage-0 = tiny sanity-check / smoke-test eval slices for prototype loops. Not for public benchmark claims; not for Stage-2 dev/test anchoring (separate decision). Goal: which sources can we *actually fetch or manually seed* today, end-to-end, with no Cloudflare bypass and no rights gamble.
+
+### Ground Rules (Reaffirmed)
+
+- **No Cloudflare/access-control bypass:** Nupepa CGI, Papakilo, HathiTrust, Chronicling America Hawaiian batches all deferred.
+- **No FLORES Hawaiian:** FLORES-200 and FLORES-Plus do **not** include Hawaiian. Explicitly flagged in `docs/data-pipeline.md` Stage-2 §300; do not assume `hawn_Latn` FLORES config exists.
+- **`hwc` is not Hawaiian:** ISO `hwc` = Hawaiian Pidgin / Hawaiʻi Creole English (English-lexified creole). Real Hawaiian ISO is `haw` / `haw_Latn`.
+- **No new scripts in this memo:** FineWeb-2 adapters already landed (105/205). Stage-0 reuses existing fetch paths or hand-seeded files.
+- **Stage-0 ≠ training:** Anything seeded as Stage-0 eval hashes into `data/eval/eval_hashes.parquet` *before* any training adapter touches it (contamination rule).
+
+### Recommended Stage-0 First Wave (W1 — Zero Blockers)
+
+| # | Source | Access | Notes |
+|---|---|---|---|
+| 1 | **FineWeb-2 `haw_Latn` test split** (887 rows) | HF datasets-server `/rows` API or parquet. Already wired via `205_fetch_fineweb2_haw_raw.py --split test`. Verified live. | Web-text sanity slice. Expect English boilerplate inside Hawaiian-LID rows (feature for Stage 0, lets us measure paragraph-level LID). ODC-By wrapper; per-URL rights vary. Eval-only internal use OK. |
+| 2 | **Hawaiian Wikipedia held-out slice** (50–100 random page IDs from `hawwiki` dump already pulled) | Trivial — no new fetch. Deterministic hold-out from existing extracted artefact. Must hash into `eval_hashes.parquet` before Stage-1 ingest re-runs. | Wikipedia contemporary-ish encyclopedic register. CC BY-SA 4.0 + GFDL. Memorization risk (globally available, base may have seen it) — useful as floor sanity check, not generalization claim. |
+| 3 | **eBible `haw1868` + KJV anchor** (Baibala Hemolele 1868) | One-zip GET from eBible + `eng-kjv2006_usfm.zip` for verse alignment. Public, stable URL. PD. | Verse-aligned bilingual probe. Religious-domain overfit baseline ("is the model collapsing into Bible register?"). Edition pin required (Linus decision pending). |
+| 4 | **`global-piqa-parallel` → `parallel_haw_latn.tsv`** (HF) | `huggingface_hub.hf_hub_download` or raw `resolve/main/...tsv` GET. Small commonsense QA pairs. Trivial fetch. | Commonsense parallel eval anchor (doesn't rely on FLORES). Eval-only by design. Hash into `eval_hashes.parquet` first. License verification pending (Frank action). |
+| 5 | **Manual-seed micro eval set** (10–50 hand-written `en↔haw` sentence pairs, openly licensed sources) | Hand-curated TSV in `data/eval/manual_seed/` with per-row source URL + licence column. No fetcher. Zero blockers; fluent-reviewer gate pending (Linus decision). | Tokenizer / orthography survival. Register diversity (newspaper / Bible / wiki / dictionary). Minimum row count + register split TBD (Rusty action). Fastest unblock for "does the model output Hawaiian at all" smoke test. |
+
+**This W1 bundle gives us:**
+- Orthography survival numbers (sources 1, 2, 3, 5 via varied diacritic density).
+- Language-ID + paragraph-level LID re-gate sanity (sources 1, 2).
+- Translation sanity floor (sources 3, 4).
+- Religious-domain overfit signal (source 3, comparison vs. 1, 2).
+- Lexical / morphological probe (manual seed from source 5).
+- Plumbing: does the eval harness load, normalize, produce a number?
+
+**All small enough to evaluate in <30 min on single GPU.** Enough to drive "does this prototype generate Hawaiian at all, and does it align verses correctly" smoke loop.
+
+### W2 (Second Wave — After W1 Lands)
+
+- **BibleNLP corpus `haw`:** verse-aligned cross-check vs. eBible (edition mismatch expected; dedup-by-verse, not string).
+- **Weblate Translations `en-haw.tsv`:** software-l10n strings (domain-shift smoke test, tag `register=software-l10n`).
+- **Taxi1500 Hawaiian:** Bible-derived topic classification diagnostic *only* (verify row count before promotion).
+- **Tatoeba `haw`↔`eng`:** translation sanity. **Live row count unverified** — confirm before use; small enough that careless use makes eval memorisable. Hold out aggressively; n-gram overlap audit. CC BY 2.0 FR.
+- **Internet Archive PD slice:** OCR noise is blocker for eval; better as register-diversity training comparator.
+- **Hawaiian Corpus Project derived artefacts:** status unknown; no fetch until source URL + licence pinned.
+- **`hawwikisource` literary slice:** weak Stage-0 fit (small, mostly Bible/historical reprints already covered by eBible/IA); use as training register, not Stage-0 eval slice.
+- **`hawwiktionary` headword + example slice:** lexical coverage, morphology probe. `103_collect_hawwiktionary.py` exists. CC BY-SA 4.0. Headword-only entries **not** translation pairs. (Rusty flags "use now"; Frank defers to W2; collect on W1 if dump available.)
+
+### Avoid (Do Not Pursue for Stage-0)
+
+- **FLORES / FLORES+ / FLORES-200 Hawaiian:** **Does not exist.** Explicitly absent from all FLORES variants checked.
+- **`hwc` (Hawaiian Pidgin / Creole English):** False friend; English-lexified creole, not Hawaiian.
+- **Nupepa CGI (`gsdl2.7/cgi-bin/nupepa`):** Cloudflare-blocked; bypass policy-prohibited.
+- **Ulukau automated fetch:** Cloudflare / Greenstone risk; per-collection manual probing OK, automated bulk fetch not.
+- **Mozilla Common Voice `haw`:** Hawaiian is **not** a Common Voice locale (API returns `{"message":"no user"}`).
+- **CC-100 `haw`:** Not in CC-100 manifest; FineWeb-2 supersedes.
+- **JW300:** ToS-blocked (per `docs/data-pipeline.md`).
+
+### Open Questions Routed to Team
+
+1. **Linus (Hawaiian Data Licensing Lead):**
+   - FineWeb-2 W1 eval-only use: accept wrapper ODC-By posture without per-URL allow-list, or resolve per-URL rights first? (Stage-1 training side separately blocked; W1 eval-only is narrower question.)
+   - Baibala edition pin for Stage-0 held-out verse sample (Hemolele 1868 vs. modern) + matched English PD edition (KJV vs. ASV).
+   - Gate on Hawaiian-reader review before any quoted Stage-0 diagnostic number, or acceptable as-is?
+   - Confirm `docs/data-pipeline.md` Stage-2 §300 gets "FLORES has no Hawaiian" fix before Stage-0 eval-hash work starts.
+
+2. **Rusty (NLP Researcher):**
+   - Manual-seed micro eval minimum row count + register split (newspaper / Bible / wiki / dictionary) before treating as real signal vs. smoke test?
+   - Tatoeba row-count confirmation (needs to be small enough to hold out aggressively without memorization risk).
+   - Paragraph-level LID re-gate timing: evaluate at Stage 0 on FineWeb-2 test split, or defer to Stage 1? (Rusty leans Stage 0 — cheap diagnostic, load-bearing for any Stage-1 cleanup claim.)
+
+3. **Frank (Hawaiian Data Collector):**
+   - Verify `global-piqa-parallel` Hawaiian row count + license before Stage-0 load.
+   - Verify Tatoeba Hawaiian row count (via direct download from Tatoeba export endpoints).
+   - Confirm NLLB-Seed actually carries `haw_Latn`; confirm UDHR Hawaiian translation availability + license; confirm Taxi1500 Hawaiian slice presence (before promoting items 7–10 from "verify next" to "use now").
+
+4. **Coordinator / Danny (Lead):**
+   - Route paragraph-level LID re-gate design decision to Livingston (eval architect) or Danny, if not resolving to Rusty Stage-0 proposal.
+
+### What We Are *Not* Claiming with Stage-0 Data
+
+- No headline chrF / BLEU / COMET number.
+- No "the model is fluent in Hawaiian" claim.
+- No generalization claim from `hawwiki` (memorization risk).
+- No benchmark comparison to other Hawaiian models (no benchmark-grade sources; FLORES has no Hawaiian).
+- No row counts beyond `docs/data-pipeline.md` assertions (FineWeb-2 train 95,507 / test 887). Everything else "size not asserted".
+
+### Deliberate Scope Limits
+
+- Did **not** fetch new data (existing live verifications reused from prior history).
+- Did **not** write or modify scripts (source-shortlist memo only).
+- Did **not** add to `data-sources/hawaiian-data-sources.json` (routing config; Stage-0 eval-only entries belong in `data/eval/eval_hashes.parquet` + per-source manifest).
+- Did **not** propose probing Nupepa / Ulukau / HathiTrust / Papakilo / Chronicling America further from this environment.
+
+### Cross-References
+
+- `docs/data-pipeline.md` — Stage 1 / Stage 2 source tiers, FineWeb-2 row counts, FLORES-absent note, eval-hash discipline, manifest schema.
+- `docs/eval_pipeline.md` — eval cadence, slicing axes, metrics, 30–60 min fixed eval budget.
+- `.squad/decisions.md` § "Language Config Normalization Advisory" — `haw_Latn` manifest handling, false-positive filter risks.
+
+### Integration Checkpoint
+
+✅ **W1 sources approved for harness integration.** Linus rights + review-gate decisions unblock quoted diagnostics. Rusty row-count decisions unblock manual-seed trust. Coordinator routes paragraph-level LID decision. Stage-0 eval harness ready to load W1 bundle once decisions resolve.
+

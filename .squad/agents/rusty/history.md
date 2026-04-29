@@ -242,3 +242,13 @@ No new ADR. This is operational guidance extending `data-pipeline.md` manifest s
 **Context:** FineWeb-2 `haw_Latn` contains English boilerplate inside Hawaiian-LID rows; Stage-1 inclusion criteria TBD pending tokenizer analysis.
 
 **Reference:** `.squad/decisions.md` → "Decision Note: FineWeb-2 `haw_Latn` 100/200 Scripts Landed" (merged 2026-04-29T09:40:34Z).
+
+### Stage-0 eval source candidate list (2026-04-29)
+- Wrote inbox proposal `rusty-stage0-eval-sources.md` enumerating Stage-0 eval data candidates.
+- **Use now:** hand-curated orthography micro-eval, `hawwiki` held-out slice, `hawwiktionary` headword/example slice, FineWeb-2 `haw_Latn` `test` split (887 rows verified), Tatoeba `haw`↔`eng`, tiny pinned Baibala held-out verse sample (religious-overfit probe, **not** a headline metric).
+- **Verify next:** `global-piqa-parallel haw` (row count + license — re-anchors Frank's open Stage-2 dev question), Taxi1500 haw (diagnostic only), NLLB-Seed `haw_Latn` (presence not confirmed), UDHR Hawaiian (translation + license).
+- **Maybe later:** `hawwikisource` literary slice (period-orthography skew), OPUS software-l10n (register skew), Pukui-Elbert example fields (rights-mixed).
+- **Avoid:** FLORES / FLORES+ / FLORES-200 (no Hawaiian config — explicit; do not assume `hawn_Latn` exists), JW300 (ToS-blocked), pre-1925 Ulukau/Nupepa bulk (rights-gated, prototype-private), Hawaiian Pidgin/`hwc` (out of scope, do not conflate with `haw_Latn`).
+- Stage-0 framing: this stage is *sanity / tokenizer / pipeline plumbing*, not benchmark scoring. No headline chrF/BLEU/COMET number is justified by Stage-0 data alone, and none of these sources should be quoted as such.
+- Bundle keeps eval cost inside the `docs/eval_pipeline.md` "cheap fixed eval ~30–60 min" budget and reuses already-wired collectors (101/102/103/105) plus Tatoeba/Baibala adds.
+- Open question pinned for Linus: Baibala edition pin + matched English PD edition; whether the hand-authored micro-eval needs a Hawaiian-reader pass before any *quoted* Stage-0 number.

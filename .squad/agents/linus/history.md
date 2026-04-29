@@ -541,3 +541,23 @@ Broad planner (`001`–`003` phase-numbering era) now archived in decision histo
 2. Per-URL rights posture: accept rows wholesale at prototype scope, or enforce per-URL allow/deny list? (205 preserves per-row `url` for downstream policy enforcement in 301.)
 
 **Reference:** `.squad/decisions.md` → "Decision Note: FineWeb-2 `haw_Latn` 100/200 Scripts Landed" (merged 2026-04-29T09:40:34Z).
+
+## 2026-04-29T09:54:52Z — Stage-0 eval sources: rights + dependency review flagged
+
+Rusty (NLP Researcher) + Frank (Hawaiian Data Collector) delivered W1 (first-wave Stage-0) and W2 (second-wave) eval source candidates. Scribe merged proposals into `.squad/decisions.md` § "Merged Decision: Stage-0 Evaluation Data Source Candidates." **Key points flagged for Linus decision:**
+
+1. **FineWeb-2 W1 eval-only rights posture:** Accept wrapper ODC-By posture without per-URL allow-list for internal eval-only use, or escalate per-URL rights review first? (Stage-1 training side of FineWeb-2 is separately blocked on this decision; W1 eval-only is the narrower question. Linus prior learnings: "Per-URL rights posture: Accept rows wholesale at prototype scope, or enforce per-URL allow/deny list downstream?"—still open.)
+
+2. **Baibala Hemolele edition + English anchor:** Pin Stage-0 held-out verse sample edition (1868 vs. modern) + matched English PD edition (KJV vs. ASV). Historical note: eBible public URL stable; `eng-kjv2006_usfm.zip` is PD; multiple Baibala editions exist with different rights. Per prior learnings: "Bible-heavy training biases toward mission-era register; document the bias; record edition + translator + year per text."
+
+3. **Hawaiian-reader review gate:** Stage-0 quoted diagnostics require a Hawaiian-literate reviewer pass, or acceptable as-is for internal smoke tests? (Prior gap noted: "cultural-review role is unassigned." This is a narrower, practical question for Linus / Rusty / Danny.)
+
+4. **Confirm `docs/data-pipeline.md` FLORES fix:** Stage-0 eval-hash work should not accidentally seed against non-existent FLORES Hawaiian config. Escalate "FLORES has no Hawaiian" fix in Stage-2 §300 if not already landed.
+
+Open queries filed for Frank (Hawaiian Data Collector) + Rusty (NLP Researcher) + Coordinator in `.squad/decisions.md` § "Open Questions Routed to Team."
+
+**W1 bundle ready for harness integration** pending these decisions: FineWeb-2 test (887 rows, access verified), hawwiki held-out (no new fetch), eBible haw1868 + KJV (PD, stable URL), global-piqa-parallel TSV (license TBD Frank action), manual-seed micro-eval (10–50 hand-curated pairs, fluent-review TBD). Tatoeba row count unverified (Frank action). All small enough for <30 min eval on single GPU.
+
+**W2 sources flagged (research-gated):** BibleNLP cross-check, Weblate l10n, Taxi1500 classification, IA PD slice, Hawaiian Corpus Project (status unknown). Not blockers for W1.
+
+**Avoid list confirmed:** FLORES absent, hwc false-friend, Cloudflare-blocked (Nupepa, Ulukau), JW300 ToS-blocked, Mozilla Common Voice haw absent, CC-100 haw absent. No changes from prior ADRs.
