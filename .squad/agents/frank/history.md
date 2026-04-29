@@ -213,3 +213,32 @@ User asked for a separate "002 script" for Hawaiian Wikisource so the dump-shape
 - **Validation:** `python3 -m py_compile scripts/00{1,2,2b,3}*.py` clean. `python3 scripts/002b_fetch_hawwikisource_raw.py --help` and `--dry-run --limit 5` print the planned URL only, write nothing. `python3 scripts/002_fetch_rightslight_raw.py --source all --dry-run` now lists `['hawwiki', 'hawwiktionary']` only. `python3 scripts/002_fetch_rightslight_raw.py --source hawwikisource` exits with the redirect message. `python3 scripts/001_collect_rightslight.py` emits the updated plan. No corpus pulled. `git status` clean for `data/`.
 - **Decision filed:** `.squad/decisions/inbox/frank-wikisource-split.md`.
 - **Coordination:** Linus still owns the Wikisource extracted-text contract; nothing about NFC/ʻokina policy changed here. Rusty unchanged.
+
+## 2026-04-29 — 100-phase split into per-source collection scripts
+
+User flagged that the broad rights-light collection plan was the wrong shape: each source has its own formatting (Wikimedia dump SHA1 manifest vs. MediaWiki API per-page enumeration vs. archive.org item IDs, …) and forcing them through one schema lost too much per-source detail. Refactored the 100 phase to source-specific `10X_collect_<source>.py` scripts.
+
+- **Retired:** `scripts/101_collect_rightslight.py` (deleted).
+- **New:**
+  - `scripts/101_collect_hawwiki.py` — emits `data/local/hawwiki/collect_plan.json` (dump-shape metadata for 201).
+  - `scripts/102_collect_hawwikisource.py` — emits `data/local/hawwikisource/collect_plan.json` always, and `page_plan.jsonl` (per-page fetch plan for 202) when `--enumerate` is passed. Default is metadata-safe with no network access; `--enumerate` walks the MediaWiki `list=allpages` API to populate the page plan; `--dry-run` keeps it print-only.
+  - `scripts/103_collect_hawwiktionary.py` — emits `data/local/hawwiktionary/collect_plan.json`. Records the upstream `hawwiktionary-latest-sha1sums.txt` 404 as an explicit blocker so future agents re-check before any bulk run.
+- **`202_fetch_hawwikisource_raw.py`** now accepts `--page-plan PATH` (default `data/local/hawwikisource/page_plan.jsonl`); reads `{ns, page_id, title}` rows produced by 102 and uses them as the page list. If the file is missing or empty, 202 falls back to direct enumeration as before. `--no-page-plan` forces the fallback. Docstring updated.
+- **`201_fetch_rightslight_raw.py`** docstring/error message updated to point at `101_collect_hawwiki.py` and `103_collect_hawwiktionary.py` instead of the deleted broad planner. Behaviour, allow-list, and provenance schema unchanged.
+- **`docs/data-pipeline.md`** — Source-fetcher → Stage-1 builder handoff section now describes the `10X_collect_<source>.py` convention and points each 100 → 200 → 300 step at its concrete script.
+- **Page-plan row schema (the cross-script contract):** `{ns: int, page_id: int, title: str, source_url, api_url, rights_status_hint, license_observed, tos_or_license_url}`. 202 only requires the first three; the rest are advisory and propagate the source-level rights posture for downstream auditing.
+- **No data-policy change.** Right-clearable allow-list unchanged; nūpepa/Baibala/etc. still deferred. Storage stays local-only under `data/local/<source>/` and `data/raw/<source>/`. `ProvenanceRecord` schema in 201/202 unchanged → no Linus-side breakage.
+- **Validation:** `python3 -m py_compile` clean on all six active scripts (101/102/103/201/202/301). `--help` works for all new/changed scripts. Ran 101/102/103 with no flags → wrote `collect_plan.json` files (and an empty `page_plan.jsonl` placeholder for 102) under `data/local/<source>/`. Ran `202 --dry-run --limit 5` twice: once with empty page_plan (fell back to enumeration as expected), once with a 2-row synthetic page_plan (loaded both rows, printed the two `[dry-run] would GET page content: …` lines, no network corpus fetch). `git check-ignore -v` confirms `/data/` rule still covers everything written under `data/local/`.
+- **Decision filed:** `.squad/decisions/inbox/frank-source-specific-100-phase.md`.
+- **Open follow-ups:** new sources land as new `10X_collect_<source>.py` scripts (e.g. `104_collect_tatoeba_haw.py`, `105_collect_hawwiki_langlinks.py`) — same shape: emit a JSON plan to `data/local/<source>/collect_plan.json`, document fetcher_script, token estimates, blockers; the corresponding 2XX fetcher consumes it.
+
+## 2026-04-29 17:58:36Z — Scribe consolidation: inbox decisions merged, active policy confirmed
+
+Frank's 100-phase split work was reviewed, validated, and consolidated by Scribe. Inbox files merged into `.squad/decisions.md`. Active policy confirmed:
+
+- **100-phase is now source-specific:** `10X_collect_<source>.py` scripts remain active standard for all future source/fetch/build work across the team.
+- **202 consumes 102 page plans:** Wikisource page enumeration flows from `102_collect_hawwikisource.py` → `data/local/hawwikisource/page_plan.jsonl` → `202_fetch_hawwikisource_raw.py --page-plan`. Fallback to direct enumeration when plan is missing/empty or via `--no-page-plan`.
+- **Broad planner archived:** Prior decision entries (001–003) concerning phase-100 broad planner superseded by unified source-specific convention documented above.
+- **No corpus fetched, all validations passed, git status clean.**
+
+Future work (source additions, fetch enhancements, build stage updates) should reference this consolidated policy.

@@ -476,3 +476,16 @@ without touching `_emit_pages`.
   untouched — they are historical records of what was true at the
   time.
 - Decision note: `.squad/decisions/inbox/linus-phase-numbering.md`.
+
+### 2026-04-29 17:58:36Z — Scribe consolidation: 100-phase refactor confirmed, 202 consumes 102 page plans
+
+Frank's source-specific 100-phase split is now the active standard across the team. Key consolidation points affecting downstream work (Linus → 301_build_stage1_dataset.py):
+
+- **100 phase is now source-specific:** `101_collect_hawwiki.py`, `102_collect_hawwikisource.py`, `103_collect_hawwiktionary.py` replace the single broad `101_collect_rightslight.py`. Each emits a JSON plan file under `data/local/<source>/`.
+- **202 consumes 102 page plans:** Wikisource page-fetch planner (`102_collect_hawwikisource.py`) writes `data/local/hawwikisource/page_plan.jsonl`; `202_fetch_hawwikisource_raw.py` now defaults to reading this plan (`--page-plan PATH`, fallback to direct enumeration if missing).
+- **ProvenanceRecord schema unchanged:** `fetch.jsonl` rows still carry the same provenance shape. No 301-side changes required.
+- **No corpus fetched.** All validation passed; git status clean.
+
+Future sources should follow the same pattern: new `10X_collect_<source>.py` script → JSON plan → corresponding `2XX_fetch_<source>_raw.py` with optional plan-consumption flag → 301 source dispatch unchanged.
+
+Broad planner (`001`–`003` phase-numbering era) now archived in decision history.

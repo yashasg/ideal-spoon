@@ -1819,3 +1819,38 @@ NDJSON lines must contain at least `{"page_id": ..., "title": ..., "wikitext"|"t
 ---
 
 **Decision finalization status:** All four inbox items merged and deduplicated. Phase-hundreds convention is the current active policy. Previous `001`, `002`, `002b`, `003` numbering is superseded. No unresolved old decisions remain as current policy.
+
+### 2026-04-29T00:48:05-07:00: User directive — Source-specific collection scripts (Frank, Scribe consolidation)
+
+**By:** yashasg (via Copilot); consolidated by Scribe  
+**Status:** Active (supersedes prior broad-planner approach)  
+**Owner:** Frank (Hawaiian Data Collector)
+
+#### What
+The broad `scripts/101_collect_rightslight.py` planner has been retired. Each data source now has its own **source-specific 100-phase collection scripts** following the pattern `10X_collect_<source>.py`:
+
+- **101_collect_hawwiki.py** — Hawaiian Wikipedia dump-plan metadata (input for `201_fetch_rightslight_raw.py --source hawwiki`)
+- **102_collect_hawwikisource.py** — Hawaiian Wikisource page enumeration + per-page fetch plan (`data/local/hawwikisource/page_plan.jsonl` consumed by `202_fetch_hawwikisource_raw.py --page-plan`)
+- **103_collect_hawwiktionary.py** — Hawaiian Wiktionary dump-plan metadata (input for `201_fetch_rightslight_raw.py --source hawwiktionary`)
+
+`202_fetch_hawwikisource_raw.py` now accepts `--page-plan PATH` (default `data/local/hawwikisource/page_plan.jsonl`); when missing or empty, it falls back to direct enumeration. `--no-page-plan` forces fallback explicitly.
+
+#### Why
+Each source has its own fetch shape (Wikimedia dump SHA1 manifest, MediaWiki API page enumeration, archive.org item IDs, etc.) and metadata. Forcing them through a single schema lost per-source detail. Per-source scripts make the collection contract for each source explicit and reviewable.
+
+#### Scope & Non-goals
+- **Not** a rights-policy change. The right-clearable allow-list is unchanged.
+- **No** corpus text fetched by 100-phase scripts; only metadata and optional page-plan enumeration.
+- Storage: `data/local/<source>/` (gitignored).
+
+#### Validation
+- `python3 -m py_compile` clean for all affected scripts
+- `--help` works; dry-run successful; no corpus fetched
+- `git status --short data/` clean
+
+#### Coordination
+- **Linus:** No schema change to `ProvenanceRecord`; `202` → `301` handoff unchanged
+- **Rusty:** No tokenizer/normalization impact
+
+#### Supersedes
+Prior decision `001`, `002`, `002b`, `003` entries concerning phase-100 broad planner. Phase-hundreds convention (per-source, per-stage) is now the active standard for all future source/fetch/build work.
