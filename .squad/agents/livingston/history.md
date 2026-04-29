@@ -123,3 +123,20 @@
 - Decision advisory merged into `.squad/decisions.md` alongside Basher's technical fit analysis.
 - Inbox files deleted post-merge.
 - Cross-agent: Basher affirmed HF Hub push reliability is now part of provider-fit checklist (alongside CUDA pinning). This hardens our checkpoint-contract ADR.
+
+## 2026-04-29T10:46:19Z — Basher learning skeleton complete; framework ADR remains gate for serious eval harness
+
+**From:** Scribe (Cross-agent context)
+
+**Update:** Basher delivered learning skeleton and Llama-3.1-8B config; all decisions now in main.
+
+**Skeleton implications for your eval work:**
+- `code/llm_hawaii/evaluate.py` is learning-scope template with TODO for run-report writer (matching `docs/eval_pipeline.md` §8).
+- Your run-report schema and checkpoint evaluation harness remain unchanged. Basher's module is a learning skeleton, not your infrastructure.
+- Manual micro-eval (Rusty + Linus) and FineWeb-2 slicing remain the real eval surface for prototype training.
+
+**Framework ADR still gates serious code:**
+- Basher's skeleton uses PyTorch + HF as learning path, but framework is not yet pinned for production. ADR remains gate before any real training eval loop is wired.
+- Smoke-tier baseline measurement (Qwen2.5-0.5B) can proceed without framework ADR (it's local sanity). Serious runs wait on framework decision.
+
+**Reference:** `.squad/decisions.md` → "Decision: PyTorch + Hugging Face for the Learning Skeleton under `code/`".

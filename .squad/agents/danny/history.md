@@ -93,3 +93,23 @@
 **From Scribe:** Frank's 100/200 fetcher/planner delivered and integrated. Docs updated. Two open decisions escalated to Linus (dependency call, per-URL rights posture) and Rusty (tokenizer sanity check).
 
 **Reference:** `.squad/decisions.md` → "Decision Note: FineWeb-2 `haw_Latn` 100/200 Scripts Landed" (merged 2026-04-29T09:40:34Z).
+
+## 2026-04-29T10:46:19Z — Scribe checkpoint: learning skeleton + config finalization logged
+
+**From:** Scribe (Session log consolidation)
+
+**Update:** Basher learning skeleton and Llama config work now fully orchestrated and merged to main decisions.
+
+**Decisions merged to `.squad/decisions.md`:**
+1. PyTorch + Hugging Face for learning skeleton (`code/llm_hawaii/`)
+2. Llama-3.1-8B + A100 as config, not Python constants
+3. User directives consolidated (learning skeleton, 8B default, A100 40GB acceptable)
+
+**Session logs created:**
+- Orchestration: `.squad/orchestration-log/2026-04-29T10-46-19Z-basher-llm-skeleton.md`
+- Orchestration: `.squad/orchestration-log/2026-04-29T10-46-19Z-basher-llama-a100-config.md`
+- Session: `.squad/log/2026-04-29T10-46-19Z-llm-learning-skeleton.md`
+
+**Decision inbox:** Cleared. All 5 inbox files merged and deleted.
+
+**No action required from you this checkpoint.** Logging complete.

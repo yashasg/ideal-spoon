@@ -311,3 +311,21 @@ Spec merged into decisions.md. Row drafting now unblocked off-git. Key points lo
 
 **Reference:** `.squad/decisions.md` → "Decision: Final Dataset Taxonomy — `evals` / `stage1` / `stage2` / `final`".
 
+
+## 2026-04-29T10:46:19Z — Basher learning skeleton finalizes; 8B tokenizer audit gates serious training
+
+**From:** Scribe (Cross-agent context)
+
+**Update:** Basher completed learning skeleton and Llama-3.1-8B config; all decisions merged to main.
+
+**For your tokenizer audit:**
+- Llama-3.1-8B is now the serious-prototype default model in `code/configs/llama31_8b_a100.json`.
+- Smoke config still defaults to Qwen2.5-0.5B (untouched).
+- Your tokenizer audit on `meta-llama/Llama-3.1-8B` against Hawaiian text remains the hard gate before this config is allowed near real training.
+- Your smoke-tier baseline work (already completed against Qwen2.5) stands; no changes needed.
+
+**Skeleton does not change your work:**
+- `code/llm_hawaii/` is learning-scope. Your eval harness, manual micro-eval, and baseline measurements remain the prerequisite.
+- Basher's skeleton has TODOs flagged for you: codepoint table, tokenizer audit harness, manual-micro-eval ledger integration.
+
+**Reference:** `.squad/decisions.md` → "Decision: Llama-3.1-8B + A100 as Config, Not Python Constants".

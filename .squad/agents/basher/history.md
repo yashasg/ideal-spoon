@@ -202,3 +202,58 @@ Implications for your training pipeline:
 - Stage-1 entry gate includes: (1) Linus data foundation ready, (2) framework ADR approved. Sync with Linus and any framework-decision sponsor before wiring trainers.
 
 **Reference:** `.squad/decisions.md` §"2026-04-29: Basher Code Scaffold Lands — Framework Undecided" + section "2026-04-29: Dataset Division Taxonomy Corrected".
+
+### Learning Skeleton Code (2026-04-29)
+- User asked for first-time-trainer skeleton under `code/llm_hawaii/` rather than a full pipeline. Coordinator routed to me with explicit "skeleton, not production" framing.
+- Delivered: `__init__.py`, `config.py` (dataclass + JSON load/save), `data.py` (JSONL loader, NFC normalize, tokenization hook + TODOs for packing/SFT-masking/rehearsal/contamination guard), `model.py` (4-bit NF4 + double-quant config, `prepare_model_for_kbit_training`, LoRA attach), `train.py` (`transformers.Trainer` entrypoint with `--config` and `--print-config` CLI), `evaluate.py` (PPL + greedy generations + orthography report), `metrics.py` (pure-Python ʻokina U+02BB / kahakō / NFC checks; flags wrong substitutions U+0027/U+2018/U+2019/U+02BC).
+- Configs: `code/configs/smoke.json` (Qwen2.5-0.5B, no QLoRA so it can run CPU-side smoke). `code/examples/train.jsonl.example` is schema-only — `<PLACEHOLDER>` strings, no fabricated Hawaiian.
+- Lazy-imports everywhere ML-heavy. `python3 -m py_compile` over all skeleton files passes on a clean machine. Missing optional deps raise `RuntimeError` with the install line — no silent fallbacks.
+- Did **not** pin torch/transformers/peft/bitsandbytes/trl/accelerate/datasets in root `requirements.txt` (root is data-collection scope per Linus). Wrote inbox decision `.squad/decisions/inbox/basher-learning-skeleton-code.md` calling out that this is the *learning path* and any production framework pin still needs its own ADR.
+- Updated README "Repository Layout" to reflect the skeleton's existence and ML-deps-not-in-requirements posture.
+- TODOs intentionally left as learning checkpoints: packing/ConstantLengthDataset, target-only loss masking for Stage 2, English rehearsal mixer, `eval_hashes.parquet` contamination guard, Stage-2 chrF by direction, run-report writer matching eval-pipeline §8, tokenizer audit harness, Stage-1 → fp16 merge step.
+- Open: framework-pinning ADR before any real training run; tokenizer audit (Rusty); data foundation (Linus).
+
+### Llama-3.1-8B + A100 prototype config (2026-04-29)
+- Added `code/configs/llama31_8b_a100.json` as the serious-prototype target: `meta-llama/Llama-3.1-8B`, QLoRA on, bf16 on, max_seq_len 2048, grad_accum 16, output to `runs/llama31-8b-a100`. `hardware_profile: "a100-40gb-single"` recorded as metadata.
+- Extended `TrainConfig` with optional `run_name` and `hardware_profile` fields. Both default to `None`. Informational only — no code dispatches on them. Smoke-tier defaults (Qwen2.5-0.5B) untouched.
+- Added `model.check_runtime_capability(...)` — generic non-fatal capability probe (CUDA available, device name, compute capability, bf16 supported via sm_80+). Deliberately does NOT assert on A100 string.
+- Updated `code/README.md` to explain the smoke-vs-serious config split and the "config, not code constants" rule for hardware targeting.
+- Logged decision at `.squad/decisions/inbox/basher-llama31-a100-config-not-code.md`.
+- Cleaned `code/llm_hawaii/__pycache__`. Verified `python3 -m py_compile code/llm_hawaii/*.py` passes and grep finds no A100 assertion or hardcoded Llama constant in Python sources.
+
+## 2026-04-29T10:46:19Z — Learning skeleton + Llama-3.1-8B A100 config finalized; decisions merged to main
+
+**From:** Scribe (Orchestration + decision merging)
+
+**Update:** Two Basher tasks completed and decisions merged to `.squad/decisions.md`:
+
+**1. Learning skeleton (PyTorch + Hugging Face):**
+- Delivered beginner-friendly skeleton under `code/llm_hawaii/` matching user directive for first-time trainer learning experience.
+- Stack: PyTorch + Hugging Face (transformers, peft, bitsandbytes, trl, accelerate, datasets) chosen as lowest-friction QLoRA entry path.
+- Config/data/model/train/evaluate/metrics modules + smoke.json + train.jsonl.example + learning README.
+- All ML deps lazy-imported; python3 -m py_compile passes clean. No fabricated Hawaiian. Existing work untouched.
+- **Decision now in main decisions.md** under "Decision: PyTorch + Hugging Face for the Learning Skeleton under `code/`".
+
+**2. Llama-3.1-8B + A100 config (config, not constants):**
+- Added `code/configs/llama31_8b_a100.json`: base_model, QLoRA on, bf16 on, seq 2048, grad_accum 16, hardware_profile metadata.
+- Extended TrainConfig with optional run_name and hardware_profile (informational, non-enforcing).
+- Added model.check_runtime_capability(...) — generic probe, no A100 assertion.
+- Smoke tier (Qwen2.5-0.5B) default untouched.
+- **Decision now in main decisions.md** under "Decision: Llama-3.1-8B + A100 as Config, Not Python Constants".
+
+**3. User directives consolidated:**
+- 2026-04-29T10-33-57Z: Learning skeleton preference (adopted)
+- 2026-04-29T10-36-37Z: Llama-3.1-8B + A100 defaults (adopted)
+- 2026-04-29T10-46-04Z: A100 40GB acceptable for QLoRA (adopted)
+- All three now consolidated in `.squad/decisions.md` under "User Directives Consolidated".
+- Decision inbox cleared; all files merged to main.
+
+**Reference:**
+- Orchestration logs: `.squad/orchestration-log/2026-04-29T10-46-19Z-basher-llm-skeleton.md` and `2026-04-29T10-46-19Z-basher-llama-a100-config.md`
+- Session log: `.squad/log/2026-04-29T10-46-19Z-llm-learning-skeleton.md`
+- Main decisions updated: `.squad/decisions.md` (3 new sections, inbox cleared)
+
+**Next gates:**
+- Framework-pinning ADR before cloud GPU spend
+- Tokenizer audit on Llama-3.1-8B (Rusty gate)
+- Data foundation (Linus gate) before training entry

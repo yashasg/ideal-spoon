@@ -2574,3 +2574,132 @@ Held-out anchors live as sibling directories under each division root. Picked fl
 - Proposal detail: `.squad/decisions/inbox/linus-final-holdout-taxonomy.md` (merged)
 - Orchestration log: `.squad/orchestration-log/2026-04-29T10-29-52Z-scribe.md`
 - Session log: `.squad/log/2026-04-29T10-29-52Z-code-taxonomy-framework.md`
+
+---
+
+## Decision: PyTorch + Hugging Face for the Learning Skeleton under `code/`
+
+**Date:** 2026-04-29
+**By:** Basher (Training Engineer)
+**Status:** Adopted (learning-scope; production framework choice remains open)
+**User directives:** 2026-04-29T10-33-57Z (learning skeleton preference)
+
+### What
+
+Per user directive, created a beginner-friendly skeleton under `code/llm_hawaii/` for first-time LLM trainer implementation:
+- Module templates: `config.py`, `data.py`, `model.py`, `train.py`, `evaluate.py`, `metrics.py`
+- `code/configs/smoke.json` — tiny smoke-run config with placeholder paths
+- `code/examples/train.jsonl.example` — schema only, no fabricated Hawaiian data
+- `code/README.md` — learning guide with suggested implementation order
+- Stack: PyTorch + Hugging Face (`transformers`, `peft`, `bitsandbytes`, `trl`, `accelerate`, `datasets`)
+
+### Why This Stack
+
+- Lowest-friction path to working QLoRA at budget tier
+- Matches two-stage ADR (Stage 1 CPT → fp16 merge → Stage 2 SFT) without forcing learner to assemble primitives
+- Lets user experience `Trainer`, `peft.LoraConfig`, 4-bit loading as separate concepts before building custom logic
+
+### Constraints Respected
+
+- **No heavy ML bloat in root `requirements.txt`.** ML deps install into separate venv; skeleton modules lazy-import all packages with clear `RuntimeError` + install hints if missing
+- **No fabricated Hawaiian content.** Templates only; `examples/train.jsonl.example` contains `<PLACEHOLDER>` strings
+- **Skeleton is bare-Python.** `python3 -m py_compile` passes without external deps
+- **Existing work untouched.** Additions only; README "Repository Layout" updated to reflect `code/` no longer empty
+
+### What This Is NOT
+
+- Not a production framework commitment. Framework-pinning ADR with version locks, container hashes, reproducibility guarantees required before cloud GPU spend
+- Not a green light to train. Data foundation (manifest, license whitelist, contamination guard) remains gating prerequisite per two-stage ADR
+- Not an eval surface. Numbers from `evaluate.py` are pipeline smoke, not run-report rows
+
+### Follow-ups (Basher)
+
+- Tokenizer audit harness on candidate bases (gates 7B/8B selection)
+- Proper run-report writer matching `docs/eval_pipeline.md` §8 once learner fills in `train.py` / `evaluate.py`
+- Framework + version pinning ADR before cloud GPU spend
+
+### Cross-Team Notes
+
+- **Linus:** `data.py` has TODO for contamination guard against `data/eval/eval_hashes.parquet`; no training data loaded yet
+- **Rusty:** Smoke config defaults to Qwen2.5-0.5B per recommendation; 7B/8B slot remains gated on tokenizer audit
+- **Coordinator:** Learning-scope review route to different agent per charter rules
+
+### Reference
+
+- Proposal: `.squad/decisions/inbox/basher-learning-skeleton-code.md` (merged)
+- Orchestration log: `.squad/orchestration-log/2026-04-29T10-46-19Z-basher-llm-skeleton.md`
+- Session log: `.squad/log/2026-04-29T10-46-19Z-llm-learning-skeleton.md`
+
+---
+
+## Decision: Llama-3.1-8B + A100 as Config, Not Python Constants
+
+**Date:** 2026-04-29
+**By:** Basher (Training Engineer)
+**Status:** Adopted (prototype-scope)
+**User directives:** 2026-04-29T10-36-37Z (Llama-3.1-8B + A100 defaults), 2026-04-29T10-46-04Z (A100 40GB acceptable for QLoRA)
+
+### What
+
+Per user directives, encoded Llama-3.1-8B as prototype default model and A100 as target serious-training GPU as **config + docs**, not Python constants:
+- New file: `code/configs/llama31_8b_a100.json`
+  - `base_model: "meta-llama/Llama-3.1-8B"`
+  - `use_qlora: true`, `bf16: true`, `gradient_checkpointing: true`
+  - `max_seq_len: 2048`, `gradient_accumulation_steps: 16`
+  - `hardware_profile: "a100-40gb-single"` (metadata for run reports)
+  - `run_name: "llama31-8b-a100-prototype"`
+  - Placeholder data paths; will be replaced by gated Hawaiian manifest
+- `TrainConfig` dataclass extended with optional fields:
+  - `run_name: Optional[str] = None` — informational hint for run reports
+  - `hardware_profile: Optional[str] = None` — GPU metadata, non-enforcing
+- `model.py` utility: `check_runtime_capability(...)` — returns CUDA info, device name, compute capability, generic bf16_supported signal (sm_80+)
+  - **Non-fatal;** does not assert "must be A100"
+- Documentation in `code/README.md` explains smoke-vs-serious config split; GPU target lives in config
+- `configs/smoke.json` default path unchanged (Qwen2.5-0.5B)
+
+### Why Config, Not Code
+
+- Keeps code skeleton learning-honest; no hardcoded "if A100 else error"
+- Swap prototype defaults (model, GPU tier) via JSON without Python patches
+- Permits debug runs on non-A100 hardware; avoids false assertions on H100/L40S/multi-GPU/small-batch scenarios
+
+### What This Is NOT
+
+- Not a Llama-3.1-8B product commitment. License terms, tokenizer audit, contamination check, framework-pinning ADR required first
+- Not a green light to train on real Hawaiian corpus. Placeholder paths only; manifest must replace them
+- Not a deprecation of smoke tier. Qwen2.5-0.5B default untouched; unconfigured run stays smoke-tier
+
+### GPU Target Rationale
+
+A100 40GB is acceptable reference target because:
+- Prototype uses QLoRA, not full fine-tune (8B model + 4-bit quantization fits comfortably in 40GB)
+- A100 80GB not required for this path
+- H100/L40S viable alternatives; config makes swap trivial
+
+### Cross-Team Notes
+
+- **Rusty:** 8B slot now wired in config; tokenizer audit on `meta-llama/Llama-3.1-8B` against Hawaiian text remains gate before real run
+- **Linus:** Placeholder paths only; no data manifest referenced
+- **Coordinator:** No Python defaults promoted to Llama/A100; directive honored at config layer
+
+### Reference
+
+- Proposal: `.squad/decisions/inbox/basher-llama31-a100-config-not-code.md` (merged)
+- Orchestration log: `.squad/orchestration-log/2026-04-29T10-46-19Z-basher-llama-a100-config.md`
+- Session log: `.squad/log/2026-04-29T10-46-19Z-llm-learning-skeleton.md`
+
+---
+
+## User Directives Consolidated
+
+**Date:** 2026-04-29
+**By:** yashasg (via Copilot)
+**Status:** Merged into main decisions
+
+Three user directives, collected 2026-04-29 10:33–10:46 UTC, guided Basher's skeleton and config work:
+
+1. **2026-04-29T10-33-57Z:** For first LLM training code, prefer beginner-friendly skeleton code that the user can implement and learn from, rather than a fully abstracted production pipeline
+2. **2026-04-29T10-36-37Z:** The prototype default model is Llama-3.1-8B, and target serious-training GPU is A100; treat these as selected defaults unless superseded
+3. **2026-04-29T10-46-04Z:** A single A100 40GB is acceptable as serious-run reference target because prototype uses QLoRA; A100 80GB not required
+
+**Outcome:** Both Basher decisions (learning skeleton, config-driven defaults) now reflect user intent. No conflicting directives remain in inbox.
