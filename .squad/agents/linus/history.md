@@ -185,3 +185,49 @@ defining:
 No edits to `docs/data-pipeline.md` — existing Tier A/B framing already
 sequences hawwiki-first; this proposal names the gate explicitly and
 defines MVP scope by rights tag rather than by source name.
+
+## 2026-04-29 — Stage 1 raw→training plan handed back to user
+
+User asked for the practical sequence after Frank pulls raw rights-light data.
+Produced an ordered workflow (intake → extract → normalize → langID → register
+tag → dedup → split → JSONL emit → manifest write → CI guard → tokenizer audit
+gate → packed tensors), tied to existing paths in `docs/data-pipeline.md`
+(`data/raw/<source>/<fetch_date>/`, `data/extracted/`, `data/stage1/stage1.jsonl.gz`,
+`data/stage1/stage1_manifest.parquet`, `data/eval/eval_hashes.parquet`,
+`data/stage1/packed/`). Reaffirmed off-git boundary: only code, schemas, URL
+inventory, ADRs, and tiny fixtures in GitHub; everything under `data/` stays
+local under `IDEAL_SPOON_DATA_ROOT` with one offline backup of `raw/`.
+
+Owners called out:
+- Frank: raw fetch + WARC capture + ToS snapshot + raw fetch.jsonl sidecar.
+- Linus: extraction → manifest → JSONL → split → contamination ledger.
+- Rusty: tokenizer audit + packed tensors (gate to Stage 1 training).
+- Basher: consumes packed tensors; not in this loop until gate passes.
+
+Stop conditions stated: missing license_observed → drop row;
+`license_inferred=null` invariant; eval ∩ train hash assertion in CI;
+≤10% Baibala token cap; tokenizer audit must clear before any GPU spend.
+
+No code/doc edits — plan is consistent with existing `docs/data-pipeline.md`
+Stage 1 transformation pipeline and storage formats table. No ADR written;
+the user asked for a plan, not a new decision.
+
+## 2026-04-29T06:43:21Z — Raw-to-training pipeline plan (ordered workflow)
+
+📌 **Team update:** Linus produced a complete 13-stage ordered workflow from Frank's raw fetch through Stage-1 training dataset, including extraction, normalization, LID, deduplication, eval-hash registration, tokenizer audit gate, and Basher handoff.
+
+**Key plan points:**
+- **Vertical-slice strategy:** Hawaiian Wikipedia first (smallest, cleanest), then add Wiktionary/Wikisource/Baibala/long tail.
+- **Corpus stays local:** no git blobs, no HF uploads during prototype.
+- **Rights-heavy sources deferred:** pre-1925 nūpepa bulk, Baibala, JW300 pending cultural-reviewer sign-off.
+- **Manifest-first discipline:** every fetch-time field (ToS snapshot, source URL, fetch date, sha256_raw) registered at ingest (unrecoverable later).
+- **Tokenizer audit is a hard gate:** Rusty's ʻokina/kahakō audit blocks Stage-1 export; no Stage-1 handoff without audit sign-off.
+- **Dedup with cluster-aware split isolation:** MinHash clusters assigned to split uniformly; no similar-doc leakage into eval.
+- **Three-way contamination guard:** `eval_hashes.parquet` (Stage-1 dev/test), cross-check Stage-2 eval, cross-check Stage-2 train via `crosslink_stage1_overlap`.
+
+**Downstream:** Frank (raw fetch) → Linus (registration/LID/extraction/norm/dedup/eval-hash) → Rusty (tokenizer audit gate) → Basher (CI guard + training load).
+
+**Open gaps flagged:** cultural-review owner (escalate to Coordinator), Bible edition pinning, raw archive storage location.
+
+**Orchestration log:** `.squad/orchestration-log/2026-04-29T06-43-21Z-linus-raw-to-training-plan.md`
+

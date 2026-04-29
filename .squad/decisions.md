@@ -206,6 +206,27 @@ Local RTX 2080 + Kaggle (P100 / 2×T4, 30 GPU-h/wk) for iteration; Lightning AI 
 - Qwen2.5 Apache-2.0 is cleanest for "publish weights and tokenizer under permissive terms."
 - License analysis is a research summary, not legal advice.
 
+### Rationale: Why this beats the alternatives for the prototype
+
+1. **Multilingual prior matters more than English-only quality at this scale.** A base that has seen Polynesian/Austronesian-adjacent text transfers faster on a small Hawaiian corpus than a stronger English-only base.
+2. **7B–8B is the right capacity band.** Big enough for continued pretraining + bidirectional translation SFT without collapse; small enough for QLoRA on a single A100 40GB / L4 / A10. 13B+ adds cost without a matching gain on a corpus this small.
+3. **Tokenizer audit is the gate, not benchmark scores.** For Hawaiian, fragmentation on ʻokina/kahakō dominates downstream quality far more than a few points of MMLU.
+4. **License posture is part of the decision, not a footnote.** "Openly licensed release" is a project goal: CC-BY-NC bases are excluded as released artifacts; Llama/Gemma flow-down clauses are tracked. Qwen's Apache-2.0 is the cleanest fallback because the license risk is zero.
+5. **Smoke-then-main keeps cloud spend honest.** The 0.5B smoke catches pipeline bugs locally before any 7B-class A100 hour is spent.
+
+### Caveats — do not overclaim
+
+- **Final selection is blocked on the tokenizer audit.** Until tokens-per-word, byte-fallback, and ʻokina/kahakō survival are measured on representative Hawaiian text (nūpepa + Baibala + contemporary), "Llama primary, Qwen fallback" is a working hypothesis, not a verdict.
+- **None of these models is "objectively best" for Hawaiian.** They are the best available open candidates under our license + compute + data constraints. Different constraints would justify a different pick.
+- **QLoRA is a falsifiable default, not dogma.** It fits the budget; if ablation shows meaningful Hawaiian-specific quality loss, we revisit.
+
+### QLoRA-quantization-loss falsification
+
+- Quantization loss is real: ~0.1–0.4 PPL and ~0–1 chrF in published QLoRA NF4 work on English. Not dismissed.
+- The relevant comparison is quantization loss vs. the *other* candidate dominant bottlenecks for low-resource Hawaiian: tokenizer fragmentation on ʻokina/kahakō, corpus size/register skew, NFC/orthography normalization, eval leakage, weak metrics, catastrophic forgetting between stages. Those are structurally larger.
+- Falsification plan: on the 0.5B/1B smoke, run fp16 LoRA vs 4-bit NF4 QLoRA with matched seed/data/tokenizer/eval. If the gap on Hawaiian held-out PPL or chrF (either direction) exceeds published-noise bands, replan the 7B run (bf16 LoRA on a larger card, or smaller base). If not, QLoRA stands.
+- Net: skepticism is reasonable; it gets resolved with an ablation, not an argument.
+
 ### Implications
 
 - README's Tokenization & Orthography section already calls for this audit — Rusty's recommendation makes it a hard gate before main-run model selection.
@@ -1343,3 +1364,70 @@ If any of 1–6 is missing, the answer is no-go on rights-heavy ingest.
 ### Approved
 
 This decision operationalizes the existing "Two-stage training plan" and "Prototype-vs-release split" ADRs. It defines the MVP boundary explicitly by rights tag and introduces a formal gate for advancing to phase 2. Both Rusty (on sufficiency) and Linus (on scope) have weighed in.
+### 2026-04-29T06:18:25Z: User directive
+**By:** yashasg (via Copilot)
+**What:** For now, dataset/corpus artifacts should live on the user's local machine rather than GitHub or Hugging Face. User said: "ok for now non data-set data can live on my local machine"
+**Why:** User request -- captured for team memory while the prototype storage approach is still local-first.
+
+# Decision: rights-light MVP allow-list (issue #1)
+
+**Author:** frank (Hawaiian Data Collector)
+**Date:** 2026-04-29
+**Status:** proposed (team-relevant; surfacing for visibility)
+**Related:** issue #1, `data-sources/hawaiian-data-sources.json`, `.squad/decisions.md` "Raw archive storage = local disk only" ADR.
+
+## Decision
+
+For the prototype rights-light collection pass, the allow-list is exactly four
+inventory entries, all tagged `open_license_candidate` (CC BY-SA 4.0):
+
+1. `Hawaiian Wikipedia — XML dump (latest)`
+2. `Hawaiian Wikipedia — dump status manifest`
+3. `Hawaiian Wiktionary — dump`
+4. `Hawaiian Wikisource — public-domain Hawaiian texts`
+
+Everything else in the inventory is **deferred** by `scripts/collect_rightslight.py`
+with a machine-readable reason — no silent inclusion. Specifically:
+
+- **Baibala Hemolele (official site + archive.org scans):** deferred. The issue
+  permits "pre-1925 Baibala scans where the specific source is reviewed"; no
+  specific edition has been reviewed yet, so it stays out of the rights-light
+  pull until a Hawaiian edition + reviewer is named (Linus call).
+- **Tatoeba haw exports:** open-licensed but flagged as long-tail per issue #1
+  ("small long-tail sources only after per-document review"). Defer until a
+  per-source review records `license_per_sentence` posture.
+- **FLORES-200:** `eval_only`. Handled by the separate eval-hash ingest path
+  (`data/eval/eval_hashes.parquet`), not by this rights-light puller.
+- **Everything `rights_review_required` / `unknown_review_required`:** nūpepa
+  OCR routes (Ulukau, archive.org, Wayback CDX), OHA/DOE/UH, Awaiaulu, OPUS
+  subsets, NLLB, yt-dlp captions — all deferred.
+
+## Why this matters to the team
+
+- **Linus:** the four allow-listed sources are the ones that can flow into
+  Stage-1 manifest rows with `license_observed` non-null and a defensible
+  redistribution posture. Anything else needs a per-document review before it
+  enters `data/extracted/` or the Stage-1 manifest. Bible cap (≤10% Stage 1,
+  ≤30% Stage 2) and `eval_hashes.parquet` precedence stay non-negotiable.
+- **Rusty:** this set is small. Realistic clean Stage-1 yield (Wikipedia +
+  Wikisource + Wiktionary) is in the low-millions of Hawaiian tokens — likely
+  insufficient for DAPT on its own, which sharpens the case for the per-doc
+  review pass on Awaiaulu / UH ScholarSpace / OHA later.
+- **Coordinator / yashasg:** corpus payloads stay local. `.gitignore` now has
+  a top-level `/data/` rule plus `*.warc(.gz)`. No corpus bytes will reach
+  GitHub or Hugging Face from this script.
+
+## What I will NOT do without team input
+
+- Pull Baibala from any source until Linus signs off on a specific
+  pre-1925 edition.
+- Pull Tatoeba haw exports without a per-source review note.
+- Promote any deferred source to selected by editing the allow-list silently —
+  the allow-list is a code-review surface in `scripts/collect_rightslight.py`.
+
+## Storage receipts
+
+- Plan: `data/local/rightslight/fetch_plan.json` (gitignored).
+- Provenance ledger: `data/local/rightslight/fetch.jsonl` (gitignored).
+- Smoke-fetch artifact: `hawwiki-latest-sha1sums.txt`, ~3 KB, full provenance
+  recorded, stored under `data/local/rightslight/hawwiki/{YYYYMMDD}/{sha256}.txt`.

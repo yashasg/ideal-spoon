@@ -84,3 +84,36 @@ This pilot replaces the current ±2× ranges with ±20% bands without committing
 - **Project:** ideal-spoon (GitHub Project v2: https://github.com/users/yashasg/projects/5).
 - **Scope:** Issue #1 integrates both rights-light source pulling and the approved ADR on local-first corpus storage (prototype_only data, no git blobs, storage encryption). All data-collection work for the prototype phase should reference this issue.
 - **Coordination:** Team communications, PRs, and data manifests related to Hawaiian source collection should link to this issue or the project board for visibility.
+
+### 2026-04-29 — Issue #1 first concrete step (rights-light collector starter)
+
+- **Files touched (new):** `scripts/collect_rightslight.py`.
+- **Files touched (edited):** `.gitignore` (added `/data/`, `*.warc`, `*.warc.gz` with rationale).
+- **Local-only outputs (gitignored, never committed):**
+  - `data/local/rightslight/fetch_plan.json` — selected vs deferred sources, with provenance fields and selection/deferral reasons.
+  - `data/local/rightslight/fetch.jsonl` — per-artifact provenance ledger (one JSON object per fetched byte stream).
+  - `data/local/rightslight/token_counts.json` — aggregate-only placeholder; no corpus text, just bands until a real dump pass runs.
+  - `data/local/rightslight/hawwiki/{YYYYMMDD}/{sha256}.txt` — smoke-fetched Wikimedia infrastructure metadata only.
+  - `data/local/rightslight/README.txt` — human-readable "this is gitignored" marker.
+- **Rights-light MVP allow-list locked in (4 sources):** Hawaiian Wikipedia XML dump, Hawaiian Wikipedia dump-status manifest, Hawaiian Wiktionary dump, Hawaiian Wikisource. All `open_license_candidate` (CC BY-SA 4.0) per the inventory.
+- **Deferred sources (25, recorded with machine-readable reasons):** Baibala (no specific pre-1925 edition reviewed yet), archive.org Baibala scans, Tatoeba (long-tail until per-source review), FLORES (eval-only path), and every `rights_review_required` / `unknown_review_required` source — nūpepa OCR (Ulukau, archive.org, Wayback CDX), OHA / DOE Kaiapuni / UH ScholarSpace, Awaiaulu, OPUS subsets, NLLB, yt-dlp captions, plus the inventory's `deferred_or_excluded` block (JW300, hard-escalate cultural categories, general web crawls).
+- **Smoke fetch performed:** one rights-clear, ~3 KB Wikimedia infrastructure file (`hawwiki-latest-sha1sums.txt`), recorded with full provenance (source URL, fetch timestamp UTC, HTTP status, content type, content length, raw SHA-256, raw storage path, license observed, ToS URL, fetcher tool/version). No corpus text fetched.
+- **Storage policy enforced:** `git status` after the run shows zero entries under `data/`; `git check-ignore` confirms `/data/` rule covers all generated outputs. No `gh` push, no HF push.
+- **Validation:** `python3 -m py_compile scripts/collect_rightslight.py` clean; script runs end-to-end on stdlib only (no new requirements).
+- **Open follow-ups for next pass (not done here):** add a polite `requests + tenacity` adapter over the same provenance schema for the actual dump pulls (hawwiki XML, hawwiktionary XML); decide on Baibala edition review with Linus before the verse-pair pull lands.
+
+## 2026-04-29T06:43:21Z — Downstream Stage-1 pipeline locked (Linus handoff plan)
+
+�� **Team update:** Linus completed the raw-to-training workflow plan. Frank's responsibility ends at "raw fetch"; downstream is Linus (registration/LID/extraction/norm/dedup/eval-hash), Rusty (tokenizer audit gate), Basher (CI guard + training).
+
+**Frank's fetch deliverables:**
+- Raw files (HTML/PDF/JSON per source).
+- WARC archives per source (ToS snapshot + raw bytes).
+- Metadata at fetch time: source URL, fetch date, HTTP status, sha256_raw.
+
+**Key decision:** Start with Hawaiian Wikipedia (smallest, cleanest). Validate entire pipeline on 1 source before adding Wiktionary/Wikisource/Baibala/long tail. Pre-1925 nūpepa bulk (volume play, biggest unknown) deferred pending nūpepa-pilot token-count report and prototype-only ADR.
+
+**Manifest-first discipline:** every fetch-time field captured at ingest (ToS snapshot, source URL, fetch date, sha256_raw) is unrecoverable later — register now.
+
+**Orchestration log:** `.squad/orchestration-log/2026-04-29T06-43-21Z-linus-raw-to-training-plan.md`
+
