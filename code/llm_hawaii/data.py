@@ -21,8 +21,10 @@ clear RuntimeError telling you what to install.
 
 from __future__ import annotations
 
+import gzip
 import json
 import unicodedata
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 
@@ -43,6 +45,16 @@ def _require(pkg: str, install_hint: str) -> Any:
 
 # ---------------- JSONL I/O ----------------
 
+@contextmanager
+def _open_jsonl_text(path: Path):
+    if path.name.endswith(".gz"):
+        with gzip.open(path, "rt", encoding="utf-8") as f:
+            yield f
+    else:
+        with path.open("r", encoding="utf-8") as f:
+            yield f
+
+
 def iter_jsonl(path: str | Path) -> Iterator[dict]:
     """Yield one parsed JSON object per non-empty line.
 
@@ -51,7 +63,7 @@ def iter_jsonl(path: str | Path) -> Iterator[dict]:
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"Training file not found: {p}")
-    with p.open("r", encoding="utf-8") as f:
+    with _open_jsonl_text(p) as f:
         for lineno, line in enumerate(f, start=1):
             line = line.strip()
             if not line:

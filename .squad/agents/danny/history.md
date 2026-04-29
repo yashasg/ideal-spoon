@@ -113,3 +113,20 @@
 **Decision inbox:** Cleared. All 5 inbox files merged and deleted.
 
 **No action required from you this checkpoint.** Logging complete.
+
+### Stage 2 integration pass (2026-04-29)
+
+- Reviewed the Stage 2 batch (Frank fetch plan, Linus #11/#13 manifest builder + checks, Rusty #12 quality scorer + ADR, Basher #14 SFT emitter). All five Python files compile; 321 self-test passes; 320 `--dry-run`/`--execute` produces an empty manifest cleanly; 330 reads it without error.
+- One real **contract mismatch**: Linus' `MANIFEST_FIELDS` declared `text_ref_en` / `text_ref_haw`, but Basher's emitter and `docs/training-pipeline.md` §4.3.1 use `text_en_path` / `text_haw_path`. Surgical rename in `scripts/320_build_stage2_manifest.py` (schema entries + the `text_*_or_ref_required` dependent-field rule) so the builder, emitter, and doc all agree on `text_{en,haw}_path`. No effect on existing rows (no real adapters wired yet).
+- The five policy fields (`alignment_confidence_tier`, `alignment_score_components`, `quality_flags`, `manual_review_reasons`, `policy_version`) emitted by `code/llm_hawaii/stage2_quality.py` are not declared in `MANIFEST_FIELDS`, but `validate_row` silently allows extras and `docs/data-pipeline.md` line 433 + `docs/stage2-alignment-quality.md` §7 explicitly document them as schema *additions*. Pass-through is the documented contract; left as-is.
+- Pre-existing tension (not introduced by this batch, not fixed here): `docs/data-pipeline.md` schema table no longer carries `release_eligible`, but `scripts/301_build_stage1_dataset.py` and `scripts/320_build_stage2_manifest.py` both still require it (mirroring Stage 1). Out of scope for a surgical pass; flag for the next docs/schema sweep.
+- JW300: confirmed excluded — `data-sources/stage2-parallel-fetch-plan.json` carries it under `deferred_or_excluded.jw300_haw` with explicit "do not fetch" guidance, and `docs/data-pipeline.md` §"Stage 2 source tiers"/§Tier E lists it as `excluded_pending_verification`.
+- Issue #4 (training-loader contamination guard) intentionally untouched — owned by squad:yashas; both 320 and 330 have explicit "out of scope" comments to that effect.
+- Tracked-data sweep clean: no files under `data/` are git-tracked (`/data/` is gitignored); only docs, scripts, code, and the `data-sources/` fetch plan JSON are in-repo. Created `data/stage2/` during smoke-test, then removed it.
+- No new team-level ADR — this is a field-name alignment to an existing documented contract, so no `decisions/inbox/` entry written.
+
+
+### Issue closure review (#2/#3/#5–#14) (2026-04-29T13:15:04Z)
+- Reviewed local uncommitted work against issue acceptance criteria without code changes. Prototype-ready closure is artifact/contract readiness, not permission for public release or GPU spend.
+- Recommended READY_TO_CLOSE for #2, #3, #5, #6, #10, #12, #13, #14; BLOCKED_HUMAN_REVIEW for #7 and #8; NEEDS_FOLLOWUP for #11 and #9.
+- Key blocker: Stage-2 scripts use JSONL-first `stage2_manifest.jsonl`, while `docs/data-pipeline.md` still has stale `stage2_manifest.parquet` / `stage2.jsonl.gz` references and `release_eligible` schema tension. Linus should reconcile before #11 and the #9 epic close.

@@ -329,3 +329,68 @@ Spec merged into decisions.md. Row drafting now unblocked off-git. Key points lo
 - Basher's skeleton has TODOs flagged for you: codepoint table, tokenizer audit harness, manual-micro-eval ledger integration.
 
 **Reference:** `.squad/decisions.md` → "Decision: Llama-3.1-8B + A100 as Config, Not Python Constants".
+
+---
+
+## 2026-04-29 — Stage 2 alignment scoring + quality-filter policy (#12)
+
+Landed `stage2-quality-v0.1`: stdlib-only scorer, CLI, and policy doc.
+
+**Files added:**
+- `code/llm_hawaii/stage2_quality.py` — `PolicyConfig`, `score_pair()`, `QUALITY_FLAGS`, `policy_summary()`. Stdlib only; lazy on LID/embedding (consumes scores when present, never runs a model).
+- `scripts/321_score_stage2_alignment.py` — JSONL-in / JSONL-out CLI with `--self-test`. Outputs go under ignored `data/stage2/_scored/`.
+- `docs/stage2-alignment-quality.md` — tiering, flag vocabulary, Hawaiian orthography caveats, manual-review workflow.
+- `.squad/decisions/inbox/rusty-stage2-alignment-quality.md` — durable decision row.
+
+**Files touched:**
+- `code/llm_hawaii/__init__.py` — added `stage2_quality` to `__all__`.
+- `docs/data-pipeline.md` — added one cross-link in Stage-2 transformation notes; schema fields untouched.
+
+**Field-vocabulary contract (manifest extensions, scoped to avoid Linus #11 / Basher #14 collisions):**
+`alignment_confidence_tier`, `alignment_score_components`, `quality_flags`, `manual_review_reasons`, `policy_version`. Existing `alignment_*`, `lang_id_*`, and `length_ratio_haw_over_en` schema fields are passed through / recomputed.
+
+**Defaults (LaBSE/LASER cosine):** accept ≥ 0.75, review ≥ 0.55, reject otherwise. Length ratio ∈ [0.5, 2.5]; min/max tokens 3/256; diacritic-required min length 60 letters; non-Hawaiian-letter share ≤ 10%. Per `data-pipeline.md` defaults.
+
+**Tier rule:** worst-of(score-tier, content-tier); hard flags (`empty_side`, `duplicate_pair_text`, `side_too_short`, `alignment_score_below_review`, unknown type/method) force `reject`. Embedding methods with missing score → `review` (never silently `accept`).
+
+**Selection rule for Basher (#14):** `alignment_confidence_tier == "accept" AND split == "train"`. `quality_flags` stay on manifest, not on SFT JSONL.
+
+**Out of scope per directive:** #4 (training-loader contamination guard) — left untouched.
+
+**Verification:** `python3 -m py_compile` clean; self-test passes (`accept, review, reject, reject, review`). No commit/push per directive.
+
+**Lesson:** baking score + flags **per row** (not per run) is the highest-leverage decision. Threshold tuning becomes a SQL/pandas filter on the manifest instead of a re-align job. The whole module fits behind one entry point so when LaBSE/LASER + GlotLID land, only the upstream populates `alignment_score` and `lang_id_*`; `score_pair()` does not change shape.
+
+---
+
+## 2026-04-29 — Tokenizer audit gate path landed (#8)
+
+Added `scripts/040_tokenizer_audit.py` as the Stage-0 local-only tokenizer audit for `meta-llama/Llama-3.1-8B`. It supports JSONL/JSON/TSV/CSV/text samples, NFC + conservative U+02BB ʻokina canonicalization, source/path accounting, overall and high-diacritic slices, explicit byte fallback plus byte/proxy rates, tokenizer fingerprint SHA-256, and go/no-go reporting under ignored `data/tokenizer_audit/`.
+
+Docs now point Stage 0 at the script from `docs/training-pipeline.md`, `docs/eval_pipeline.md`, `docs/implementation_plan.md`, and the manual-eval README. Default spend gate is intentionally conservative: ≥1,500 words, ≥10 high-diacritic samples, overall tokens/word ≤2.50, high-diacritic tokens/word ≤3.25, explicit byte fallback 0, proxy ≤1%, standalone diacritic chars ≤2 tokens. Missing `transformers` or gated HF access fails with install/login instructions; no fake audit numbers.
+
+Verification: `python3 -m py_compile scripts/040_tokenizer_audit.py` and `python3 scripts/040_tokenizer_audit.py --help` passed. Did not run a real Llama audit because local HF gated access/sample availability was not established in this task.
+
+---
+
+## 2026-04-29T12:40:50Z — Orchestration Log Capture
+
+**From:** Scribe (Session logger)
+
+**Summary:** Batch spawn for tokenizer audit (#8) consolidated with Linus (#2/#3), Basher (#6), and Stage2 Squad (#9–#14). Orchestration logs created; 3 inbox decisions merged into canonical decisions.md (tokenizer audit gate, eval-hash ledger, Stage 1 manifest). No regressions.
+
+**Your related decision now in canonical decisions.md:**
+- Stage-0 tokenizer audit gate for Llama-3.1-8B: `scripts/040_tokenizer_audit.py` is local-only, no-spend gate path; intentionally fails with install/login instructions if transformers missing or HF gated access unavailable; default thresholds (≥1,500 words, ≥10 high-diacritic samples, tokens/word ≤2.50 overall, ≤3.25 high-diacritic, byte fallback=0, proxy ≤1%, diacritic chars ≤2 tokens); any miss = `no_go`.
+- Basher's `code/configs/llama31_8b_a100.json` blocked pending real audit `go` + frozen tokenizer/model SHA.
+
+**Next steps:** Basher and trainers wait for real audit decision before Stage 1 spend.
+
+## 2026-04-29 — W1 manual micro-eval local path (#7)
+
+Added `scripts/315_hash_manual_w1_eval.py` for local/off-git W1 validation and eval-hash ledger updates. It validates the TSV schema, NFC, wrong-ʻokina substitutions, diacritic-density counts, categories, and duplicate hashes; default ledger updates include only `review_status=accepted`, with an explicit `--include-draft-for-local-ledger` escape hatch that marks non-accepted rows `eval_consumable=false`.
+
+Generated a local ignored draft at `data/evals/manual_w1/w1-haw-micro-eval.tsv` with 5 prototype rows covering `okina_survival`, `kahako_retention`, `unicode_nfc`, `tokenizer_survival`, and `generation_sanity`. These are not reviewed, not accepted, not benchmark rows; human review remains before W1 can be final eval input. Local ledger now includes 5 `origin=manual_w1` draft rows under ignored `data/evals/eval_hashes.jsonl` for contamination preflight.
+
+Docs/templates now expose the W1 categories, hash material (`NFC(prompt) + LF + NFC(reference)`), JSONL ledger fields, and `diacritic_density_bin` slices. `metrics.py` now has reusable diacritic count/bin helpers for the future harness.
+
+Validation: `python3 -m py_compile scripts/315_hash_manual_w1_eval.py code/llm_hawaii/metrics.py`; `--help`; `--print-schema`; `--init-draft --execute --force`; default `--dry-run`; `--dry-run --include-draft-for-local-ledger`; `--execute --include-draft-for-local-ledger`. `git check-ignore -v` confirms the local TSV, manifest, and ledger are covered by `/data/`.

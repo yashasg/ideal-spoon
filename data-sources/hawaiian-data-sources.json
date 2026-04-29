@@ -123,7 +123,7 @@
           "rights_status_hint": "eval_only",
           "license_observed": "CC BY-SA 4.0 (FLORES-200) — but project policy is eval-only",
           "tos_or_license_url": "https://github.com/facebookresearch/flores/blob/main/flores200/README.md",
-          "collection_notes": "Per data-pipeline.md §Stage 2: hash all FLORES sentences into eval_hashes.parquet BEFORE any other ingest. Never train on FLORES. Confirm hawn_Latn presence in the pinned release; if absent, downgrade priority and document.",
+          "collection_notes": "Per data-pipeline.md §Stage 2: hash all FLORES sentences into eval_hashes.jsonl BEFORE any other ingest. Never train on FLORES. Confirm hawn_Latn presence in the pinned release; if absent, downgrade priority and document.",
           "provenance_fields_to_capture": ["flores_release_tag", "split", "line_index", "sha256_per_line"],
           "priority": "P0"
         },

@@ -49,7 +49,7 @@ The compute plan is sequenced across three providers. The split exists because (
 
 - Tokenizer audit on representative slices (nūpepa, *Baibala Hemolele*, contemporary Hawaiian) per `training-pipeline.md` §1.1. Decision on embedding/lm_head unfreeze, vocab extension, or base swap is recorded here.
 - Data manifests built and CI-green per `data-pipeline.md`: provenance fields populated, license whitelist enforced, NFC normalization invariant verified, ʻokina U+02BB and kahakō survival baselines computed on references.
-- Contamination guard wired and asserted at dataloader load time; `eval_hashes.parquet` built; cluster-aware splits built; n-gram-overlap recheck path exercised.
+- Contamination guard wired and asserted at dataloader load time; `eval_hashes.jsonl` built; cluster-aware splits built; n-gram-overlap recheck path exercised.
 - Eval harness built; eval-suite SHA pinned; pre-FT baseline computed on the chosen 7B/8B base for Hawaiian held-out PPL and English PPL anchors. Without this baseline no later "better" claim is admissible.
 - Pipeline smoke on Qwen2.5-0.5B, both stages end-to-end on tiny slices, with all metrics emitting and contamination guard firing on a planted positive. This is plumbing validation; the numbers are not interpreted.
 - Short 7B resume test (≤1 h) demonstrating QLoRA NF4 load + FA2 throughput + checkpoint-to-HF-private-repo + resume-from-HF on the candidate base. Confirms the checkpoint contract works before the 60 h window opens.
@@ -94,7 +94,7 @@ The compute plan is sequenced across three providers. The split exists because (
 
 **Eval scope after the reproducibility gate passes:** full diagnostic slicing pass per `eval_pipeline.md` §5 (source/register, direction, length, diacritic density, OCR confidence, tokenizer behavior, split, provider), generalization probe, hallucination probe, COMET if applicable, attribution-matrix triage. Human spot eval is encouraged for the prototype, required only under release scope (which we are not in).
 
-**Constraint:** dtype and quantization at inference must match Provider 2. Decoding params and sampler defaults are pinned in the run report. Eval-suite SHA and `eval_hashes.parquet` SHA are identical to Provider 1 and Provider 2.
+**Constraint:** dtype and quantization at inference must match Provider 2. Decoding params and sampler defaults are pinned in the run report. Eval-suite SHA and `eval_hashes.jsonl` SHA are identical to Provider 1 and Provider 2.
 
 ---
 
@@ -102,10 +102,10 @@ The compute plan is sequenced across three providers. The split exists because (
 
 A single checklist that must be green before Provider 2 spend opens. Each item maps to an existing doc section.
 
-- **Tokenizer audit** (Rusty) — `training-pipeline.md` §1.1, `eval_pipeline.md` §3.1. Required output: tokens/word and byte-fallback rate on representative Hawaiian slices; decision on embedding/lm_head unfreeze and any vocab extension; final base-model selection unblocked.
+- **Tokenizer audit** (Rusty) — `training-pipeline.md` §1.1, `eval_pipeline.md` §3.1, implemented by `scripts/040_tokenizer_audit.py`. Required output: tokens/word and byte-fallback/proxy rate on representative Hawaiian slices; model/tokenizer SHA fields; go/no-go recommendation for Llama-3.1-8B; decision on embedding/lm_head unfreeze and any vocab extension; final base-model selection unblocked.
 - **Data manifests** (Linus, with Rusty on register balance) — `data-pipeline.md` Stage 1 and Stage 2 manifest schemas. Required output: per-document and per-pair provenance, license whitelist enforced at load, NFC normalization invariant green, register-balance check on Bible-heavy mixes flagged, `intended_use ∈ {prototype_private, release_candidate}` field populated (prototype-only rows acceptable here).
-- **Contamination guard** (Rusty / Basher) — `data-pipeline.md` Stage 1 §contamination + Stage 2 §contamination + `eval_hashes.parquet`. Required output: cluster-aware splits, n-gram overlap CI assertion at load time, planted-positive smoke firing the guard.
-- **Eval harness** (Rusty / Basher / Livingston) — `eval_pipeline.md` §2–§4. Required output: harness loads, all metrics emit, eval-suite SHA pinned, pre-FT baseline on the candidate base committed.
+- **Contamination guard** (Rusty / Basher) — `data-pipeline.md` Stage 1 §contamination + Stage 2 §contamination + `eval_hashes.jsonl`. Required output: cluster-aware splits, W1 manual rows hashed through `scripts/315_hash_manual_w1_eval.py` when accepted (or explicit local draft preflight), n-gram overlap CI assertion at load time, planted-positive smoke firing the guard.
+- **Eval harness** (Rusty / Basher / Livingston) — `eval_pipeline.md` §2–§4. Required output: harness loads, W1 categories/slices (`okina_survival`, `kahako_retention`, `unicode_nfc`, `tokenizer_survival`, `generation_sanity`, `diacritic_density_bin`) are consumable, all metrics emit, eval-suite SHA pinned, pre-FT baseline on the candidate base committed.
 - **0.5B / 1B smoke** (Basher / Rusty) — Qwen2.5-0.5B end-to-end on tiny slices, both stages. Optionally Qwen2.5-1B if local memory permits. Includes the QLoRA-vs-fp16-LoRA falsification arm per `eval_pipeline.md` §7. This is plumbing + prior-falsification, not quality.
 - **Short 7B resume test** (Basher) — ≤1 h on the chosen base, on the chosen Provider 2 GPU class, demonstrating QLoRA NF4 load, FA2, checkpoint push to HF private repo, and resume-from-HF on a fresh container. Confirms the checkpoint contract before the 60 h window opens.
 
@@ -178,7 +178,7 @@ The artifact bus across providers is an **HF Hub private repo or an equivalent S
 **Plus, alongside the checkpoint:**
 
 - corpus manifest SHA (Stage 1 / Stage 2 / prototype, whichever applies)
-- `eval_hashes.parquet` SHA
+- `eval_hashes.jsonl` SHA
 - eval log up to this checkpoint, with eval-suite SHA
 
 **Save policy:** every ~30 min wallclock, on SIGTERM/exit, and at epoch boundaries. **Resume policy:** recompute grad-accum to preserve the global batch size if GPU count or class changes between providers; if the first cheap-eval point on the new provider does not match the previous provider within ±0.02 PPL, stop — the env is not really restored.
@@ -193,7 +193,7 @@ Ranked by expected impact on the prototype, not on a release.
 
 1. **Tokenizer fragmentation on ʻokina / kahakō** — pathological byte-fallback on the Hawaiian diacritics is the most likely "wrong base" signal. Mitigation: tokenizer audit is a Stage 0 hard gate; vocab extension or a base swap is preferable to grinding through a bad tokenizer.
 2. **Catastrophic forgetting** — Stage 1 erodes English; Stage 2 erodes Stage 1 fluency. Mitigation: 5–10 % English rehearsal in Stage 1; 10–20 % Stage-1-style monolingual retention slice in Stage 2; English PPL regression and retention probes in cheap eval.
-3. **Eval leakage / contamination** — train↔eval n-gram overlap, near-duplicates, cluster-leak across splits silently inflate every score. Mitigation: cluster-aware splits, `eval_hashes.parquet`, CI assertion at load time, n-gram strip recheck on outputs, planted-positive smoke that must fire the guard.
+3. **Eval leakage / contamination** — train↔eval n-gram overlap, near-duplicates, cluster-leak across splits silently inflate every score. Mitigation: cluster-aware splits, `eval_hashes.jsonl`, CI assertion at load time, n-gram strip recheck on outputs, planted-positive smoke that must fire the guard.
 4. **OCR and source-register skew** — heavy weighting on 19th-century nūpepa or *Baibala Hemolele* yields a model that sounds period/biblical. Mitigation: per-source slicing in eval, register-balance check at manifest stage, contemporary slice tracked separately.
 5. **Provider-switch drift mid-stage** — bnb 4-bit kernels are not deterministic across CUDA / GPU class; dtype toggles between fp16 (T4/P100) and bf16 (A10/A100/4090) silently change the loss curve. Mitigation: Stage 1 + merge + Stage 2 pinned to one provider/GPU class on Provider 2; reproducibility gate on Provider 3.
 6. **Free-tier interruption** — Kaggle and Colab sessions die. Mitigation: checkpoint every 30 min, resume from HF, do nothing on Provider 1 that has to land in one continuous session.

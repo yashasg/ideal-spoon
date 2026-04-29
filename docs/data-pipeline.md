@@ -13,7 +13,7 @@ The project trains in two stages:
 | **Stage 1** | Hawaiian DAPT/CPT — adapt the multilingual base to ʻŌlelo Hawaiʻi | Monolingual Hawaiian documents | Causal-LM over full text |
 | **Stage 2** | Bidirectional en↔haw supervised translation SFT | Parallel sentence/verse pairs + 10–20% Stage-1-style retention slice | Target-only SFT |
 
-Stage 2 ingest is **blocked on Stage 1 artifacts** existing and `eval_hashes.parquet` being populated. Stage-2 *design and adapter scaffolding* can land in parallel.
+Stage 2 ingest is **blocked on Stage 1 artifacts** existing and `eval_hashes.jsonl` being populated. Stage-2 *design and adapter scaffolding* can land in parallel.
 
 ---
 
@@ -78,15 +78,15 @@ harness is allowed to look at them:
 
 | Division | On-disk root | What lives here | Held out from training? |
 |---|---|---|---|
-| `evals` | `data/evals/` | **Cheap, frequent eval data:** FineWeb-2 `haw_Latn` test dev split, W1 manual micro-eval rows, Stage-0 smoke / per-checkpoint sanity anchors, plus the `eval_hashes.parquet` contamination ledger that covers **both** held-out divisions (`evals` and `final`). | **Yes — never train on `evals`.** Row hashes are appended to `eval_hashes.parquet` *before* anything else ingests; train candidates are deduped against the ledger at build time. |
-| `stage1` | `data/stage1/` | Unsupervised / base-adaptation corpus artifacts produced by `301_build_stage1_dataset.py` from the cleaned Stage-1 training sources: `stage1_manifest.parquet`, `stage1.jsonl.gz`, packed/tokenized shards. Only `split=train` and `split=dev` rows that are *not* in `evals` or `final`. | n/a (this *is* the training corpus). Contamination CI: `stage1_train ∩ eval_hashes = ∅`. |
-| `stage2` | `data/stage2/` | Supervised / instruction / preference / tiny task-tuning artifacts: `stage2_manifest.parquet`, `stage2.jsonl.gz` (bidirectional pairs + retention slice), `templates.json`. Populated only when Stage-2 sources exist; absent otherwise. | n/a. Contamination CI: `stage2_train ∩ eval_hashes = ∅` (pair, en-side, haw-side). |
-| `final` | `data/final/` | **Major-milestone holdout eval data** — protected, accessed sparingly. FineWeb-2 `haw_Latn` test holdout split, milestone anchors (e.g., `global-piqa-parallel`, held-out Tatoeba), and any future major-milestone probe sets. Used at Stage 1 / Stage 2 gates and end-of-run evaluation per [`eval_pipeline.md`](./eval_pipeline.md) §2, not on every checkpoint. | **Yes — strictly never train.** Hashes are appended to the same `data/evals/eval_hashes.parquet` ledger before any train ingest, with `origin=<source>, stage=eval-only, division=final`. Treated like `evals` for contamination; access discipline is what differentiates it. |
+| `evals` | `data/evals/` | **Cheap, frequent eval data:** FineWeb-2 `haw_Latn` test dev split, W1 manual micro-eval rows, Stage-0 smoke / per-checkpoint sanity anchors, plus the canonical `eval_hashes.jsonl` contamination ledger that covers **both** held-out divisions (`evals` and `final`). | **Yes — never train on `evals`.** Row hashes are appended to `data/evals/eval_hashes.jsonl` *before* anything else ingests; train candidates are deduped against the ledger at build time. |
+| `stage1` | `data/stage1/` | Unsupervised / base-adaptation corpus artifacts produced by `301_build_stage1_dataset.py` from the cleaned Stage-1 training sources: `stage1_manifest.jsonl`, `stage1.jsonl.gz`, `token_target_report.json`, future packed/tokenized shards. Only `split=train` and `split=dev` rows that are *not* in `evals` or `final`. | n/a (this *is* the training corpus). Contamination CI: `stage1_train ∩ eval_hashes = ∅`. |
+| `stage2` | `data/stage2/` | Supervised / instruction / preference / tiny task-tuning artifacts: canonical `stage2_manifest.jsonl`, prototype `stage2_sft.jsonl` (bidirectional pairs; retention slice merged by a later step), `templates.json`. Populated only when Stage-2 sources exist; absent otherwise. | n/a. Contamination CI: `stage2_train ∩ eval_hashes = ∅` (pair, en-side, haw-side). |
+| `final` | `data/final/` | **Major-milestone holdout eval data** — protected, accessed sparingly. FineWeb-2 `haw_Latn` test holdout split, milestone anchors (e.g., `global-piqa-parallel`, held-out Tatoeba), and any future major-milestone probe sets. Used at Stage 1 / Stage 2 gates and end-of-run evaluation per [`eval_pipeline.md`](./eval_pipeline.md) §2, not on every checkpoint. | **Yes — strictly never train.** Hashes are appended to the same `data/evals/eval_hashes.jsonl` ledger before any train ingest, with `origin=<source>, stage=eval-only, division=final`. Treated like `evals` for contamination; access discipline is what differentiates it. |
 
 Posture reminders:
 
 - **This is private prototype / learning work.** No `data/` artifact in any of the four divisions is shared externally; the publication CI gate refuses any external emit of pipeline artifacts regardless of division (see [Prototype scope](#prototype-scope)). `final` is **not** a release / shipping bucket and never has been — it is the eval division reserved for milestone-grade holdouts.
-- **`evals` ∪ `final` is the held-out boundary.** Any artifact landing in `data/evals/` or `data/final/` is hashed into `data/evals/eval_hashes.parquet` before any train ingest reads it. Train candidates are deduped against `eval_hashes.parquet` (exact-hash; cluster-aware split isolation handles near-dups). The invariant `train ∩ eval_hashes = ∅` covers both divisions.
+- **`evals` ∪ `final` is the held-out boundary.** Any artifact landing in `data/evals/` or `data/final/` is hashed into `data/evals/eval_hashes.jsonl` before any train ingest reads it. Train candidates are deduped against that ledger (exact NFC SHA-256; cluster-aware split isolation handles near-dups). The invariant `train ∩ eval_hashes = ∅` covers both divisions.
 - **`evals` vs `final` is an access-discipline distinction, not a contamination distinction.** Both are off-limits to training. The harness reads `evals` on every checkpoint; it reads `final` only at gates and milestones, so milestone numbers can't drift from accidental tuning against them.
 - **Raw and intermediate data stays out of these divisions.** `data/raw/` (immutable fetched bytes) and `data/extracted/` (pre-manifest text) remain as today; they are inputs to `stage1` / `stage2` / `evals` / `final`, not divisions of the taxonomy.
 - **Nothing under `data/` is committed to git.** Only schemas, templates, URL inventories, and these docs live in-repo. The `/data/` `.gitignore` rule covers all four divisions.
@@ -97,11 +97,11 @@ Posture reminders:
 
 These hold for both stages and are not negotiable per-source:
 
-1. **Provenance manifest is the corpus.** Raw blobs are never the primary artifact. Each stage emits a Parquet manifest, one row per surviving doc/pair, with SHA-256 keys, fetch metadata, observed license, register, dedup cluster, and split.
+1. **Provenance manifest is the corpus.** Raw blobs are never the primary artifact. Current prototype manifests are JSONL, one row per surviving doc/pair, with SHA-256 keys, fetch metadata, observed license, register, dedup cluster, and split. Any future Parquet copy is a derived mirror, not a second source of truth.
 2. **No license inference.** `license_observed` is what the source declared. `license_inferred` is always `null`. If we don't know, we don't guess.
 3. **Unicode policy.** NFC throughout. ʻokina canonicalized to **U+02BB**; kahakō preserved as precomposed NFC (`ā` = U+0101, etc.). Apostrophe disambiguation across `'` (U+0027), `‘` (U+2018), `’` (U+2019), `ʻ` (U+02BB), `ʼ` (U+02BC) is context-aware — between/before vowels in Hawaiian context → ʻokina; English contractions are left alone.
 4. **Raw archive is immutable, SHA-256 keyed, and not in git.** Storage location TBD (open team gap).
-5. **`eval_hashes.parquet` is the contamination ledger.** Lives at `data/evals/eval_hashes.parquet`. Accumulates every held-out hash from **both `data/evals/` (cheap, frequent) and `data/final/` (major-milestone holdout)** — Stage-1 dev/test, Stage-2 dev/test (pair, en-side, haw-side independently), FineWeb-2 `haw_Latn` test dev (in `evals`) and holdout (in `final`), W1 manual micro-eval, milestone anchors like `global-piqa-parallel`, and any other eval anchor — *before* train ingest reads it. CI assertion: `train ∩ eval_hashes = ∅`. **Never train on rows in `data/evals/` or `data/final/`.**
+5. **`eval_hashes.jsonl` is the contamination ledger.** Lives at `data/evals/eval_hashes.jsonl` and is the canonical prototype contract. It accumulates every held-out hash from **both `data/evals/` (cheap, frequent) and `data/final/` (major-milestone holdout)** — Stage-1 dev/test, Stage-2 dev/test (pair, en-side, haw-side independently), FineWeb-2 `haw_Latn` test dev (in `evals`) and holdout (in `final`), W1 manual micro-eval, milestone anchors like `global-piqa-parallel`, and any other eval anchor — *before* train ingest reads it. Each line is one JSON object with `schema_version`, `sha256_normalized`, `hash_method=sha256`, `normalization_method=NFC`, `origin`, `stage=eval-only`, `division`, `split`, `row_id`, and optional source metadata. W1 hashes use `origin=manual_w1`, `division=evals`, `split=w1`, and SHA-256 over NFC `prompt + LF + reference` via `scripts/315_hash_manual_w1_eval.py`; local draft preflight rows are marked `eval_consumable=false`. A Parquet mirror is future/optional and must be derived from this JSONL, not treated as a second source of truth. CI assertion: `train ∩ eval_hashes = ∅`. **Never train on rows in `data/evals/` or `data/final/`.**
 6. **Cluster-aware split isolation.** Any near-dup cluster touching dev/test is fully held out from train. MinHash clusters are recorded in the manifest, not recomputed at split time.
 7. **Hard-escalate categories are deny-by-default with an allow-list per source category** — never auto-ingested via deny-list filtering.
 8. **Reproducibility:** every model dependency in the pipeline (LID model, OCR engine + lang data, embedding aligner) is recorded with name + version/hash in the manifest row that consumed it.
@@ -118,19 +118,20 @@ One format per layer, chosen so the raw fetch is replayable, the manifests are t
 | **Raw fetch — web/HTML** | WARC (`.warc.gz`) | `data/raw/{source}/{fetch_date}/*.warc.gz` | `warcio`/`scrapy-warc` preserve request + response + headers + ToS snapshot in one immutable blob. SHA-256 of the WARC is the provenance key. |
 | **Raw fetch — non-HTML originals** (PDFs, dump tars, TSVs from Tatoeba/global-piqa, IA items) | Native bytes, untouched | `data/raw/{source}/{fetch_date}/{sha256}.{ext}` | Don't transcode at fetch time. Sidecar `fetch.jsonl` (one line per fetched object) records `source_url`, `fetch_date`, `http_status`, `sha256_raw`, `tos_snapshot_id`, `content_type`. |
 | **Extraction / intermediate text** | Gzipped JSONL (`.jsonl.gz`), one record per doc or per page | `data/extracted/{source}/{fetch_date}/*.jsonl.gz` | Streamable, append-friendly, language-agnostic. Schema: `{doc_id, sha256_raw, text, extraction_method, ocr_confidence_mean?, page_no?, source_url, fetch_date}`. OCR output lives here with confidences attached. |
-| **Stage 1 manifest** | Parquet (zstd) | `data/stage1/stage1_manifest.parquet` | Columnar, compresses well, queryable with DuckDB/pandas. One row per surviving doc. Schema in [Stage 1 manifest](#stage-1-manifest-schema). |
-| **Stage 1 training text** | Gzipped JSONL | `data/stage1/stage1.jsonl.gz` | Trainer-friendly. One example per line: `{doc_id, text, source, register, split, prototype_only}`. Manifest fields stay out of the line so the model can't memorize them. |
-| **Stage 1 packed/tokenized** | Packed `.bin` (or `.npy`) + sidecar `index.json` | `data/stage1/packed/` | Produced after Rusty's tokenizer audit. Sidecar records tokenizer name + hash, doc-boundary offsets, and the source `stage1.jsonl.gz` SHA-256. |
-| **Stage 2 manifest** | Parquet (zstd) | `data/stage2/stage2_manifest.parquet` | One row per canonical pair. Schema in [Stage 2 manifest](#stage-2-manifest-schema). |
-| **Stage 2 training text** | Gzipped JSONL | `data/stage2/stage2.jsonl.gz` | One canonical pair → two directional rows (`en→haw`, `haw→en`) plus the 10–20% Hawaiian-mono retention slice rows in the same file. Instruction templates live separately in `data/stage2/templates.json`; the JSONL records the *resolved* instruction. |
-| **Evals — contamination ledger** | Parquet (zstd) | `data/evals/eval_hashes.parquet` | Small, append-mostly. Schema: `sha256_normalized, origin, stage, division` (and for Stage 2: `sha256_pair`, `sha256_en`, `sha256_haw`). Covers both `evals` and `final` held-out divisions. Both dataloaders import it and assert empty intersection with their training shards. |
-| **Evals — cheap held-out anchors** | Parquet / TSV (off-git) | `data/evals/fineweb2_haw_test/dev/`, `data/evals/manual_w1/w1-haw-micro-eval.tsv`, `data/evals/<other-cheap-anchor>/` | One sub-dir per cheap-cadence held-out source. Hashed into `eval_hashes.parquet` with `origin=<source>, stage=eval-only, division=evals` *before* any train ingest. Read on every checkpoint; never read by Stage-1/Stage-2 training loaders. |
-| **Final — major-milestone holdout anchors** | Parquet / TSV (off-git) | `data/final/fineweb2_haw_holdout/`, `data/final/global_piqa_parallel/`, `data/final/<other-milestone-anchor>/` | One sub-dir per milestone-cadence held-out source. Hashed into the same `data/evals/eval_hashes.parquet` ledger with `origin=<source>, stage=eval-only, division=final` *before* any train ingest. Read only at stage gates / candidate-checkpoint promotion / end-of-run eval per [`eval_pipeline.md`](./eval_pipeline.md) §2. Never read by training loaders. |
+| **Stage 1 manifest** | JSONL now; Parquet later | `data/stage1/stage1_manifest.jsonl` | Current stdlib builder output. One row per surviving doc, schema printed by `scripts/301_build_stage1_dataset.py --print-schema`. Parquet promotion waits until a dependency decision justifies `pyarrow`. |
+| **Stage 1 training text** | Gzipped JSONL | `data/stage1/stage1.jsonl.gz` | Trainer-friendly pre-tokenization pack. One example per line: `{doc_id, text, source, register, split, prototype_only}`. Manifest fields stay out of the line so the model can't memorize them. |
+| **Stage 1 token target report** | JSON | `data/stage1/token_target_report.json` | Written by `301`; records train-token estimate, Conservative/Base/Upside gaps, split/source token totals, and row counts. No corpus text. |
+| **Stage 1 packed/tokenized** | Packed `.bin` (or `.npy`) + sidecar `index.json` | `data/stage1/packed/` | Future tokenizer-dependent pack after Rusty's tokenizer audit. Sidecar records tokenizer name + hash, doc-boundary offsets, and the source `stage1.jsonl.gz` SHA-256. |
+| **Stage 2 manifest** | JSONL now; derived Parquet mirror later | `data/stage2/stage2_manifest.jsonl` | Canonical prototype artifact, one row per canonical pair. Schema in [Stage 2 manifest](#stage-2-manifest-schema). A Parquet mirror may be added later only as a derivation from this JSONL. |
+| **Stage 2 training text** | JSONL now; gzip pack later when large | `data/stage2/stage2_sft.jsonl` | Prototype default emitted by `scripts/330_emit_stage2_sft_jsonl.py`. One canonical pair → two directional rows (`en→haw`, `haw→en`); a later merge step adds the 10–20% Hawaiian-mono retention slice rows into the same logical training JSONL. Instruction templates live separately in `data/stage2/templates.json`; the JSONL records the *resolved* instruction. |
+| **Evals — contamination ledger** | JSONL (canonical prototype); optional derived Parquet mirror later | `data/evals/eval_hashes.jsonl` | Small, append-mostly. One JSON object per held-out hash with `schema_version`, `sha256_normalized`, `hash_method`, `normalization_method`, `origin`, `stage`, `division`, `split`, `row_id`; Stage 2 emits pair/en/haw hashes as separate ledger rows or compatible optional fields. Covers both `evals` and `final` held-out divisions. Both dataloaders import it and assert empty intersection with their training shards. |
+| **Evals — cheap held-out anchors** | JSONL / TSV / Parquet (off-git) | `data/evals/fineweb2_haw/dev.jsonl`, `data/evals/manual_w1/w1-haw-micro-eval.tsv`, `data/evals/<other-cheap-anchor>/` | One sub-dir per cheap-cadence held-out source. Hashed into `eval_hashes.jsonl` with `origin=<source>, stage=eval-only, division=evals` *before* any train ingest. Read on every checkpoint; never read by Stage-1/Stage-2 training loaders. |
+| **Final — major-milestone holdout anchors** | JSONL / TSV / Parquet (off-git) | `data/final/fineweb2_haw/holdout.jsonl`, `data/final/global_piqa_parallel/`, `data/final/<other-milestone-anchor>/` | One sub-dir per milestone-cadence held-out source. Hashed into the same `data/evals/eval_hashes.jsonl` ledger with `origin=<source>, stage=eval-only, division=final` *before* any train ingest. Read only at stage gates / candidate-checkpoint promotion / end-of-run eval per [`eval_pipeline.md`](./eval_pipeline.md) §2. Never read by training loaders. |
 | **Schemas & docs** | JSON Schema + Markdown, in git | `docs/schemas/*.json`, this doc | Schemas are the contract; data files are disposable. |
 
 Format rules:
 
-- **Parquet for manifests / hashes**, JSONL for trainer-facing text. Don't mix: a manifest is a query target; a JSONL is a stream.
+- **JSONL is canonical for prototype manifests** (`stage1_manifest.jsonl`, `stage2_manifest.jsonl`) until a `pyarrow` dependency is justified. Parquet is a future derived mirror only. Trainer text stays JSONL; token reports stay JSON.
 - **Gzip (`.jsonl.gz`) over uncompressed** for any text artifact larger than a few MB. Zstd for Parquet.
 - **One file per (source, fetch_date)** at the raw and extracted layers — never append across fetches. Re-fetches produce a new directory; the manifest points at the specific `sha256_raw`.
 - **No CSV** for anything past bootstrap. Quoting/encoding bugs eat Hawaiian diacritics. The `.csv` bootstrap path in the prototype-manifest ADR is for first-day scaffolding only; promote to Parquet as soon as the validator runs.
@@ -197,9 +198,9 @@ Hugging Face / GitHub / Kaggle artifacts tagged Hawaiian: treat each as a *point
         ↓
 [split isolation]                cluster-aware; held out from Stage-2 eval hashes too
         ↓
-[manifest write]                 stage1_manifest.parquet (one row per surviving doc)
+[manifest write]                 stage1_manifest.jsonl + token_target_report.json
         ↓
-[packed JSONL → tokenized]       canonical pre-tokenization JSONL; packed .bin/.npy + sidecar index after
+[trainer JSONL → tokenized]      canonical pre-tokenization JSONL; packed .bin/.npy + sidecar index after tokenizer audit
 ```
 
 Notes:
@@ -209,7 +210,11 @@ Notes:
 
 ### Stage 1 manifest schema
 
-`stage1_manifest.parquet` — one row per surviving doc. Default `prototype_only=true`.
+`stage1_manifest.jsonl` — one row per surviving doc. Default `prototype_only=true`.
+Run `python scripts/301_build_stage1_dataset.py --print-schema` for the exact
+stdlib-enforced schema. The manifest intentionally excludes `text`; payload text
+lives only in `data/stage1/stage1.jsonl.gz` and `data/extracted/`, both
+gitignored.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -255,7 +260,7 @@ One example per line, canonical pre-tokenization artifact, round-trips from the 
 
 ### Stage 1 contamination & eval guards
 
-- `eval_hashes.parquet` accumulates Stage-1 dev/test `sha256_clean` hashes. CI assertion: `stage1_train ∩ eval_hashes = ∅`.
+- `eval_hashes.jsonl` accumulates Stage-1 dev/test `sha256_clean` hashes. CI assertion: `stage1_train ∩ eval_hashes = ∅`.
 - Stage-1 dev/test hashes are also held out from any future Stage-2 train.
 - Cluster-aware split isolation: a near-dup cluster touching dev/test is fully removed from train.
 - Bible/religious-archaic share capped at ≤10% of tokens to limit register collapse.
@@ -268,13 +273,13 @@ One example per line, canonical pre-tokenization artifact, round-trips from the 
 4. **Apostrophe / diacritic chaos** — normalize before tokenizer training, audit before packing.
 5. **English contamination** — paragraph-level LID, not just doc-level.
 6. **Duplicate texts** (Bible reprints, nūpepa article reprints, Wikipedia mirrors) — cluster-aware MinHash dedup with split isolation.
-7. **Eval contamination** — `eval_hashes.parquet` check is a CI assertion, not a suggestion.
+7. **Eval contamination** — `eval_hashes.jsonl` check is a CI assertion, not a suggestion.
 8. **Accidental publication of prototype-tainted artifacts** — every artifact carries its prototype lineage; CI refuses to publish `prototype_only=true` lineage.
 9. **Cultural overreach** — allow-list per source category, not deny-list.
 
 ### Stage 1 immediate next steps
 
-1. **Land the adapter framework + empty manifest** (no data yet). Run the **Hawaiian Wikipedia dump** end-to-end — cleanest licensing posture, easiest to reason about. Output: `stage1_manifest.parquet` with real rows, packed JSONL, and a CI guard that refuses any external publication of pipeline artifacts (public sharing is out of scope for this prototype).
+1. **Land the adapter framework + manifest**. Run the accepted Stage-1 sources end-to-end. Output: `stage1_manifest.jsonl` with real rows, trainer JSONL (`stage1.jsonl.gz`), and `token_target_report.json`; public sharing remains out of scope for prototype artifacts.
 2. **Add the Ulukau nūpepa adapter** with ToS snapshot, polite fetch, OCR-confidence capture, paragraph-level LID, **manual review of ~50 random docs** before bulk ingest. Document register and OCR-quality stats per decade.
 3. **Run a tokenizer audit + token-count report** across whatever corpus exists (Rusty owns the tokenizer; Linus supplies corpus + manifest stats). **This is the honest go/no-go gate for Stage 1** — decide whether DAPT is worth running or whether more sources are needed first. The Stage-1 builder enforces a mechanical version of this gate: train-token targets are **Conservative 2.5M / Base 4.5M / Upside 7M** (right-clearable monolingual Hawaiian); `scripts/301_build_stage1_dataset.py --strict` exits non-zero when train tokens fall below the conservative target, and `--show-targets` reports current gap without requiring a corpus pull.
 
@@ -300,12 +305,13 @@ New sources land as new `10X_collect_*.py` scripts.
 - `201_fetch_rightslight_raw.py` covers the Wikimedia **dump** path (`hawwiki`, `hawwiktionary`); inputs come from `101_collect_hawwiki.py` and `103_collect_hawwiktionary.py`.
 - `202_fetch_hawwikisource_raw.py` covers Hawaiian **Wikisource** — per-page MediaWiki API page texts rather than a single bulk XML; its preferred input is the page plan emitted by `102_collect_hawwikisource.py` (consumed via `--page-plan`, default `data/local/hawwikisource/page_plan.jsonl`). Direct enumeration remains as a fallback when the plan is missing.
 - `204_fetch_ulukau_nupepa_raw.py` covers **Ulukau/Nupepa** document HTML/OCR text candidates from `104`. It is dry-run by default, writes only local gitignored raw bytes, records actual extracted-text whitespace token counts, and fails loudly on Cloudflare/403 challenge pages instead of bypassing them. Until a legitimate bulk export/API or permissioned access path is available, this adapter is for seeded IDs or manually supplied HTML exports only.
-- `205_fetch_fineweb2_haw_raw.py` covers **FineWeb-2 `haw_Latn`** rows from the plan emitted by `105`. Dry-run by default; `--execute --split {train,test} --limit N` actually fetches. Default fetch path is the HF `datasets-server` `/rows` JSON API (stdlib + `urllib`, polite paginated), with an opt-in `--use-parquet` path that streams the single parquet shard per split via `pyarrow` (not in `requirements.txt` — flag fails loudly if `pyarrow` is absent, since adding it is Linus's dependency call). Each fetched row is preserved verbatim — no cleanup — under `data/raw/fineweb2_haw/<YYYYMMDD>/<split>.jsonl` with in-row CC provenance (`source_url`, `cc_dump`, `cc_date`, `language_score`) plus a per-row `ProvenanceRecord` line in `data/raw/fineweb2_haw/fetch.jsonl`. Schema is checked against `per_row_schema.fields` from the 105 plan and missing/non-string `text` fails loudly. **English boilerplate inside Hawaiian-classified rows is expected** (FineWeb-2 LID flags whole rows; paragraph-level filtering is downstream in 301), so 205 reports actual raw whitespace token counts only and never claims cleaned tokens.
+- `205_fetch_fineweb2_haw_raw.py` covers **FineWeb-2 `haw_Latn`** rows from the plan emitted by `105`. Dry-run by default; `--execute --split {train,test} --limit N` actually fetches. Default fetch path is the HF `datasets-server` `/rows` JSON API (stdlib + `urllib`, polite paginated), with an opt-in `--use-parquet` path that streams the single parquet shard per split via `pyarrow` (not in `requirements.txt` — flag fails loudly if `pyarrow` is absent, since adding it is Linus's dependency call). Each fetched row is preserved verbatim — no cleanup — under `data/raw/fineweb2_haw/<YYYYMMDD>/<split>.jsonl` with in-row CC provenance (`source_url`, `cc_dump`, `cc_date`, `language_score`) plus a per-row `ProvenanceRecord` line in `data/raw/fineweb2_haw/fetch.jsonl`. Schema is checked against `per_row_schema.fields` from the 105 plan and missing/non-string `text` fails loudly. **English boilerplate inside Hawaiian-classified rows is expected** (FineWeb-2 LID flags whole rows), so 205 reports actual raw whitespace token counts only and never claims cleaned tokens; `301_build_stage1_dataset.py` is the first training-data gate that may drop text.
 
 300-phase consumes 200-phase output:
 
-- `310_split_dedupe_fineweb2_haw.py` — FineWeb-2 `haw_Latn` split/dedupe. Splits the official test split 70/30 into dev (→ `data/evals/fineweb2_haw/dev.jsonl`) vs holdout (→ `data/final/fineweb2_haw/holdout.jsonl`), dedupes train against the FULL test split (all 887 rows), and writes deduplicated train to `data/stage1/fineweb2_haw/train.jsonl`. Produces a manifest with row/token/char counts, split ratios, dedupe stats, deterministic seed, and the invariant `train ∩ eval_hashes = ∅`. Writes eval hashes to `data/evals/fineweb2_haw/eval_hashes.jsonl` (simple JSONL format with one hash + metadata per line).
-- `301_build_stage1_dataset.py` reads the per-source `data/raw/<source>/fetch.jsonl` ledger.
+- `320_build_stage2_manifest.py` — Stage-2 parallel-pair manifest builder skeleton (issue #11) plus split-isolation / dedup expectations runner (issue #13). Defines the canonical Stage-2 manifest schema (matches [Stage 2 manifest schema](#stage-2-manifest-schema)), validates each row (types, enums, dependent-field rules, `sha256_pair == hash(en_clean ‖ haw_clean)` invariant), and in `--check` mode runs the contamination assertions in [Stage 2 contamination & eval guards](#stage-2-contamination--eval-guards) against an existing manifest plus the canonical eval-hash JSONL ledger at `data/evals/eval_hashes.jsonl` (legacy per-source JSONL ledgers are transitional inputs only). Skeleton: zero source adapters wired yet — produces an empty manifest end-to-end so Rusty's bidirectional JSONL emitter and Basher's training scaffolding have a stable artefact contract. `--print-schema` dumps the schema for downstream consumers; `--strict` makes any schema or contamination violation fatal in CI. **Out of scope:** the runtime training-loader contamination guard (issue #4) is owned by Squad:Yashas; this script only validates the manifest artefact at build time.
+- `310_split_dedupe_fineweb2_haw.py` — FineWeb-2 `haw_Latn` split/dedupe. Splits the official 887-row test split 70/30 with count-exact half-up rounding into 621 dev rows (→ `data/evals/fineweb2_haw/dev.jsonl`) vs 266 holdout rows (→ `data/final/fineweb2_haw/holdout.jsonl`), using a seeded stable row-id/hash ordering. It dedupes train against the FULL test split (all 887 rows) with NFC-normalized text SHA-256 and writes the **deduped but still raw** train slice to `data/stage1/fineweb2_haw/train.jsonl`. Produces a manifest with requested ratio, target counts, actual counts, row/token/char counts, dedupe stats, deterministic seed, split method, normalization method, and the invariant `train ∩ eval_hashes = ∅`. Writes eval hashes to the canonical JSONL ledger `data/evals/eval_hashes.jsonl` (one hash + metadata per line).
+- `301_build_stage1_dataset.py` reads per-source `data/raw/<source>/fetch.jsonl` ledgers for Wikimedia/Wikisource-style artifacts and consumes the accepted FineWeb-2 train slice from `data/stage1/fineweb2_haw/train.jsonl` (emitted by `310`) exactly once. For FineWeb-2 it now runs the prototype cleaning gate: paragraph-level Hawaiian re-gating, timestamp/synopsis/navigation/ad/social/URL boilerplate removal, exact repeated-paragraph template removal, NFC + likely ʻokina canonicalization to U+02BB, kahakō sanity checks, and diacritic-density reporting. It writes `data/stage1/stage1_manifest.jsonl`, `data/stage1/stage1.jsonl.gz`, `data/stage1/token_target_report.json`, and `data/stage1/fineweb2_haw/cleaning_report.json`; `--dry-run`, `--show-targets`, `--print-schema`, and `--strict` provide the local validation path. Manifest rows report both `raw_token_count_est` and cleaned `token_count_est`, plus cleaning reason summaries and source/register token summaries in the JSON reports.
 
 To keep `301_build_stage1_dataset.py` source-agnostic, the Wikisource fetcher writes the **same `ProvenanceRecord` JSONL schema** to `data/raw/hawwikisource/fetch.jsonl`, and the builder dispatches by content shape:
 
@@ -320,7 +326,7 @@ Per-page identifiers (`page_id`, `title`, `revision_id`, `namespace`) ride in `s
 
 The Ulukau/Nupepa path is intentionally **not** part of the rights-light Wikimedia backbone. `104` records document candidates and the access/rights caveats; `204` can store raw HTML plus a visible-text extraction if the bytes are legitimately available. A Nupepa-specific 300-phase cleaner is still required before any nūpepa OCR is packed for training, because raw page text can contain OCR noise, boilerplate, English ads, issue navigation, and item-level rights ambiguity.
 
-The FineWeb-2 path (`105` / `205`) is the **primary verified web source** for Stage 1 monolingual Hawaiian text and supersedes the previously-considered generic CommonCrawl/CC-100 path (CC-100 has no `haw`). It is *not* yet a "clean" source: rows classified Hawaiian by FineWeb-2's LID can still contain English boilerplate, navigation, ads, and per-URL third-party rights distinct from the ODC-By wrapper licence. Cleanup, paragraph-level LID re-gating, ʻokina/kahakō density gates, MinHash dedup against `hawwiki`/`hawwikisource`, and per-source-URL rights review (Linus) all happen downstream of 205 — `301_build_stage1_dataset.py` is the gate, not the fetcher.
+The FineWeb-2 path (`105` / `205`) is the **primary verified web source** for Stage 1 monolingual Hawaiian text and supersedes the previously-considered generic CommonCrawl/CC-100 path (CC-100 has no `haw`). It is *not* clean at fetch time: rows classified Hawaiian by FineWeb-2's LID can still contain English boilerplate, navigation, ads, and per-URL third-party rights distinct from the ODC-By wrapper licence. Prototype cleanup now happens in `301_build_stage1_dataset.py`, not in 205 or 310. Near-duplicate handling is still exact-SHA/repeated-paragraph only; the next dedupe step is a MinHash/LSH pass over cleaned `hawwiki` + `hawwikisource` + FineWeb paragraphs/docs, with cluster-aware isolation so any cluster touching eval/final remains held out.
 
 ---
 
@@ -332,12 +338,14 @@ Stage 2 trains both directions from the same canonical pair (one manifest row �
 
 ### Stage 2 source tiers
 
+> **Per-source fetch plan:** the candidate inventory, dataset ids/URLs, alignment-type tag (`parallel-*` / `comparable-aligned` / `dictionary-example` / `excluded`), rights notes, dry-run-by-default acquisition steps, and exclusions for every Stage-2 source live in [`data-sources/stage2-parallel-fetch-plan.json`](../data-sources/stage2-parallel-fetch-plan.json). JW300 is recorded there as `excluded_pending_verification` — do not fetch unless ToS is re-verified.
+
 #### Tier A — True parallel, prototype-usable
 
 | Source | Type | Notes |
 |---|---|---|
 | **Baibala Hemolele ↔ English Bible (matched edition pair)** | Verse-aligned | Largest reliable parallel. **Verse-level only** — chapter-level is unsafe across editions. Pin a Hawaiian edition (translator/year) and a public-domain English edition (KJV/ASV). **Cap ≤30% of parallel-train tokens, 0% of dev/test.** |
-| **Held-out non-Bible eval slices** (`global-piqa-parallel`, held-out Tatoeba, Taxi1500 diagnostics) | Sentence-aligned / classification-style | FLORES/FLORES+ do **not** currently provide Hawaiian, so do not plan on `hawn_Latn` as a dev/test anchor. Hash any selected held-out eval sentences into `eval_hashes.parquet` *before* anything else ingests. **Never train on held-out eval rows.** |
+| **Held-out non-Bible eval slices** (`global-piqa-parallel`, held-out Tatoeba, Taxi1500 diagnostics) | Sentence-aligned / classification-style | FLORES/FLORES+ do **not** currently provide Hawaiian, so do not plan on `hawn_Latn` as a dev/test anchor. Hash any selected held-out eval sentences into `eval_hashes.jsonl` *before* anything else ingests. **Never train on held-out eval rows.** |
 | **OPUS — `haw` filtered subsets** (Tatoeba, QED, Ubuntu, GNOME, KDE) | Sentence-aligned | Most are tiny. JW300 **excluded** unless ToS re-verified. Software-l10n sets are domain-skewed; tag `register=software-l10n`, cap. |
 | **NLLB-Seed / NLLB mined `haw`-`eng`** | Mined parallel (comparable, not gold) | Train signal only, **never dev/test**. Re-derive provenance from origin URLs, not the HF mirror. |
 | **Tatoeba `haw`↔`eng`** | Sentence-aligned | Hundreds of pairs, CC-BY 2.0 FR. Hash before deciding train vs dev. |
@@ -410,13 +418,13 @@ Every pair carries `alignment_type ∈ {parallel-verse, parallel-sentence, paral
 [register / source tags]         religious | software-l10n | encyclopedic | educational | news |
                                  dictionary-example | unknown
         ↓
-[contamination checks]           (a) ∩ eval_hashes.parquet (Stage-1 + Stage-2 held-out)
+[contamination checks]           (a) ∩ eval_hashes.jsonl (Stage-1 + Stage-2 held-out)
                                  (b) ∩ Stage-1 train doc hashes → crosslink_stage1_overlap flag
                                  (c) within-Stage-2 train ↔ dev/test hash check
         ↓
 [train / dev / test split]       cluster-aware; held-out non-Bible eval slices become dev/test by default
         ↓
-[manifest write]                 stage2_manifest.parquet (one row per pair)
+[manifest write]                 stage2_manifest.jsonl (one row per pair; canonical prototype artifact)
         ↓
 [bidirectional JSONL emission]   one pair → two directional SFT examples (en→haw, haw→en);
                                  plus retention-slice monolingual Hawaiian (10–20% by token)
@@ -427,10 +435,15 @@ Notes:
 - Embedding aligner (LaBSE/LASER) is a model dependency — record `alignment_model` name + hash per row.
 - Alignment threshold is the highest-leverage knob. Bake the score **per row**, not per run, so we can re-filter without re-aligning.
 - Cross-stage hash check is non-negotiable: any Stage-2 train pair whose Hawaiian side hashes match a Stage-1 train doc gets `crosslink_stage1_overlap=true`. Allowed in train, **banned from dev/test**.
+- Alignment-scoring + quality-filter policy (tier rules, flag vocabulary, Hawaiian orthography caveats, manual-review workflow) is documented in [`stage2-alignment-quality.md`](./stage2-alignment-quality.md). The scorer is `code/llm_hawaii/stage2_quality.py` (stdlib-only); CLI front-end is `scripts/321_score_stage2_alignment.py`. Manifest rows carry policy additions `alignment_confidence_tier`, `alignment_score_components`, `quality_flags`, `manual_review_reasons`, `policy_version` alongside the schema fields below.
 
 ### Stage 2 manifest schema
 
-`stage2_manifest.parquet` — one row per pair. Default `prototype_only=true`.
+`stage2_manifest.jsonl` — one JSON object per pair and the canonical Stage-2
+prototype manifest artifact. Default `prototype_only=true` and
+`release_eligible=false`; under the private prototype posture,
+`release_eligible` is a guard field only, not a publication approval. A Parquet
+copy, if added later, must be derived from this JSONL.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -442,6 +455,8 @@ Notes:
 | `sha256_en_clean`, `sha256_haw_clean` | string | |
 | `sha256_pair` | string | `hash(sha256_en_clean ‖ sha256_haw_clean)` — primary contamination key |
 | `record_id_en`, `record_id_haw` | string | e.g., `Ioane 3:16`, TMX `<tu>` id, line index |
+| `text_en`, `text_haw` | string? | optional inline text; either inline text or a path ref is required per side |
+| `text_en_path`, `text_haw_path` | string? | repo-relative or absolute text refs resolved by `scripts/330_emit_stage2_sft_jsonl.py` |
 | `alignment_type` | string | `parallel-verse` \| `parallel-sentence` \| `parallel-doc` \| `comparable-aligned` \| `dictionary-example` \| `synthetic-bt` \| `synthetic-ft` |
 | `alignment_method` | string | `verse-id` \| `tmx-line` \| `filename-pair` \| `laser` \| `labse` \| `manual` |
 | `alignment_model` | string? | e.g., `LaBSE@<sha>`; null for deterministic methods |
@@ -458,11 +473,13 @@ Notes:
 | `license_inferred` | null | always null |
 | `tos_snapshot_id` | string? | for scrape-sourced data |
 | `prototype_only` | bool | default true |
+| `release_eligible` | bool | default false; must remain false when `prototype_only=true` |
 | `dedup_cluster_id` | string | |
 | `crosslink_stage1_overlap` | bool | true if haw side hashes match Stage-1 train doc |
 | `alignment_review_required` | bool | true if score below threshold |
 | `split` | string | `train` \| `dev` \| `test` \| `held-out` \| `review-pending` |
 | `notes` | string | |
+| `manifest_schema_version` | string | current script emits `stage2.v0` |
 
 ### Stage 2 output JSONL
 
@@ -485,7 +502,8 @@ Bidirectional SFT, **target-only loss**: prompt + source segment contribute zero
   "alignment_type": "parallel-verse",
   "synthetic": false,
   "split": "train",
-  "prototype_only": true
+  "prototype_only": true,
+  "release_eligible": false
 }
 ```
 
@@ -506,7 +524,8 @@ Bidirectional SFT, **target-only loss**: prompt + source segment contribute zero
   "alignment_type": "parallel-verse",
   "synthetic": false,
   "split": "train",
-  "prototype_only": true
+  "prototype_only": true,
+  "release_eligible": false
 }
 ```
 
@@ -527,7 +546,8 @@ Bidirectional SFT, **target-only loss**: prompt + source segment contribute zero
   "alignment_type": null,
   "synthetic": false,
   "split": "train",
-  "prototype_only": true
+  "prototype_only": true,
+  "release_eligible": false
 }
 ```
 
@@ -542,7 +562,7 @@ Notes:
 - Source leakage (`target_text` near-copying `source_text` — common in noisy comparable data).
 - Below-threshold alignments (`alignment_review_required=true`).
 - Bible verse duplicates / reprints across editions (cluster-isolated dedup).
-- Any row in `eval_hashes.parquet`.
+- Any row in `eval_hashes.jsonl`.
 - Stage-1 eval-hash overlaps on the Hawaiian side.
 - Hard-escalate cultural categories.
 - Mixed-language sentences that failed per-side LID.
@@ -554,7 +574,7 @@ Notes:
 
 ### Stage 2 contamination & eval guards
 
-`eval_hashes.parquet` accumulates, for Stage 2:
+`eval_hashes.jsonl` accumulates, for Stage 2:
 - Every Stage-2 dev/test `sha256_pair`.
 - Every Stage-2 dev/test `sha256_haw_clean` and `sha256_en_clean` **independently** — a sentence reused on the other side still counts.
 - Every Stage-1 dev/test hash (carried forward).
@@ -563,8 +583,10 @@ CI assertions (mechanical, pre-pack):
 1. `stage2_train_pairs ∩ eval_hashes = ∅` (pair, en-side, haw-side).
 2. `stage2_train ∩ stage1_eval_hashes = ∅` on the haw side.
 3. `crosslink_stage1_overlap=true` rows are allowed in train, **banned from dev/test**.
-4. Cluster-aware split isolation passes.
-5. **Lineage gate:** any artifact whose lineage contains `prototype_only=true` rows is refused for publication.
+4. Cluster-aware split isolation passes — `dedup_cluster_id` must never span `train` and any of `dev`/`test`/`held-out`.
+5. **Lineage gate:** any row with `prototype_only=true` must carry `release_eligible=false`; any artifact whose lineage contains prototype rows is refused for publication.
+
+Build-time enforcement: assertions 1–5 are mechanically run by `scripts/320_build_stage2_manifest.py --check --strict`, which loads `data/stage2/stage2_manifest.jsonl` plus the canonical eval-hash JSONL ledger at `data/evals/eval_hashes.jsonl` (legacy per-source JSONL ledgers are transitional inputs only). The check tool is artefact-only — it validates the Stage-2 manifest at build time so the runtime guard has something honest to read against. **Runtime / dataloader contamination guard is issue #4 (Squad:Yashas) and lives outside this pipeline.**
 
 Backup: n-gram overlap audit between train and dev/test as a sanity check (small parallel corpora can otherwise be memorized verbatim).
 
@@ -587,7 +609,7 @@ Backup: n-gram overlap audit between train and dev/test as a sanity check (small
 
 *Sequence after Stage 1 lands:*
 
-1. **Land the Stage-2 adapter framework + empty `stage2_manifest.parquet`** (no parallel data yet). Select and ingest a small held-out Hawaiian eval anchor from verified sources such as `global-piqa-parallel` or held-out Tatoeba; use Taxi1500 only as a diagnostic because of its Bible/classification shape. FLORES/FLORES+ currently has no Hawaiian config. Hash all held-out eval sentences into `eval_hashes.parquet` *before* anything else. Wire the contamination CI assertions.
+1. **Land the Stage-2 adapter framework + empty `stage2_manifest.jsonl`** (no parallel data yet). Select and ingest a small held-out Hawaiian eval anchor from verified sources such as `global-piqa-parallel` or held-out Tatoeba; use Taxi1500 only as a diagnostic because of its Bible/classification shape. FLORES/FLORES+ currently has no Hawaiian config. Hash all held-out eval sentences into `eval_hashes.jsonl` *before* anything else. Wire the contamination CI assertions.
 2. **Add the Bible verse-aligned adapter** (one pinned Hawaiian edition + one public-domain English edition). Verse-ID alignment is deterministic. Apply the Bible token cap, register tag, cluster-isolated dedup. After this step, count parallel-train tokens; if Bible share > cap, **sample down rather than gathering more Bible**.
 3. **Add Tatoeba + one Wikipedia-aligned slice** (LaBSE-aligned, conservative threshold, `alignment_review_required=true` on borderline rows). Run the bidirectional JSONL emission with the 10–20% retention slice from the Stage-1 corpus. Output: a tiny prototype Stage-2 dataset (target ~5–20k clean pairs + retention) and a register/direction distribution report. **This is the honest go/no-go gate for Stage 2** — fails loudly without burning GPU credits if the parallel count is too low or Bible-dominated even after capping.
 

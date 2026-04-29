@@ -63,6 +63,22 @@ def count_kahako(text: str) -> int:
     return sum(text.count(c) for c in KAHAKO_VOWELS)
 
 
+def count_hawaiian_diacritics(text: str) -> int:
+    """Count W1 slicing diacritics: ʻokina plus precomposed kahakō vowels."""
+    return count_okina(text) + count_kahako(text)
+
+
+def diacritic_density_bin(diacritic_count: int) -> str:
+    """Stable coarse bins for eval slicing by Hawaiian diacritic count."""
+    if diacritic_count <= 0:
+        return "none"
+    if diacritic_count <= 2:
+        return "low"
+    if diacritic_count <= 5:
+        return "medium"
+    return "high"
+
+
 def count_combining_macron(text: str) -> int:
     return text.count(COMBINING_MACRON)
 
@@ -96,6 +112,8 @@ def orthography_report(text: str) -> dict:
         "okina": count_okina(text),
         "wrong_okina": count_wrong_okina(text),
         "kahako": count_kahako(text),
+        "diacritic_density": count_hawaiian_diacritics(text),
+        "diacritic_density_bin": diacritic_density_bin(count_hawaiian_diacritics(text)),
         "combining_macron": count_combining_macron(text),
         "len": len(text),
     }
@@ -108,6 +126,6 @@ def orthography_report(text: str) -> dict:
 #   tokenizer audit). But you may want a thin wrapper in evaluate.py
 #   that calls into a tokenizer and reports those alongside this dict.
 #
-# TODO(diacritic-density-bins): For diagnostic slicing, bin items by
-#   ʻokina + kahakō count per 100 chars (low/mid/high). The eval doc
-#   uses these bins to expose orthography-handling regressions.
+# NOTE(diacritic-density-bins): W1/manual eval uses coarse absolute-count
+#   bins here. A future larger eval may add per-100-char bins if item
+#   lengths diverge enough to need them.

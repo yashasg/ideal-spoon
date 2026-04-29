@@ -5,7 +5,7 @@
 > **Owner:** Rusty (NLP Researcher), with input from Basher (training) and Livingston (compute/budget) where eval cadence collides with free-tier reality.
 >
 > **Companion docs:**
-> - [`data-pipeline.md`](./data-pipeline.md) — what goes *into* the model (ingest, normalization, manifests, contamination guards, `eval_hashes.parquet`).
+> - [`data-pipeline.md`](./data-pipeline.md) — what goes *into* the model (ingest, normalization, manifests, contamination guards, `eval_hashes.jsonl`).
 > - [`training-pipeline.md`](./training-pipeline.md) — what the model *does* with that data (Stage 1 CPT → fp16 merge → Stage 2 SFT, with stage gates).
 >
 > This doc covers what we measure, when we measure it, how we slice it, and how we attribute regressions to a cause rather than a vibe.
@@ -62,9 +62,28 @@ Metrics fall into four buckets. Every metric is reported with the eval-suite SHA
 
 These metrics are computed on both the eval set's references *and* the model's generations. Divergence between the two is the diagnostic.
 
-**W1 manual micro-eval (independent of FineWeb-2).** A small hand-authored, human-reviewed Hawaiian probe set (~50–100 items) is maintained as a *separate* cheap-eval source so the orthography metrics above are not solely measured against an LID-classified web crawl. Schema, field semantics, and authoring rules live in [`data-sources/manual-eval/`](../data-sources/manual-eval/README.md); populated rows are off-git at `data/evals/manual_w1/w1-haw-micro-eval.tsv` (under the canonical `evals` division per `data-pipeline.md` "Dataset division taxonomy") and are hashed into the eval-hashes ledger with `origin=manual_w1, stage=eval-only, division=evals`. It is **never used as training data**, runs alongside the FineWeb-2 dev slice at the cheap-eval cadence (§4), and is sliced by `category` (`okina_survival`, `kahako_retention`, `unicode_nfc`, `generation_sanity`) and `diacritic_density` per §5.
+**Stage-0 tokenizer audit command path.** Before the Llama-3.1-8B serious-run
+config is allowed near real training data, run:
 
-**FineWeb-2 `haw_Latn` eval splits.** The official FineWeb-2 test split (887 rows) is deterministically split 70/30 into dev (582 rows → `data/evals/fineweb2_haw/dev.jsonl`) and holdout (305 rows → `data/final/fineweb2_haw/holdout.jsonl`) via `scripts/310_split_dedupe_fineweb2_haw.py`. All 887 rows are hashed into `data/evals/fineweb2_haw/eval_hashes.jsonl` (simple JSONL format); the train split is deduplicated against this hash set to enforce the invariant `train ∩ eval_hashes = ∅`. Dev is used for cheap per-checkpoint eval; holdout is protected for major-milestone gates only.
+```bash
+python3 scripts/040_tokenizer_audit.py \
+  --model-id meta-llama/Llama-3.1-8B \
+  --input data/stage1/stage1.jsonl.gz data/evals/manual_w1/w1-haw-micro-eval.tsv
+```
+
+Reports are written under ignored `data/tokenizer_audit/` and must not be
+fabricated: missing Hugging Face/`transformers` dependencies or gated Llama
+access are hard failures with install/login instructions. The gate reads
+`overall.*` and `high_diacritic.*` for `tokens_per_word`,
+`explicit_byte_fallback_rate`, and `byte_fallback_or_proxy_rate`, then records
+`recommendation.decision` (`go` / `no_go`). The default no-spend thresholds are
+overall tokens/word ≤2.50, high-diacritic tokens/word ≤3.25, explicit byte
+fallback = 0, combined byte fallback/proxy ≤1%, and sufficient sample coverage
+(≥1,500 words plus ≥10 high-diacritic samples).
+
+**W1 manual micro-eval (independent of FineWeb-2).** A small hand-authored, human-reviewed Hawaiian probe set (~50–100 items) is maintained as a *separate* cheap-eval source so the orthography metrics above are not solely measured against an LID-classified web crawl. Schema, field semantics, and authoring rules live in [`data-sources/manual-eval/`](../data-sources/manual-eval/README.md); populated rows are off-git at `data/evals/manual_w1/w1-haw-micro-eval.tsv` (under the canonical `evals` division per `data-pipeline.md` "Dataset division taxonomy") and are hashed into the eval-hashes ledger with `origin=manual_w1, stage=eval-only, division=evals, split=w1`. The local hash path is `scripts/315_hash_manual_w1_eval.py`, which defaults to `review_status=accepted` rows; draft rows require `--include-draft-for-local-ledger` and are marked `eval_consumable=false`. W1 is **never used as training data**, runs alongside the FineWeb-2 dev slice at the cheap-eval cadence (§4), and is sliced by `category` (`okina_survival`, `kahako_retention`, `unicode_nfc`, `tokenizer_survival`, `generation_sanity`), `diacritic_density`, and derived `diacritic_density_bin` (`none` = 0, `low` = 1–2, `medium` = 3–5, `high` ≥ 6) per §5.
+
+**FineWeb-2 `haw_Latn` eval splits.** The official FineWeb-2 test split (887 rows) is deterministically split 70/30 by `scripts/310_split_dedupe_fineweb2_haw.py` using a seeded stable row-id/hash ordering and count-exact half-up rounding: 621 dev rows (→ `data/evals/fineweb2_haw/dev.jsonl`) and 266 holdout rows (→ `data/final/fineweb2_haw/holdout.jsonl`). All 887 rows are NFC-normalized before SHA-256 hashing and recorded in the canonical JSONL eval-hash ledger at `data/evals/eval_hashes.jsonl`; the train split is deduplicated against this hash set to enforce the invariant `train ∩ eval_hashes = ∅`. Dev is used for cheap per-checkpoint eval; holdout is protected for major-milestone gates only.
 
 ### 3.2 Language modeling (Stage 1 primary, Stage 2 monitor)
 
@@ -118,6 +137,7 @@ A single global metric tells you almost nothing. Every gate-level eval and every
 | **Direction** (Stage 2) | en→haw vs haw→en. Always reported separately. Asymmetric collapse is a common Stage 2 failure mode. |
 | **Length** | Short / medium / long. Catches truncation-driven artifacts and attention-budget effects. |
 | **Diacritic density** | Items binned by ʻokina + kahakō count. Performance drop on high-density slices is the orthography-handling fingerprint. |
+| **W1 manual category** | `okina_survival`, `kahako_retention`, `unicode_nfc`, `tokenizer_survival`, `generation_sanity` from the local W1 TSV. Keeps eval-only tripwires attributable by failure mode. |
 | **OCR confidence** | Where source-level OCR confidence is available (nūpepa pipeline). Isolates OCR noise from model behavior. |
 | **Tokenizer behavior** | Items binned by tokens/word and byte-fallback rate at the input. Identifies whether quality drops correlate with fragmentation. |
 | **Data split** | Train vs dev vs test vs holdout. Gap between train and dev is the overfitting signal; gap between dev and holdout is the cluster-leak signal. |
@@ -138,7 +158,7 @@ Used during post-run error analysis. The matrix is not exhaustive; it is the fir
 | English PPL blew up after Stage 1 | Catastrophic forgetting — rehearsal too thin | Increase English rehearsal slice (5% → 10%); verify rehearsal corpus didn't drift. |
 | Stage 1 fluency lost after Stage 2 | Retention slice too small or off-distribution | Increase Stage 2 retention slice (10% → 20%); verify retention examples are Stage-1-style monolingual CLM, not SFT-formatted. |
 | One direction's chrF collapses (en→haw or haw→en) | Direction imbalance or asymmetric data quality | Rebalance batches 50/50; audit parallel-pair quality per direction; check instruction templates cover both haw-side and en-side prompts. |
-| Test chrF improbably high | Eval leakage | Recompute after n-gram strip; re-run cluster-aware split builder; verify `eval_hashes.parquet` was actually loaded by the dataloader. |
+| Test chrF improbably high | Eval leakage | Recompute after n-gram strip; re-run cluster-aware split builder; verify `eval_hashes.jsonl` was actually loaded by the dataloader. |
 | Hallucination rate high on real-world Hawaiian entities | Corpus gap or overfitting to register | Slice by source; check whether hallucinations cluster on contemporary topics absent from the corpus. |
 | Quality drop correlates with high tokens/word slices | Tokenizer fragmentation is the bottleneck | Vocab extension experiment; consider Hawaiian-specific BPE/Unigram piece set; weigh embedding-table cost. |
 | Train↔dev gap large, dev↔holdout small | Overfitting on a specific source | Reweight data mix; cap per-source repeats. |
@@ -185,7 +205,7 @@ Every eval-emitting run writes a row to the run report. Incomplete rows are not 
 | `base_model_sha` | Frozen at Stage 1 start; identical across stages within a run. |
 | `tokenizer_sha` | Frozen at Stage 1 start; CI-asserted identical at Stage 2. |
 | `corpus_manifest_sha` | Hash of the manifest actually loaded (Stage 1 / Stage 2 / prototype). |
-| `eval_hashes_sha` | Hash of `eval_hashes.parquet` at run time. |
+| `eval_hashes_sha` | Hash of `eval_hashes.jsonl` at run time. |
 | `stage` | `0-smoke` \| `1-cpt` \| `merge` \| `2-sft`. |
 | `train_loss` | Final or checkpoint train loss. |
 | `hawaiian_ppl` | Held-out, overall + per-source-slice. |
@@ -215,6 +235,6 @@ The run report is the artifact other agents read. A model checkpoint without one
 ## 10. References
 
 - [`training-pipeline.md`](./training-pipeline.md) — stage-level gates this eval pipeline feeds.
-- [`data-pipeline.md`](./data-pipeline.md) — `eval_hashes.parquet`, cluster-aware splits, normalization invariants this eval pipeline depends on.
+- [`data-pipeline.md`](./data-pipeline.md) — `eval_hashes.jsonl`, cluster-aware splits, normalization invariants this eval pipeline depends on.
 - [`.squad/decisions.md`](../.squad/decisions.md) — ADRs: two-stage training plan, prototype-vs-release split, base-model recommendation.
 - `README.md` — project goals, non-goals, planning posture.

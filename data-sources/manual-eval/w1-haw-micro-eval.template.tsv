@@ -6,14 +6,17 @@ item_id	category	prompt	reference	diacritic_density	notes	author	review_status	n
 #
 # Field semantics:
 #   item_id            stable id, e.g. w1-okina-001 (kebab-case, category-prefixed)
-#   category           one of: okina_survival | kahako_retention | unicode_nfc | generation_sanity
+#   category           one of: okina_survival | kahako_retention | unicode_nfc | tokenizer_survival | generation_sanity
 #   prompt             the model input (Hawaiian or English depending on probe)
 #   reference          gold continuation / answer / expected substring; may be empty for open-ended sanity probes
-#   diacritic_density  count of ʻokina (U+02BB) + kahakō vowels (ā ē ī ō ū) in prompt+reference
+#   diacritic_density  count of ʻokina (U+02BB) + precomposed kahakō vowels (ā ē ī ō ū / Ā Ē Ī Ō Ū) in prompt + LF + reference
 #   notes              what this item is testing; cite source if quoted from rights-cleared text
 #   author             initials of the human author/reviewer
 #   review_status      draft | reviewed | accepted (only `accepted` rows are run)
 #   nfc_normalized     true | false — must be true before commit; verified by NFC check at load time
 #
 # Lines beginning with `#` are comments and are stripped at load time. Tabs separate fields.
+# Local draft bootstrap / ledger validation:
+#   python3 scripts/315_hash_manual_w1_eval.py --init-draft --execute
+#   python3 scripts/315_hash_manual_w1_eval.py --dry-run --include-draft-for-local-ledger
 # Do not commit populated rows to git; this template stays empty.

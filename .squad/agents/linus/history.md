@@ -752,3 +752,54 @@ Implemented `scripts/310_split_dedupe_fineweb2_haw.py` end-to-end. Key details:
   - Train (deduped): 95,507 rows, 323.6M chars, 67.8M tokens
   - Removed from train: 0 rows (train/test were already disjoint)
 - **Next:** Downstream scripts (301 or eval harness) should load `data/evals/fineweb2_haw/eval_hashes.jsonl` and exclude any training candidate matching those hashes. The hash format is `{"sha256_text": <hash>, "origin": "fineweb2_haw", "split": "test", "division": "evals|final", "row_id": <id>, "char_count": <n>, "token_count": <n>}` per line.
+
+## 2026-04-29 — Stage-2 manifest builder skeleton + #13 expectations (320)
+
+Landed `scripts/320_build_stage2_manifest.py` to advance issues #11 and #13. Explicitly **not** advancing #4 (runtime training-loader contamination guard — Squad:Yashas owns it).
+
+- **#11 schema.** Canonical Stage-2 manifest schema encoded as `MANIFEST_FIELDS` (field, type, required, enum). Mirrors `docs/data-pipeline.md` §"Stage 2 manifest schema": pair IDs, source IDs/URLs, both-side raw + clean hashes, `sha256_pair` (primary contamination key), record IDs, in-line text or `text_ref_*` pointers (Rusty's JSONL emitter resolves refs), alignment_type/method/model/score, length ratio, both-side LID + confidence, register, edition_or_version, synthetic + source model, both-side `license_observed`, `license_inferred=null`, `tos_snapshot_id`, prototype/release flags, `dedup_cluster_id`, `crosslink_stage1_overlap`, `alignment_review_required`, `split`, `notes`, `manifest_schema_version`. Quality/alignment placeholders (`alignment_review_required`, `alignment_score`) live in the schema so Rusty/Basher can populate them without a schema bump.
+- **Schema validator.** `validate_row()` checks types, enums, required fields, dependent rules (`synthetic ⇒ synthetic_source_model`, `license_inferred` must be null, text or ref must exist on each side, dev/test/held-out require `parallel-*` alignment and forbid `crosslink_stage1_overlap=true`), and the `sha256_pair == hash(en_clean ‖ haw_clean)` invariant. Single short violation tag per failure.
+- **#13 expectations.** `run_checks()` runs all five contamination assertions from `docs/data-pipeline.md` §"Stage 2 contamination & eval guards": (1) intra-manifest split isolation on pair/en/haw hashes, (2) external-ledger isolation against the union of `eval_hashes.jsonl` ledgers under `data/evals/` and `data/final/`, (3) cluster-aware split isolation — `dedup_cluster_id` must never span train and dev/test/held-out, (4) crosslink-Stage-1 flag banned from eval splits, (5) prototype/release lineage gate. Pair-level + document-level (en/haw side) + group-level (cluster ID) all covered.
+- **Format.** JSONL manifest at `data/stage2/stage2_manifest.jsonl` plus a per-run `data/stage2/build_manifest.json` for provenance. Defers parquet promotion (same call as 310). Outputs stay under gitignored `data/`.
+- **CLI.** `--dry-run | --execute | --check`, `--strict` for CI fail-fast, `--print-schema` for downstream consumers, `--manifest-in` and `--eval-hashes` overrides, auto-discovery of eval-hash ledgers under `data/evals/` and `data/final/`. Skeleton has zero source adapters wired — `iter_stage2_pairs()` is an empty iterator with a TODO comment listing the planned adapters (Bible verse-aligned, Tatoeba, global-piqa-parallel, wiki-aligned, NLLB-mined, BT-Stage1).
+- **Out of scope (asserted in code + docs).** Runtime training-loader contamination guard (issue #4). The script's `run_checks()` is build-time only; docstring + `out_of_scope` field in the report explicitly route runtime enforcement to Squad:Yashas. No imports added to `code/llm_hawaii/data.py`.
+- **Docs.** `docs/data-pipeline.md` §"300-phase consumes 200-phase output" now lists 320 with a description of the schema/check duties; §"Stage 2 contamination & eval guards" CI-assertions list updated (assertion #4 now spells out the cluster-isolation rule explicitly) and a new paragraph routes mechanical enforcement to `320_build_stage2_manifest.py --check --strict` while explicitly delegating the runtime guard to issue #4. `docs/training-pipeline.md` left untouched (Basher owns #14 docs).
+- **Validation.** `python3 -m py_compile scripts/320_build_stage2_manifest.py` clean. Smoke-tested `--print-schema`, `--dry-run` (zero rows, finds 887 FineWeb-2 eval hashes, all checks green), `--check --strict` against a missing manifest (exits 3). Inline functional test of `validate_row` + `run_checks` confirmed: a fabricated good `train` row passes; a fabricated `dev` row with `comparable-aligned` + `crosslink_stage1_overlap=true` produces both expected violation tags; `checks_failed()` flips True.
+- **No data committed; no git push. Nothing under `data/` is touched at rest.**
+
+## 2026-04-29 — FineWeb-2 split + eval-hash ledger fix
+
+- Fixed `scripts/310_split_dedupe_fineweb2_haw.py` to split the official 887-row FineWeb-2 `haw_Latn` test set by seeded stable row-id/NFC-hash ordering, with count-exact half-up 70/30 targets: 621 dev / 266 holdout.
+- Canonical prototype eval-hash ledger is now JSONL at `data/evals/eval_hashes.jsonl`; Parquet is future/optional and must be derived from JSONL. Hashes are SHA-256 over NFC-normalized text (`sha256_normalized`).
+- Regenerated local ignored outputs from available raw data: `data/evals/fineweb2_haw/dev.jsonl` (621), `data/final/fineweb2_haw/holdout.jsonl` (266), `data/evals/eval_hashes.jsonl` (887), `data/stage1/fineweb2_haw/train.jsonl` (95,507). Manifest verifies `train ∩ eval_hashes = ∅`.
+- Validation: py_compile clean for 310/320/330; 310 dry-run clean; grep found no stale `582`/`305` or `eval_hashes.parquet` references in docs/scripts/manual-eval README.
+
+---
+
+## 2026-04-29T12:40:50Z — Orchestration Log Capture
+
+**From:** Scribe (Session logger)
+
+**Summary:** Batch spawn for data engineering (#2/#3) consolidated with Stage 1 (#6), Rusty (#8), and Stage2 Squad (#9–#14). Orchestration logs created; 3 inbox decisions merged into canonical decisions.md (eval-hash ledger, FineWeb-2 split policy, tokenizer audit gate). No regressions.
+
+**Your related decision now in canonical decisions.md:**
+- Canonical eval-hash ledger + FineWeb-2 split policy: JSONL at `data/evals/eval_hashes.jsonl` (NFC SHA-256); FineWeb-2 70/30 split: 621 dev / 266 holdout; manifest invariant `train ∩ eval_hashes = ∅` enforced.
+- All contamination checks (FineWeb-2, W1 manual eval, Stage 1, Stage 2) now point at same ledger contract.
+- Parquet is future/optional and must be derived from JSONL.
+
+**Next steps:** Stage2 Squad and trainers can consume canonical ledger from this session forward.
+
+## 2026-04-29 — FineWeb-2 Stage-1 prototype cleaning gate
+
+- Extended `scripts/301_build_stage1_dataset.py` so FineWeb-2 train rows from `310` are no longer passed through as raw LID-classified web rows.
+- Cleaning policy: NFC normalization, likely Hawaiian ʻokina variants → U+02BB, paragraph-level Hawaiian re-gating, timestamp/synopsis/navigation/ad/social/URL boilerplate removal, exact repeated-paragraph template removal, kahakō sanity checks, and diacritic-density reporting.
+- Local full run from existing FineWeb raw data: 95,507 rows seen; 88,979 accepted before exact cleaned-doc dedupe; 6,528 rejected. Paragraphs: 1,876,399 seen; 922,066 kept; 954,333 rejected with reason counts in `data/stage1/fineweb2_haw/cleaning_report.json`.
+- Stage-1 train token counts after final manifest split/dedupe: raw 59,534,611 vs cleaned 44,067,289 overall train tokens. FineWeb train slice alone: 79,812 rows, raw 59,290,760 vs cleaned 43,843,711 tokens.
+- Reports now carry source/register token summaries plus raw/clean token counts; outputs remain under ignored `data/` paths. MinHash/LSH against cleaned `hawwiki`/`hawwikisource` remains a planned next pass, not implemented here.
+
+## 2026-04-29 — Stage-2 JSONL contract follow-up (#11)
+
+- Reconciled Stage-2 docs/scripts around JSONL-first prototype artifacts: canonical manifest is `data/stage2/stage2_manifest.jsonl`; `data/stage2/stage2_sft.jsonl` is the emitter default.
+- Demoted Parquet to future derived mirror only; removed stale Stage-2 Parquet-as-canonical references from docs/scripts.
+- Resolved `release_eligible`: kept in schema/provenance, default false under `prototype_only=true`, and added a schema violation for prototype rows that claim release eligibility.
+- Validation passed: `python3 -m py_compile scripts/320_build_stage2_manifest.py scripts/321_score_stage2_alignment.py scripts/330_emit_stage2_sft_jsonl.py`; `python3 scripts/320_build_stage2_manifest.py --dry-run --print-schema`; targeted stale-reference check found no `stage2_manifest.parquet`, `stage2_manifest.*`, or `stage2.jsonl.gz` references.

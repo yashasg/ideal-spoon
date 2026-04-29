@@ -1,0 +1,656 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_id": "stage2-parallel-fetch-plan",
+  "generated_by": "frank (Hawaiian Data Collector)",
+  "purpose": "Stage 2 candidate parallel/comparable Hawaiian-English source inventory and fetch plan. Per-source: id/name, access URL, languages, alignment_type tag (matches docs/data-pipeline.md §'Stage 2 source tiers' / 'Required tagging'), rights notes, prototype-only posture, dry-run-by-default acquisition plan, expected artifact shape, verification status, and exclusions/risks. This is a planning artifact only: no raw bytes are fetched, stored, or committed by adopting this file. All real fetches still run via the scripts under scripts/ with explicit --execute flags and write under the gitignored data/ tree.",
+  "scope_notes": [
+    "Private prototype / learning project. No public release of weights, tokenizer, dataset, or demo. Every source row carries prototype_only=true downstream (see docs/data-pipeline.md §'Stage 2 manifest schema').",
+    "Raw and intermediate bytes stay under the gitignored data/ tree. Only this inventory, source adapters, schemas, templates, and docs are commit-ready.",
+    "Rights status here is a hint, not a legal determination. Per-source rights review happens before any non-eval ingest beyond a smoke pull. Linus owns final data-policy review.",
+    "Verification status reflects what Frank has personally confirmed at fetch-plan time, not at row-acceptance time. A 'verified_endpoint' source can still be 'pending_rights_review'."
+  ],
+  "alignment_type_legend": {
+    "parallel-verse": "Verse-keyed alignment (Bible). Deterministic on a pinned edition pair.",
+    "parallel-sentence": "Sentence-aligned bitext from the source (TMX, Moses .txt, TSV, etc.).",
+    "parallel-doc": "Document-level paired material; sentence segmentation/alignment required downstream.",
+    "comparable-aligned": "Topically aligned but not pre-aligned at sentence level; LaBSE/LASER + threshold required (default 0.75 LaBSE per docs/data-pipeline.md).",
+    "dictionary-example": "Dictionary example-sentence fields; narrow register, capped, never dev/test.",
+    "synthetic-bt": "Back-translation of Stage-1 monolingual via the Stage-1-merged base (capped, never dev/test).",
+    "synthetic-ft": "Forward-translation of clean English via external MT (tighter cap, never dev/test).",
+    "excluded": "Not used in this prototype. Reason recorded in source row."
+  },
+  "verification_status_legend": {
+    "verified_endpoint": "Frank confirmed the listed URL/endpoint resolves and the dataset id/config is real (e.g., HF datasets-server probe, dump index reachable).",
+    "pending_endpoint_check": "URL listed but Frank has not yet confirmed the exact dataset id / config / file path.",
+    "pending_rights_review": "Endpoint may be real but rights posture for our use is not settled. No fetch beyond a tiny smoke pull until Linus signs off.",
+    "excluded_pending_verification": "Source is explicitly NOT approved. Listed only so future agents do not silently re-add it. Do not fetch."
+  },
+  "rights_status_legend": {
+    "public_domain_candidate": "Source itself appears to be in the public domain (e.g., pre-1925 US imprints); per-document confirmation still required.",
+    "open_license_candidate": "Source advertises an open license (e.g., CC BY-SA 4.0, CC BY 2.0 FR); flow-down conditions must be respected.",
+    "rights_review_required": "Mixed or unclear rights; manual per-document/per-row review before any non-eval use.",
+    "eval_only": "Restricted to evaluation: hash into eval_hashes.jsonl before anything else, never train.",
+    "unknown_review_required": "Rights posture not yet established; treat as restricted until reviewed."
+  },
+  "global_acquisition_defaults": {
+    "dry_run_default": true,
+    "execute_flag_required": "All fetcher scripts default to dry-run; an explicit --execute flag is required to write bytes. No fetcher is invoked by reading or merging this inventory.",
+    "raw_storage_root": "data/raw/<source_id>/<YYYYMMDD>/  (gitignored)",
+    "stage2_storage_root": "data/stage2/  (gitignored; Linus owns the manifest writer)",
+    "evals_storage_root": "data/evals/  (gitignored; eval-only sources land here and are hashed into data/evals/eval_hashes.jsonl BEFORE any other ingest)",
+    "provenance_record_shape": "Reuse the ProvenanceRecord shape used by scripts/205_fetch_fineweb2_haw_raw.py (source_url, fetch_timestamp_utc, http_status, content_length, raw_sha256, raw_storage_path, license_observed, tos_or_license_url, tos_snapshot_path, source_specific_ids, edition_or_version, fetcher_user_agent, fetcher_tool_and_version).",
+    "tos_snapshot_required_for": ["scrape-sourced HTML", "any rights_review_required source", "any source whose license_observed is per-page or per-row"],
+    "rate_limits": "Polite by default: ≤1 req/sec per host unless the host publishes a higher allowance. HF datasets-server is known-rate-limit-sensitive; sustained pulls use --rate-limit-seconds 3.0 (see frank history 2026-04-29 FineWeb-2 fetch).",
+    "global_excluded_categories": [
+      "Hard-escalate cultural categories (mele, oli, pule, moʻolelo from named tradition-bearers, moʻokūʻauhau) per docs/data-pipeline.md §52 — even for prototype use, until a cultural-review owner exists.",
+      "Auto-MT outputs not flagged synthetic=true on either side.",
+      "Social-media / forum bilingual posts without explicit per-poster permission.",
+      "LLM-generated synthetic Hawaiian dialogues not grounded in a real source pair.",
+      "Anything where one side is auto-MT and the pair is not flagged synthetic-bt or synthetic-ft."
+    ]
+  },
+  "sources": [
+    {
+      "source_id": "bible-haw-baibala-pinned-edition",
+      "name": "Baibala Hemolele — pinned Hawaiian edition (verse-aligned)",
+      "homepage_or_access": "https://baibala.org/",
+      "url_templates": ["https://baibala.org/cgi-bin/bible?e={edition}&b={book}&c={chapter}"],
+      "languages": ["haw"],
+      "alignment_type": "parallel-verse",
+      "tier": "stage2_tier_a",
+      "rights_status_hint": "rights_review_required",
+      "license_observed": "Site ToS governs the live presentation. Pre-1925 imprint editions (e.g., 1868 Andrews/Bingham) are the public-domain candidate path; Linus must approve which edition we pin.",
+      "tos_or_license_url": "https://baibala.org/",
+      "prototype_notes": [
+        "Largest reliable parallel pool for Hawaiian. Verse-level only; chapter-level alignment is unsafe across editions.",
+        "Cap ≤30% of parallel-train tokens; 0% of dev/test (per docs/data-pipeline.md §'Stage 2 source tiers' Tier A).",
+        "Pin one Hawaiian edition + one public-domain English edition; record edition_or_version per row.",
+        "alignment_method='verse-id' (deterministic); no LaBSE needed."
+      ],
+      "acquisition_plan": {
+        "tool": "requests_tenacity",
+        "dry_run_default": true,
+        "auth_required": false,
+        "rate_limit": "≤1 req/sec",
+        "steps": [
+          "Confirm pinned edition with Linus (rights ruling on edition year + provenance).",
+          "Snapshot site ToS to data/raw/bible-haw-baibala-pinned-edition/<YYYYMMDD>/tos_snapshot.html before any fetch.",
+          "Dry-run: enumerate book/chapter URLs from the pinned edition without fetching verse bodies.",
+          "On --execute: fetch chapter pages, persist raw HTML + provenance record, parse to verse-keyed records (book, chapter, verse, edition_year)."
+        ],
+        "do_not_invoke_until": ["edition pinned by Linus", "ToS snapshot captured"]
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/bible-haw-baibala-pinned-edition/<YYYYMMDD>/{book}_{chapter}.html",
+        "extracted_records": "JSONL with fields: book, chapter, verse, text_haw, edition_or_version, source_url, fetch_date, raw_sha256",
+        "manifest_alignment_method": "verse-id",
+        "register": "religious"
+      },
+      "verification_status": "pending_rights_review",
+      "exclusions_or_risks": [
+        "Bible-token-share blowing past the 30% parallel-train cap — sample down rather than fetching more Bible.",
+        "Edition-mismatch contamination across reprints — cluster-isolated dedup required."
+      ]
+    },
+    {
+      "source_id": "bible-eng-pd-anchor",
+      "name": "English Bible — public-domain anchor (KJV / ASV via eBible.org)",
+      "homepage_or_access": "https://ebible.org/",
+      "url_templates": [
+        "https://ebible.org/find/details.php?id={edition_id}",
+        "https://ebible.org/Scriptures/{edition_id}_usfm.zip"
+      ],
+      "concrete_urls": [
+        "https://ebible.org/Scriptures/eng-kjv2006_usfm.zip",
+        "https://ebible.org/Scriptures/eng-asv_usfm.zip"
+      ],
+      "languages": ["eng"],
+      "alignment_type": "parallel-verse",
+      "tier": "stage2_tier_a",
+      "rights_status_hint": "public_domain_candidate",
+      "license_observed": "KJV / ASV verse text is public domain in the US; eBible packaging metadata may carry its own license — record both.",
+      "tos_or_license_url": "https://ebible.org/about.php",
+      "prototype_notes": [
+        "Used only as the English-side anchor for the pinned Hawaiian edition.",
+        "USFM parsing required to recover verse-keyed records (book, chapter, verse).",
+        "Rights are cleanest of all Stage-2 candidates; safe to fetch in full once edition is pinned."
+      ],
+      "acquisition_plan": {
+        "tool": "requests_tenacity",
+        "dry_run_default": true,
+        "auth_required": false,
+        "rate_limit": "≤1 req/sec",
+        "steps": [
+          "Confirm edition (KJV vs ASV) with Linus; lock to the same anchor across the Stage-2 prototype.",
+          "Dry-run: HEAD request the USFM zip, record content_length and ETag.",
+          "On --execute: download zip, persist raw bytes + provenance record, extract per-book USFM."
+        ]
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/bible-eng-pd-anchor/<YYYYMMDD>/{edition_id}_usfm.zip",
+        "extracted_records": "JSONL with fields: book, chapter, verse, text_eng, edition_or_version, source_url, fetch_date, raw_sha256",
+        "manifest_alignment_method": "verse-id",
+        "register": "religious"
+      },
+      "verification_status": "verified_endpoint",
+      "exclusions_or_risks": [
+        "USFM-to-plain-text extraction must drop section headers, footnote anchors, and editorial brackets to avoid leaking non-translation tokens into target_text."
+      ]
+    },
+    {
+      "source_id": "bible-haw-archive-org-pre1925",
+      "name": "archive.org — Baibala Hemolele scanned editions (pre-1925)",
+      "homepage_or_access": "https://archive.org/search.php?query=title%3A%22Baibala+Hemolele%22",
+      "url_templates": ["https://archive.org/details/{ia_item_id}"],
+      "languages": ["haw"],
+      "alignment_type": "parallel-verse",
+      "tier": "stage2_tier_a_alternative",
+      "rights_status_hint": "public_domain_candidate",
+      "license_observed": "Pre-1925 imprints are public_domain_candidate in the US; confirm imprint year per item.",
+      "tos_or_license_url": "https://archive.org/about/terms.php",
+      "prototype_notes": [
+        "Alternative / supplement to baibala.org for pinning a specific historical edition (e.g., 1868 Andrews/Bingham named in docs/data-pipeline.md §Stage 2).",
+        "OCR quality varies wildly per scan; OCR confidence must be persisted per page so downstream filters can drop low-confidence verses.",
+        "Use the existing internetarchive bucket entry in data-sources/hawaiian-data-sources.json (do not duplicate adapters)."
+      ],
+      "acquisition_plan": {
+        "tool": "internetarchive",
+        "dry_run_default": true,
+        "auth_required": false,
+        "rate_limit": "Per IA client defaults; no aggressive parallelism.",
+        "steps": [
+          "Dry-run: list candidate items, record imprint year and ocr_quality_indicator.",
+          "Pick one item per chosen edition.",
+          "On --execute: pull OCR text + page images metadata; persist per-page raw + per-verse extraction."
+        ]
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/bible-haw-archive-org-pre1925/<YYYYMMDD>/{ia_item_id}/...",
+        "extracted_records": "JSONL with fields: book, chapter, verse, text_haw, edition_or_version, publication_year, ia_item_id, ocr_quality_indicator, source_url, fetch_date, raw_sha256",
+        "manifest_alignment_method": "verse-id",
+        "register": "religious"
+      },
+      "verification_status": "pending_endpoint_check",
+      "exclusions_or_risks": [
+        "OCR errors silently corrupting verse text — gate on ocr_quality_indicator and require human spot-check on a sample.",
+        "Multiple printings of the same edition causing near-duplicate verses across items — cluster-isolated dedup required."
+      ]
+    },
+    {
+      "source_id": "tatoeba-haw-eng",
+      "name": "Tatoeba — Hawaiian sentences and haw↔eng links",
+      "homepage_or_access": "https://tatoeba.org/eng",
+      "concrete_urls": [
+        "https://downloads.tatoeba.org/exports/per_language/haw/haw_sentences.tsv.bz2",
+        "https://downloads.tatoeba.org/exports/per_language/haw/haw-eng_links.tsv.bz2",
+        "https://downloads.tatoeba.org/exports/per_language/haw/haw_sentences_detailed.tsv.bz2"
+      ],
+      "url_templates": ["https://downloads.tatoeba.org/exports/per_language/haw/{filename}"],
+      "languages": ["haw", "eng"],
+      "alignment_type": "parallel-sentence",
+      "tier": "stage2_tier_a",
+      "rights_status_hint": "open_license_candidate",
+      "license_observed": "CC BY 2.0 FR (per Tatoeba site). Per-sentence contributor + license_per_sentence must be preserved for attribution flow-down.",
+      "tos_or_license_url": "https://tatoeba.org/eng/terms_of_use",
+      "prototype_notes": [
+        "Hundreds (low-thousands) of pairs at most; small but clean signal.",
+        "Hash all pairs into eval_hashes.jsonl decision space before splitting train vs dev (per docs/data-pipeline.md §Stage 2 contamination & eval guards).",
+        "alignment_method='tatoeba-link-id' (deterministic via the haw-eng_links.tsv table)."
+      ],
+      "acquisition_plan": {
+        "tool": "requests_tenacity",
+        "dry_run_default": true,
+        "auth_required": false,
+        "rate_limit": "≤1 req/sec",
+        "steps": [
+          "Dry-run: HEAD all three .tsv.bz2 endpoints, record content_length.",
+          "On --execute: download all three, persist raw bytes + provenance.",
+          "Decompress and join sentences ↔ links to materialize haw↔eng pairs with tatoeba_sentence_id and contributor preserved."
+        ]
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/tatoeba-haw-eng/<YYYYMMDD>/{filename}",
+        "extracted_records": "JSONL with fields: tatoeba_sentence_id_haw, tatoeba_sentence_id_eng, text_haw, text_eng, contributor_haw, contributor_eng, license_per_sentence, source_url, fetch_date, raw_sha256",
+        "manifest_alignment_method": "tatoeba-link-id",
+        "register": "general"
+      },
+      "verification_status": "verified_endpoint",
+      "exclusions_or_risks": [
+        "Volume too small to support both train and dev — likely train+held-out only.",
+        "Per-sentence attribution must survive into the final manifest; license flow-down obligation."
+      ]
+    },
+    {
+      "source_id": "opus-haw-subsets",
+      "name": "OPUS — haw-containing parallel subsets (Tatoeba, QED, Ubuntu, GNOME, KDE)",
+      "homepage_or_access": "https://opus.nlpl.eu/",
+      "concrete_urls": [
+        "https://opus.nlpl.eu/Tatoeba/v2023-04-12/moses/en-haw.txt.zip",
+        "https://opus.nlpl.eu/QED/v2.0a/moses/en-haw.txt.zip",
+        "https://opus.nlpl.eu/Ubuntu/v14.10/moses/en-haw.txt.zip",
+        "https://opus.nlpl.eu/GNOME/v1/moses/en-haw.txt.zip",
+        "https://opus.nlpl.eu/KDE4/v2/moses/en-haw.txt.zip"
+      ],
+      "url_templates": [
+        "https://opus.nlpl.eu/{corpus}/{version}/moses/{src}-{tgt}.txt.zip",
+        "https://opus.nlpl.eu/{corpus}/{version}/xml/{lang}.zip"
+      ],
+      "languages": ["haw", "eng"],
+      "alignment_type": "parallel-sentence",
+      "tier": "stage2_tier_a",
+      "rights_status_hint": "rights_review_required",
+      "license_observed": "Per-corpus (varies). Software-l10n sets are typically permissive but heterogeneous; record license per corpus version.",
+      "tos_or_license_url": "https://opus.nlpl.eu/",
+      "prototype_notes": [
+        "Software-l10n sets (Ubuntu/GNOME/KDE) are domain-skewed; tag register='software-l10n' and cap.",
+        "Confirm exact version IDs at fetch time; OPUS releases shift.",
+        "JW300 is intentionally absent from this list — see deferred_or_excluded.jw300_haw."
+      ],
+      "acquisition_plan": {
+        "tool": "requests_tenacity",
+        "dry_run_default": true,
+        "auth_required": false,
+        "rate_limit": "≤1 req/sec",
+        "steps": [
+          "Dry-run: HEAD each .zip, record content_length and version.",
+          "On --execute: download per-corpus zip, persist raw bytes + provenance, tag register per corpus.",
+          "Parse Moses-format pairs; preserve opus_corpus, opus_version, pair_direction."
+        ]
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/opus-haw-subsets/<YYYYMMDD>/{corpus}_{version}_en-haw.txt.zip",
+        "extracted_records": "JSONL with fields: opus_corpus, opus_version, pair_direction, text_en, text_haw, source_url, fetch_date, raw_sha256, register",
+        "manifest_alignment_method": "tmx-line",
+        "register": "software-l10n|encyclopedic|educational (per corpus)"
+      },
+      "verification_status": "pending_endpoint_check",
+      "exclusions_or_risks": [
+        "Domain skew toward software UI strings — cap by register and never let it dominate parallel-train tokens.",
+        "Per-corpus license heterogeneity — per-corpus rights snapshot before --execute.",
+        "Internal Tatoeba subset is duplicate-prone with the upstream Tatoeba source — cluster-isolated dedup."
+      ]
+    },
+    {
+      "source_id": "nllb-mined-haw-eng",
+      "name": "NLLB Seed / NLLB-MD mined haw↔eng (Hugging Face mirror)",
+      "homepage_or_access": "https://huggingface.co/datasets/allenai/nllb",
+      "languages": ["haw", "eng"],
+      "alignment_type": "parallel-sentence",
+      "tier": "stage2_tier_a_mined",
+      "rights_status_hint": "rights_review_required",
+      "license_observed": "Per dataset card; mined data is noisy and rights-mixed. Re-derive provenance from origin URLs, not the HF mirror.",
+      "tos_or_license_url": "https://huggingface.co/datasets/allenai/nllb",
+      "prototype_notes": [
+        "Mined parallel — train signal only, NEVER dev/test (per docs/data-pipeline.md §Stage 2 Tier A).",
+        "Confirm hawn_Latn / haw_Latn coverage and license before pulling; treat as last-resort, not P0.",
+        "If retained, alignment_score must be persisted; below-threshold rows are alignment_review_required=true."
+      ],
+      "acquisition_plan": {
+        "tool": "requests_tenacity",
+        "dry_run_default": true,
+        "auth_required": "HF token may be required for full dataset pulls; use datasets-server /rows for smoke probes (stdlib-only path).",
+        "rate_limit": "HF datasets-server: --rate-limit-seconds 3.0 sustained.",
+        "steps": [
+          "Dry-run: hit datasets-server /rows with length=1 for the relevant config to confirm haw coverage and schema.",
+          "Defer full pull until Linus rules on mined-data rights posture and Rusty rules on quality threshold.",
+          "On --execute (post-rulings): pull rows with origin URL preserved per row; never fetch via mirror without origin retention."
+        ],
+        "do_not_invoke_until": ["mined-data rights ruling from Linus", "quality threshold from Rusty"]
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/nllb-mined-haw-eng/<YYYYMMDD>/{config}_{split}.jsonl",
+        "extracted_records": "JSONL with fields: dataset_revision, config_name, split, row_id, text_en, text_haw, origin_url_en, origin_url_haw, alignment_score, source_url, fetch_date, raw_sha256",
+        "manifest_alignment_method": "mined-laser",
+        "register": "mixed-web"
+      },
+      "verification_status": "pending_rights_review",
+      "exclusions_or_risks": [
+        "Mined-quality noise: false-positive alignment, code-mixed, MT contamination.",
+        "Origin-URL rights mixed; per-row provenance is the floor.",
+        "NEVER promote to dev/test under any circumstance."
+      ]
+    },
+    {
+      "source_id": "biblenlp-haw",
+      "name": "BibleNLP Corpus — haw subset",
+      "homepage_or_access": "https://huggingface.co/datasets/bible-nlp/biblenlp-corpus",
+      "languages": ["haw", "eng"],
+      "alignment_type": "parallel-verse",
+      "tier": "stage2_tier_a_alternative",
+      "rights_status_hint": "rights_review_required",
+      "license_observed": "Per dataset card; varies per source translation. Cross-check against the pinned baibala.org / archive.org edition rather than substituting it.",
+      "tos_or_license_url": "https://huggingface.co/datasets/bible-nlp/biblenlp-corpus",
+      "prototype_notes": [
+        "Useful as a CROSS-CHECK against our pinned Hawaiian Bible edition and as a verse-ID sanity test for the alignment adapter — not a replacement for the pinned edition.",
+        "Confirm exactly which Hawaiian translation the haw config wraps before treating it as our anchor; it may not be the 1868 edition the docs name."
+      ],
+      "acquisition_plan": {
+        "tool": "requests_tenacity",
+        "dry_run_default": true,
+        "auth_required": "HF token may be required.",
+        "rate_limit": "HF datasets-server: --rate-limit-seconds 3.0 sustained.",
+        "steps": [
+          "Dry-run: probe datasets-server /rows for config(s) containing haw.",
+          "Inspect a sample of <=10 rows to identify which translation is wrapped.",
+          "Defer any bulk pull until edition identity matches Linus's pinned edition or is explicitly accepted as a cross-check."
+        ]
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/biblenlp-haw/<YYYYMMDD>/{config}_{split}.jsonl",
+        "extracted_records": "JSONL with fields: dataset_revision, config_name, split, row_id, book, chapter, verse, text_haw, text_eng?, edition_or_version, source_url, fetch_date, raw_sha256",
+        "manifest_alignment_method": "verse-id",
+        "register": "religious"
+      },
+      "verification_status": "pending_endpoint_check",
+      "exclusions_or_risks": [
+        "Edition opacity: if the wrapped translation is unidentified or modern-rights-encumbered, treat as excluded for training; eval-only at most.",
+        "Verse-coverage holes (some Hawaiian translations omit deuterocanonicals or have alternate book divisions) — surface coverage in the smoke probe."
+      ]
+    },
+    {
+      "source_id": "global-piqa-parallel-haw",
+      "name": "Global-PIQA Parallel — haw_Latn slice",
+      "homepage_or_access": "https://huggingface.co/datasets/mrlbenchmarks/global-piqa-parallel",
+      "concrete_urls": [
+        "https://huggingface.co/datasets/mrlbenchmarks/global-piqa-parallel/resolve/main/parallel_haw_latn.tsv"
+      ],
+      "languages": ["haw", "eng"],
+      "alignment_type": "parallel-sentence",
+      "tier": "stage2_tier_a_eval",
+      "rights_status_hint": "eval_only",
+      "license_observed": "Per dataset card; treat as eval-only regardless of upstream license. Hash before any other ingest.",
+      "tos_or_license_url": "https://huggingface.co/datasets/mrlbenchmarks/global-piqa-parallel",
+      "prototype_notes": [
+        "Held-out non-Bible eval anchor candidate (per docs/data-pipeline.md §Stage 2 immediate next steps and frank's W1 Stage-0 shortlist).",
+        "Hash all selected rows into data/evals/eval_hashes.jsonl BEFORE any Stage-1 / Stage-2 train ingest re-runs.",
+        "NEVER train on this source.",
+        "Lands under the evals division (data/evals/global_piqa_haw/), not stage2/."
+      ],
+      "acquisition_plan": {
+        "tool": "requests_tenacity",
+        "dry_run_default": true,
+        "auth_required": false,
+        "rate_limit": "HF: --rate-limit-seconds 3.0 sustained for /rows; resolve/main is a single static file.",
+        "steps": [
+          "Dry-run: HEAD parallel_haw_latn.tsv, record content_length and ETag.",
+          "On --execute: download TSV, persist raw bytes + provenance, hash every row into data/evals/eval_hashes.jsonl."
+        ]
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/global-piqa-parallel-haw/<YYYYMMDD>/parallel_haw_latn.tsv",
+        "extracted_records": "TSV passthrough; per-row sha256 added; rows hashed into data/evals/eval_hashes.jsonl",
+        "manifest_alignment_method": "tsv-row-id",
+        "register": "encyclopedic|commonsense"
+      },
+      "verification_status": "pending_endpoint_check",
+      "exclusions_or_risks": [
+        "Eval contamination if any row leaks into Stage-1 or Stage-2 train (the eval_hashes.jsonl ledger is the backstop).",
+        "Coverage may be small; do not over-rely as the sole eval anchor — pair with held-out Tatoeba and Bible-anchored verse pairs."
+      ]
+    },
+    {
+      "source_id": "taxi1500-haw",
+      "name": "Taxi1500 — haw_Latn diagnostic",
+      "homepage_or_access": "https://github.com/cisnlp/Taxi1500",
+      "languages": ["haw", "eng"],
+      "alignment_type": "parallel-sentence",
+      "tier": "stage2_tier_a_eval_diagnostic",
+      "rights_status_hint": "eval_only",
+      "license_observed": "Per repo / dataset card; Bible-derived classification eval. Treat as eval-only.",
+      "tos_or_license_url": "https://github.com/cisnlp/Taxi1500",
+      "prototype_notes": [
+        "Diagnostic only — its Bible/classification shape biases toward religious register, so it is not a primary anchor.",
+        "Useful as a sanity-check signal alongside global-piqa-parallel and held-out Tatoeba.",
+        "Hash any selected rows into eval_hashes.jsonl before anything else."
+      ],
+      "acquisition_plan": {
+        "tool": "requests_tenacity",
+        "dry_run_default": true,
+        "auth_required": false,
+        "rate_limit": "GitHub raw: ≤1 req/sec.",
+        "steps": [
+          "Dry-run: identify the haw_Latn split file path in the repo, record commit SHA.",
+          "On --execute: pin to a commit SHA, fetch the haw_Latn split, persist raw bytes + provenance, hash rows."
+        ]
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/taxi1500-haw/<YYYYMMDD>/<commit_sha>/haw_Latn.tsv",
+        "extracted_records": "TSV/JSONL passthrough with classification labels preserved; rows hashed into data/evals/eval_hashes.jsonl",
+        "manifest_alignment_method": "row-id",
+        "register": "religious|classification-derived"
+      },
+      "verification_status": "pending_endpoint_check",
+      "exclusions_or_risks": [
+        "Register skew (Bible-derived) — do not let it dominate eval reporting.",
+        "Classification framing differs from translation framing — keep diagnostic-only, not a translation-quality anchor."
+      ]
+    },
+    {
+      "source_id": "weblate-en-haw",
+      "name": "Weblate localization — en↔haw translation memories",
+      "homepage_or_access": "https://hosted.weblate.org/languages/haw/",
+      "languages": ["haw", "eng"],
+      "alignment_type": "parallel-sentence",
+      "tier": "stage2_tier_a_software",
+      "rights_status_hint": "rights_review_required",
+      "license_observed": "Per project on Weblate; many projects are GPL/BSD/Apache/MIT/CC-BY-SA but some are proprietary. Per-project license capture is mandatory.",
+      "tos_or_license_url": "https://weblate.org/en/terms/",
+      "prototype_notes": [
+        "Software-l10n register; tag register='software-l10n' and cap (same posture as OPUS Ubuntu/GNOME/KDE).",
+        "Per-project license heterogeneity: capture license per project before merging into a single manifest.",
+        "Volume per project is small but the sum across haw projects can exceed Tatoeba."
+      ],
+      "acquisition_plan": {
+        "tool": "requests_tenacity",
+        "dry_run_default": true,
+        "auth_required": "Some projects require an API token; public projects expose TM downloads without auth.",
+        "rate_limit": "≤1 req/sec; respect per-instance limits.",
+        "steps": [
+          "Dry-run: enumerate haw projects via the Weblate REST API; record per-project license.",
+          "Filter to permissive-license projects only.",
+          "On --execute: pull per-project translation memory (TMX or CSV); persist raw + provenance per project."
+        ],
+        "do_not_invoke_until": ["per-project license filter applied"]
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/weblate-en-haw/<YYYYMMDD>/{project_slug}/tm.{ext}",
+        "extracted_records": "JSONL with fields: project_slug, project_license, text_en, text_haw, tm_unit_id, source_url, fetch_date, raw_sha256",
+        "manifest_alignment_method": "tmx-line",
+        "register": "software-l10n"
+      },
+      "verification_status": "pending_endpoint_check",
+      "exclusions_or_risks": [
+        "Mixed per-project licenses — easy to accidentally fold a non-permissive project in; the per-project filter is a hard gate.",
+        "UI-string register skew; cap as with OPUS l10n subsets."
+      ]
+    },
+    {
+      "source_id": "wiki-haw-en-langlinks",
+      "name": "Hawaiian ↔ English Wikipedia (interlanguage links, comparable docs)",
+      "homepage_or_access": "https://haw.wikipedia.org/",
+      "url_templates": [
+        "https://haw.wikipedia.org/w/api.php?action=query&format=json&prop=langlinks&lllang=en&titles={title}"
+      ],
+      "languages": ["haw", "eng"],
+      "alignment_type": "comparable-aligned",
+      "tier": "stage2_tier_b",
+      "rights_status_hint": "open_license_candidate",
+      "license_observed": "CC BY-SA 4.0 + GFDL (per-revision; Wikimedia Terms apply).",
+      "tos_or_license_url": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+      "prototype_notes": [
+        "Topically aligned, NOT sentence-aligned. LaBSE/LASER + similarity threshold (default 0.75 LaBSE per docs/data-pipeline.md §Stage 2) required downstream.",
+        "Expect <5k usable pairs after threshold + length-ratio + LID filters.",
+        "Cleanest licensing posture among comparable sources."
+      ],
+      "acquisition_plan": {
+        "tool": "requests_tenacity",
+        "dry_run_default": true,
+        "auth_required": false,
+        "rate_limit": "MediaWiki API: ≤1 req/sec; use User-Agent identifying this prototype.",
+        "steps": [
+          "Dry-run: enumerate haw-page titles from the existing hawwiki dump (already fetched per Stage-1 plan), then query langlinks API for en counterparts without fetching article bodies.",
+          "On --execute: fetch en-side article extracts for matched titles, persist raw + provenance.",
+          "Sentence-segment per side; LaBSE-align downstream (Linus owns the alignment pass)."
+        ]
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/wiki-haw-en-langlinks/<YYYYMMDD>/{haw_title}.json",
+        "extracted_records": "JSONL with fields: haw_title, haw_revision_id, en_title, en_revision_id, text_haw, text_eng, source_url_haw, source_url_eng, fetch_date, raw_sha256",
+        "manifest_alignment_method": "labse",
+        "register": "encyclopedic"
+      },
+      "verification_status": "verified_endpoint",
+      "exclusions_or_risks": [
+        "Comparable-not-parallel: false-friend pairs at chapter/section level — alignment score gate is mandatory.",
+        "Stage-1 contamination: the Hawaiian side may overlap the Stage-1 hawwiki monolingual corpus; cluster-isolated dedup against Stage-1 hashes is required (see crosslink_stage1_overlap field in stage2_manifest)."
+      ]
+    },
+    {
+      "source_id": "wikisource-haw-en-comparable",
+      "name": "Hawaiian ↔ English Wikisource (per-text comparable)",
+      "homepage_or_access": "https://haw.wikisource.org/",
+      "languages": ["haw", "eng"],
+      "alignment_type": "comparable-aligned",
+      "tier": "stage2_tier_b",
+      "rights_status_hint": "open_license_candidate",
+      "license_observed": "CC BY-SA 4.0 wrapper over public-domain source texts; per-text provenance in the page metadata.",
+      "tos_or_license_url": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+      "prototype_notes": [
+        "Per-text manual check; volume small.",
+        "Where a Hawaiian text has an explicit English Wikisource counterpart, alignment_method may upgrade to 'parallel-doc' before sentence segmentation.",
+        "Useful for register diversity beyond Bible + Wikipedia + Tatoeba."
+      ],
+      "acquisition_plan": {
+        "tool": "requests_tenacity",
+        "dry_run_default": true,
+        "auth_required": false,
+        "rate_limit": "MediaWiki API: ≤1 req/sec.",
+        "steps": [
+          "Dry-run: enumerate haw.wikisource pages and look for explicit en counterparts.",
+          "On --execute: fetch matched pairs with per-revision IDs, persist raw + provenance, sentence-segment per side."
+        ]
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/wikisource-haw-en-comparable/<YYYYMMDD>/{haw_page}.json",
+        "extracted_records": "JSONL with fields: haw_page_title, haw_revision_id, en_page_title?, en_revision_id?, text_haw, text_eng?, source_url_haw, source_url_eng?, fetch_date, raw_sha256",
+        "manifest_alignment_method": "filename-pair|labse",
+        "register": "literary|historical"
+      },
+      "verification_status": "pending_endpoint_check",
+      "exclusions_or_risks": [
+        "Many Hawaiian Wikisource pages have no English counterpart — yield is small.",
+        "Hard-escalate cultural categories must be filtered out at enumeration time (mele, oli, pule, moʻolelo from named tradition-bearers, moʻokūʻauhau)."
+      ]
+    },
+    {
+      "source_id": "pukui-elbert-andrews-examples",
+      "name": "Pukui-Elbert / Andrews dictionary example sentences",
+      "homepage_or_access": "https://archive.org/details/hawaiianenglishd00pukurich",
+      "languages": ["haw", "eng"],
+      "alignment_type": "dictionary-example",
+      "tier": "stage2_tier_c",
+      "rights_status_hint": "rights_review_required",
+      "license_observed": "Per-item; pre-1925 imprints (Andrews 1865) are public_domain_candidate. Modern Pukui-Elbert printings are NOT public domain.",
+      "tos_or_license_url": "https://archive.org/about/terms.php",
+      "prototype_notes": [
+        "ONLY example-sentence fields are pair candidates. Headword-only entries are NOT training pairs.",
+        "Tag register='dictionary-example', cap, exclude from dev/test (per docs/data-pipeline.md Tier C).",
+        "Pin a public-domain edition (e.g., Andrews 1865) for prototype use; defer modern Pukui-Elbert until Linus rules."
+      ],
+      "acquisition_plan": {
+        "tool": "internetarchive",
+        "dry_run_default": true,
+        "auth_required": false,
+        "rate_limit": "Per IA client defaults.",
+        "steps": [
+          "Dry-run: list candidate IA items, record imprint year, OCR quality.",
+          "Pick one PD item.",
+          "On --execute: pull OCR text, extract entries, isolate example-sentence fields per entry."
+        ],
+        "do_not_invoke_until": ["edition pinned by Linus (PD vs modern)"]
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/pukui-elbert-andrews-examples/<YYYYMMDD>/{ia_item_id}/...",
+        "extracted_records": "JSONL with fields: dictionary_edition, headword, example_haw, example_eng, page, source_url, fetch_date, raw_sha256",
+        "manifest_alignment_method": "manual",
+        "register": "dictionary-example"
+      },
+      "verification_status": "pending_rights_review",
+      "exclusions_or_risks": [
+        "Headword-only rows polluting the manifest if the extractor is sloppy — example-field extraction must be schema-checked.",
+        "Modern Pukui-Elbert is rights-encumbered; do not fetch the modern edition without explicit rights ruling.",
+        "Register skew: dictionary-example ≠ natural prose."
+      ]
+    }
+  ],
+  "deferred_or_excluded": [
+    {
+      "source_id": "jw300-haw",
+      "name": "JW300 — haw subset",
+      "alignment_type": "excluded",
+      "rights_status_hint": "unknown_review_required",
+      "verification_status": "excluded_pending_verification",
+      "reason": "Explicitly excluded per docs/data-pipeline.md §Stage 2 Tier E ('Excluded for Stage 2 prototype') unless ToS is re-verified. JW300 is treated as UNVERIFIED for this prototype: no fetch, no smoke pull, no inclusion in any merged manifest. Listed here only so future agents do not silently re-add it. If Linus performs a fresh ToS verification and the posture changes, this row must be moved to `sources` with a verified_endpoint status, a license_observed field reflecting the confirmed posture, and the exact ToS snapshot path captured at verification time. Until then: do not fetch."
+    },
+    {
+      "source_id": "general-web-crawls-cc-haw",
+      "name": "General web crawls / Common Crawl Hawaiian slices",
+      "alignment_type": "excluded",
+      "rights_status_hint": "unknown_review_required",
+      "verification_status": "excluded_pending_verification",
+      "reason": "Undercurated scrapes are out of scope per Linus's posture. Stage 1 already pulls from FineWeb-2 haw_Latn with per-row URL provenance; arbitrary CC slices are not a Stage 2 parallel candidate."
+    },
+    {
+      "source_id": "hard-escalate-cultural-categories",
+      "name": "Mele, oli, pule, moʻolelo from named tradition-bearers, moʻokūʻauhau",
+      "alignment_type": "excluded",
+      "rights_status_hint": "unknown_review_required",
+      "verification_status": "excluded_pending_verification",
+      "reason": "Excluded per docs/data-pipeline.md §52 until a cultural-review owner exists, even for prototype use. This applies to any Stage-2 source that would surface these categories incidentally (e.g., Wikisource enumeration must filter them at discovery time, not after fetch)."
+    },
+    {
+      "source_id": "social-media-bilingual",
+      "name": "Social-media / forum bilingual posts",
+      "alignment_type": "excluded",
+      "rights_status_hint": "unknown_review_required",
+      "verification_status": "excluded_pending_verification",
+      "reason": "No explicit per-poster permission; ToS rarely permits redistribution. Out of scope for this prototype."
+    },
+    {
+      "source_id": "llm-synthetic-haw-dialogues",
+      "name": "LLM-generated 'synthetic Hawaiian dialogues' not grounded in a real source pair",
+      "alignment_type": "excluded",
+      "rights_status_hint": "unknown_review_required",
+      "verification_status": "excluded_pending_verification",
+      "reason": "Excluded per docs/data-pipeline.md §Stage 2 Tier E. Synthetic-bt / synthetic-ft remain allowed under cap, but ungrounded synthesis is out."
+    }
+  ],
+  "open_questions": [
+    {
+      "owner": "linus",
+      "question": "Which Hawaiian Bible edition do we pin (e.g., 1868 Andrews/Bingham via baibala.org vs an archive.org pre-1925 imprint), and which English PD edition (KJV vs ASV)? Pinning unblocks bible-haw-baibala-pinned-edition, bible-eng-pd-anchor, bible-haw-archive-org-pre1925, and the verse-ID adapter."
+    },
+    {
+      "owner": "linus",
+      "question": "Mined-data rights posture for nllb-mined-haw-eng — accept origin-URL provenance per row at prototype scope, or require an allow/deny list before any pull?"
+    },
+    {
+      "owner": "linus",
+      "question": "Pukui-Elbert vs Andrews dictionary edition for pukui-elbert-andrews-examples — pinning a PD edition (Andrews 1865) is the safe default; confirm before any --execute."
+    },
+    {
+      "owner": "rusty",
+      "question": "LaBSE/LASER threshold for comparable-aligned sources (wiki-haw-en-langlinks, wikisource-haw-en-comparable). Default in docs is 0.75 LaBSE; should we tune on Bible distribution before threshold-gating Wikipedia?"
+    },
+    {
+      "owner": "frank",
+      "question": "Endpoint-verification sweep for the four `pending_endpoint_check` sources (opus-haw-subsets, biblenlp-haw, global-piqa-parallel-haw, taxi1500-haw, wikisource-haw-en-comparable, weblate-en-haw, bible-haw-archive-org-pre1925, pukui-elbert-andrews-examples) — owned by Frank as a follow-up; does not block this inventory landing."
+    }
+  ],
+  "consistency_notes": [
+    "alignment_type values match docs/data-pipeline.md §'Required tagging — parallel vs comparable vs synthetic'.",
+    "stage2 routing in data-sources/hawaiian-data-sources.json is preserved; this file is the per-source fetch-plan layer that file did not carry. No source rows in hawaiian-data-sources.json are removed or contradicted by this artifact.",
+    "Bible token-share cap (≤30% of parallel-train tokens), 'never train on FLORES / global-piqa / Taxi1500', and 'never dev/test on mined / synthetic' policies all flow from docs/data-pipeline.md §Stage 2.",
+    "dataset divisions follow .squad/decisions.md §'Final Dataset Taxonomy' — eval-only sources land under data/evals/, all other Stage-2 sources land under data/stage2/, raw bytes under data/raw/."
+  ]
+}

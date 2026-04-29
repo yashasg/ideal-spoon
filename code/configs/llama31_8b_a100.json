@@ -3,7 +3,7 @@
   "tokenizer_name": null,
   "unicode_normalization": "NFC",
 
-  "train_path": "examples/train.jsonl.example",
+  "train_path": "../data/stage1/stage1.jsonl.gz",
   "eval_path": null,
   "text_field": "text",
   "max_seq_len": 2048,
@@ -38,7 +38,7 @@
   "notes": {
     "purpose": "Prototype-tier serious run target: Llama-3.1-8B + QLoRA on a single A100.",
     "hardware": "Tuned for 1x A100 40GB (or 80GB). bf16 requires Ampere or newer; A100 qualifies.",
-    "gate": "Requires HF access to meta-llama/Llama-3.1-8B and a real data manifest. Do NOT run against placeholder JSONL.",
-    "notreal": "Paths here are local placeholders. Replace train_path/eval_path with the gated Hawaiian corpus before training."
+    "gate": "Requires HF access to meta-llama/Llama-3.1-8B and a real Stage-1 manifest/token report passing strict checks.",
+    "path_note": "Path is relative to running from code/: python -m llm_hawaii.train --config configs/llama31_8b_a100.json"
   }
 }

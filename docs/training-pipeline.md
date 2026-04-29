@@ -7,7 +7,7 @@ This document describes the training pipeline for the Hawaiian-language LLM adap
 
 It is not training code; it is the contract the training code is expected to satisfy.
 
-**Companion doc:** [`data-pipeline.md`](./data-pipeline.md) describes how the corpora, manifests, and `eval_hashes.parquet` consumed here are produced. The split is: data pipeline = what goes *into* the model (ingest, normalization, license/cultural tagging, contamination guards); training pipeline (this doc) = what the model *does* with that data (Stage 1 CPT → fp16 merge → Stage 2 SFT, gates, artifact lineage).
+**Companion doc:** [`data-pipeline.md`](./data-pipeline.md) describes how the corpora, manifests, and `eval_hashes.jsonl` consumed here are produced. The split is: data pipeline = what goes *into* the model (ingest, normalization, license/cultural tagging, contamination guards); training pipeline (this doc) = what the model *does* with that data (Stage 1 CPT → fp16 merge → Stage 2 SFT, gates, artifact lineage).
 
 ---
 
@@ -50,6 +50,42 @@ Audit deliverable:
 - Unicode pinned to **NFC**, ʻokina canonicalized to **U+02BB**.
 - Per-candidate metrics: tokens/word, byte-fallback rate, ʻokina survival, kahakō unitarity.
 
+Implementation path:
+
+```bash
+python3 scripts/040_tokenizer_audit.py \
+  --model-id meta-llama/Llama-3.1-8B \
+  --input data/stage1/stage1.jsonl.gz data/evals/manual_w1/w1-haw-micro-eval.tsv
+```
+
+The script accepts JSONL/JSON/TSV/CSV/text samples, defaults to text fields
+`text,prompt,reference`, normalizes audited text to NFC, and conservatively
+canonicalizes likely Hawaiian ʻokina stand-ins to U+02BB before tokenization.
+It writes the report under the ignored `data/tokenizer_audit/` tree. If
+`transformers` is missing or gated Llama tokenizer access is unavailable, it
+exits with install/login instructions instead of emitting placeholder numbers.
+
+Inspect these report fields before any serious Stage-1 spend:
+
+- `model.model_id`, `model.model_repo_sha`, and `model.tokenizer_sha256`
+  (`tokenizer_fingerprint_sha256` alias) — freeze these in the Stage-1 manifest.
+- `input.sources` / `input.paths` — confirm representative sample coverage.
+- `overall.tokens_per_word`, `overall.explicit_byte_fallback_rate`, and
+  `overall.byte_fallback_or_proxy_rate`.
+- `high_diacritic.tokens_per_word` plus the same byte-fallback/proxy fields for
+  the high-diacritic slice.
+- `diacritic_char_tokenization` — standalone ʻokina/kahakō token counts.
+- `recommendation.decision` and `recommendation.blocking_reasons`.
+
+Default gate policy for the Llama-3.1-8B spend gate: require at least 1,500
+sample words and 10 high-diacritic samples (`ʻokina+kahakō >= 3` and
+`diacritics/word >= 0.25`). Go only if overall tokens/word ≤ 2.50,
+high-diacritic tokens/word ≤ 3.25, explicit `<0x..>` byte fallback is 0,
+combined byte-fallback/proxy rate ≤ 1%, and each standalone Hawaiian diacritic
+character tokenizes to ≤2 tokens. Any miss is **no-go** for serious 8B Stage-1
+spend until a fallback tokenizer is audited or a vocab/embedding policy is
+chosen.
+
 Outcome → main target:
 
 - **Primary:** `Llama-3.1-8B` if the audit passes (best Polynesian-adjacent pretraining signal).
@@ -67,10 +103,10 @@ Hard prereq before any Stage 1 GPU launch (see two-stage ADR §"Hard data gates"
 2. License posture applied:
    - Release-candidate runs: CC0 / CC-BY / CC-BY-SA / explicit permissive only; loader rejects `prototype_private`, `unclear`, `unreviewed*`.
    - Prototype-private runs: relaxed per the prototype ADR, but `intended_use=prototype_private` set on every row, manifest still required, contamination guard still on.
-3. Normalization end-to-end: UTF-8 → NFC → ʻokina U+02BB → whitespace/control clean → langID `haw` → boilerplate strip → exact-SHA + MinHash near-dup dedup. `sha256_raw` and `sha256_normalized` populated.
+3. Normalization end-to-end: UTF-8 → NFC → ʻokina U+02BB → whitespace/control clean → langID `haw` → boilerplate strip → exact-SHA + MinHash near-dup dedup. `sha256_raw` and `sha256_normalized` populated. For FineWeb-2 specifically, `205` only fetches raw LID-classified rows; `301_build_stage1_dataset.py` performs the prototype cleaning gate and records raw vs cleaned token counts plus rejection reasons before any Stage-1 trainer JSONL is emitted.
 4. Cluster-aware train/dev/test/holdout splits assigned at corpus-build time. Held-out splits live in a read-only path; loaders forbidden from touching it.
 5. Cultural-sensitivity tagging at ingest. Hard-escalate categories (mele/oli/pule, moʻolelo from named tradition-bearers, moʻokūʻauhau, place-name lore tied to specific ʻohana/ahupuaʻa, restricted-archive material, **bulk pre-1925 nūpepa**) tagged even at prototype scope.
-6. `eval_hashes.parquet` exists; both stages' dataloaders import it and assert empty intersection with their training shards. CI-enforced.
+6. `eval_hashes.jsonl` exists; both stages' dataloaders import it and assert empty intersection with their training shards. CI-enforced.
 
 **No data → no train.** The contamination guard and cultural tagging do not relax under prototype scope; only the release-eligibility flag does.
 
@@ -182,6 +218,19 @@ Supervised fine-tuning for translation, **bidirectional (en→haw and haw→en) 
 
 Azure spot only, with auto-shutdown, checkpoint to blob, budget alerts at $30 / $50 / $60, sessions ≤12 hr. On-demand A100 is forbidden under the credit-fit ADR.
 
+### 4.3.1 Stage 2 SFT JSONL emitter (`scripts/330_emit_stage2_sft_jsonl.py`)
+
+The bridge from canonical `stage2_manifest.jsonl` to trainer-facing JSONL is a small, stdlib-only script. One canonical pair → up to two directional rows per the [Stage 2 output JSONL](./data-pipeline.md#stage-2-output-jsonl) contract; row shape is fixed there and the trainer reads `direction` / `loss_mask` rather than inferring.
+
+- **Inputs.** A Stage-2 manifest JSONL (one row per canonical pair). Each row carries either inline `text_en` / `text_haw` or `text_en_path` / `text_haw_path` refs (absolute or repo-relative). Sha-addressed text refs are a TODO once the Stage-2 ingest emits a `sha256_*_clean → blob` map.
+- **Output.** `data/stage2/stage2_sft.jsonl` by default (under the gitignored `data/` tree). The script never writes inside the repo proper.
+- **Filters (fail-conservative, all configurable).** `--splits` (default `train`), `--directions` (`both` | `en2haw` | `haw2en`), `--min-alignment-score` (only gates rows with a non-null embedding score; deterministic alignments — `verse-id`, `tmx-line`, etc. — pass through), and opt-in flags `--allow-review-required` / `--allow-synthetic`. Rows with `alignment_review_required=true` or unrecognised `alignment_type` are skipped by default with a counted reason.
+- **Provenance carried per emitted row.** `pair_id`, `source`, `register`, `alignment_type`, `alignment_method`, `alignment_score`, `synthetic`, `synthetic_source_model`, `edition_or_version`, `prototype_only`, `release_eligible`, `dedup_cluster_id`, `crosslink_stage1_overlap`, plus `split`. Heavier fields stay in the manifest, queryable by `pair_id`.
+- **Out of scope here.** Retention-slice (`haw-mono`) rows — those come from the Stage-1 builder and are merged in by a separate step. Contamination guard against `eval_hashes.jsonl` is a separate pass before any training read; this emitter must not pretend to gate.
+- **Splits are pass-through.** Re-splitting at emit time would silently break the cluster-aware split isolation already baked into the manifest.
+
+The emitter is a skeleton: it validates the contract end-to-end on a small fixture and stays NFC-clean, but real instruction-template rotation (~5 paraphrases per direction loaded from `data/stage2/templates.json`) is wired as a TODO.
+
 ### 4.4 Stage 2 evaluation gate (go / no-go)
 
 1. **chrF / chrF++** (primary; BLEU is unreliable for morphologically rich, low-resource languages — report both, weight chrF) on a held-out en↔haw dev/test set, **beating both** (a) base zero-shot and (b) Stage-1-only zero-shot, **in both directions, reported separately, never averaged**.
@@ -205,8 +254,8 @@ Every run, prototype or release, produces a run manifest recording the chain. A 
 - `tokenizer_sha` — frozen at Stage 1 start; Stage 2 CI asserts identical.
 - `stage` — `0-smoke` | `1-cpt` | `merge` | `2-sft`.
 - `parent_artifact_sha` — the prior stage's output hash (Stage 2 → merged-base hash → Stage 1 LoRA hash → base SHA).
-- `corpus_manifest_sha` — hash of `stage1_manifest.parquet` / `stage2_manifest.parquet` / `prototype_manifest.parquet` actually used.
-- `eval_hashes_sha` — hash of `eval_hashes.parquet` at run time.
+- `corpus_manifest_sha` — hash of `stage1_manifest.jsonl` / `stage2_manifest.jsonl` / prototype manifest actually used.
+- `eval_hashes_sha` — hash of `eval_hashes.jsonl` at run time.
 - `intended_use` — `prototype_private` | `release_candidate`. Loader enforces.
 - `seed`, training config, LoRA config, quantization config.
 - Eval-suite version and full per-gate results.
@@ -234,7 +283,7 @@ The credit-fit ADR is the budget reality: ~$50–$60/mo of Azure credits + local
 | Pipeline scaffolding, manifest validators, eval harness | Local RTX 2080 | none |
 | 0.5B end-to-end smoke (both stages) | Local RTX 2080 | tokenizer audit decided; data foundation green; eval harness wired |
 | 0.5B Kaggle dry-run | Kaggle | local smoke green; checkpoint resume demonstrated |
-| **7B/8B Stage 1 CPT** | **Kaggle T4×2 / P100** | base model frozen; tokenizer SHA frozen; corpus manifest committed; contamination guard green; English rehearsal slice prepared; Kaggle dry-run green |
+| **7B/8B Stage 1 CPT** | **Kaggle T4×2 / P100** | base model frozen; tokenizer SHA frozen; corpus manifest generated locally and hashed; contamination guard green; English rehearsal slice prepared; Kaggle dry-run green |
 | Stage 1 → fp16 merge sanity-check | Local or Kaggle CPU | Stage 1 eval gate green (or, prototype scope, blocking subset green) |
 | **7B/8B Stage 2 SFT** | **Kaggle T4×2** *or* **Azure A100 40GB spot (~6–10 hr)** | merged base validated; Stage 2 manifest green; tokenizer hash CI check green; retention slice prepared; eval probes loaded |
 | Final eval / baselines | Local + Kaggle | Stage 2 run completed; checkpoints synced |
