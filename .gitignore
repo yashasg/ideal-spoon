@@ -1,3 +1,5 @@
+.DS_Store
+
 .squad/orchestration-log/
 .squad/log/
 .squad/decisions/inbox/
