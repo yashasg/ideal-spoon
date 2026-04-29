@@ -672,3 +672,126 @@ per-source adapter (raw fetch + ToS snapshot)
 ### Provenance
 
 Consolidates two inbox proposals (now deleted): `linus-stage1-data-pipeline.md`, `linus-stage2-data-pipeline.md`. See orchestration-log entries dated 2026-04-29T03:13:13Z.
+
+---
+
+## Chaining Free GPU Providers for LLM Training
+
+### TL;DR: Basher + Livingston
+
+**Status:** Adopted  
+**Date:** 2026-04-29  
+**Owners:** Basher (Training Engineer), Livingston (Cost Strategist)
+
+**Decision:** Chaining free GPU providers (Kaggle → Colab → Lightning → etc.) is technically feasible and operationally worthwhile *only for LoRA/QLoRA sequential fine-tuning*. Not viable for multi-node pretraining or release-quality runs. Practical ceiling: ~85 T4-hr/week with friction. Recommendation: iterate on Kaggle alone; chain only when weekly budget is exceeded; reserve $10–$40 of A100/H100 spot compute for final release run.
+
+### Basher's Assessment: Technical Feasibility
+
+**Feasible — but only for parameter-efficient fine-tuning.** The right mental model is "sequential preemption survival," not distributed cluster. What travels between providers:
+
+- **LoRA adapter weights** (~50–500 MB)
+- **Optimizer state + scheduler state + RNG state** (~2× adapter size, portable if saved to CPU and reloaded to device)
+- **Dataloader position + global step** (the sneaky cost)
+- **Environment lock** (versions + GPU type + CUDA)
+
+**Total payload per 7B QLoRA checkpoint:** ~0.5–2 GB, uploadable to HF Hub in minutes.
+
+**Portable checkpoint contract (recommended):**
+- `adapter_model.safetensors` (LoRA only)
+- `optimizer.pt`, `scheduler.pt`, `rng_state.pt`, `trainer_state.json`
+- `training_args.bin`
+- `dataloader_state.pt` or `epoch + global_step` if epoch-aligned
+- `env.lock` (versions, GPU type, CUDA)
+
+**Why it fails for full pretraining:** DeepSpeed ZeRO-2/3 and FSDP shard optimizer state across ranks. Checkpoints at `world_size=8` don't resume cleanly at `world_size=2` without `zero_to_fp32.py` or FSDP consolidation. No shared filesystem, no NCCL across providers. You can only *sequence*, not *parallelize*.
+
+**Real risks at the hand-off seam:**
+
+1. **Quantization non-determinism (bitsandbytes).** 4-bit kernels are not bit-exact across CUDA versions or GPU architectures (T4 vs Ada vs Hopper). Adapter still loads but loss curve jitters. Mitigation: pin `bitsandbytes`, `transformers`, `peft`, `accelerate`, `torch`, `cuda` in `requirements.txt` traveled with checkpoint; accept minor stair-stepping.
+
+2. **GPU heterogeneity.** Kaggle T4×2 → Colab T4 → Lightning A10 changes effective batch size. Keep `per_device_train_batch_size` low and recompute `gradient_accumulation_steps` on resume to preserve global batch size.
+
+3. **Mid-epoch resume cost.** HF Trainer's default dataloader re-iterates from the start on resume. At 9-hour budgets this is fatal. Solutions: checkpoint on epoch boundaries (cheapest), use stateful dataloader (`use_stateful_dataloader=True`), or pre-shard dataset and track `(shard_id, offset)`.
+
+4. **Tokenizer / base-weights drift.** If providers pull base model from Hub at different times, adapter may load on wrong base. Mitigation: pin `revision=<sha>` everywhere.
+
+5. **Session preemption.** Colab kills idle sessions; quota expiry is fast. Save every N minutes via `TrainerCallback`, plus `try/finally` save-on-exit.
+
+6. **ToS.** Free tiers forbid multi-account gaming on the same provider. Using *different* providers under one real identity is fine; using burner accounts on Kaggle is not.
+
+**Practical workflow (if adopted):**
+- Environment = `requirements.txt` + base model `revision=<sha>` + tokenizer hash.
+- Storage = HF Hub private repo (canonical) + Drive backup.
+- Save policy: every 30 min *and* on exit, plus epoch end. Push to Hub in background.
+- Resume policy: pull latest snapshot, verify `env.lock`, reload, **recompute `gradient_accumulation_steps`**, then resume.
+- Provider order: Kaggle first (30 hr/wk, 9 hr sessions, dual T4, persistent disk). Then Lightning (~22 hr/mo). Colab for short bursts only. Avoid Paperspace (M4000 too weak).
+- **Validate each hop:** quick eval-loss check on same minibatch before and after transfer. Loss jump >~5% signals environment drift.
+
+**Implications for Hawaiian LLM:**
+- Formalizes what we already committed to: 7B Stage-1 CPT on Kaggle T4×2, Stage-2 SFT possibly on different provider. Adopting checkpoint contract costs nothing, saves run if any provider revokes free tier.
+- Does *not* unlock pretraining. Still fine-tuning a pretrained base, not pretraining from scratch.
+- Does *not* change reserve A100 spot burst for final release run.
+
+### Livingston's Assessment: Cost & Operations
+
+**Free/free-tier GPU ceiling (2026-04):**
+
+| Service | GPU | Free quota | Useful for chaining? |
+|---|---|---|---|
+| **Kaggle Notebooks** | P100 16GB or 2×T4 | ~30 hr/wk | **Yes — best anchor** |
+| **Google Colab Free** | T4 (no guarantee) | ~40 T4 hr/mo | Yes, unreliable |
+| **Lightning AI Studio** | T4 (interruptible) | ~20–22 T4 hr/mo | Yes, small slice |
+| **Modal Starter** | T4/L4/A10 | $30/mo credit (~50 T4 hr) | Yes — flexible |
+| **SageMaker Studio Lab** | T4 | 4 hr/24 hr GPU | Marginal (too short) |
+| **HF Spaces ZeroGPU** | A100 slice | ~25 min/day PRO | **No — function-call shape, not training** |
+| **Paperspace Gradient Free** | M4000 (legacy) | Limited | Too weak |
+
+**Realistic combined budget:**
+- Kaggle: ~30 T4-hr/week
+- Colab: ~10 T4-hr/week (unreliable)
+- Lightning: ~5 T4-hr/week
+- Modal: ~12 T4-hr/week (with $30 monthly spend)
+- **Total ceiling: ~85 T4-hr/week ≈ 340/mo, with significant friction**
+
+For a 7B QLoRA on 50–200M tokens, one clean A100 40GB run is ~10–20 hr. Chained free-tier ceiling *can* cover it on paper, but each hop costs 15–60 min setup tax and adds risk.
+
+**Hard constraints:**
+- **ToS:** Multi-accounting the same provider (e.g., burner Kaggle accounts) violates ToS and risks suspension. Using *different* providers under one real identity is fine.
+- **No GPU guarantee:** Colab may stall indefinitely waiting for a T4.
+- **Idle disconnects + session caps:** No single 30-hour run; you chain 4–9 hour fragments.
+- **Optimizer-state size dominates checkpoint uploads.**
+- **bitsandbytes / kernel drift between providers is common.**
+
+**Recommendation for Hawaiian-LLM:**
+
+1. **Iterate on Kaggle alone.** 30 hr/wk on P100 or 2×T4 is enough for QLoRA 7B prototype loops. Don't chain unless you actually need more.
+2. **Chain only when justified:** add Colab + Lightning + Modal *only* when experiment exceeds Kaggle's weekly window. Standardize on HF Hub as checkpoint bus, with optimizer state + RNG saved.
+3. **Treat ZeroGPU as eval/demo infrastructure, not training.**
+4. **For release-quality run, stop chaining.** Pay for ~10–20 hr of A100/H100 on Lambda, RunPod, or Vast.ai. Current spot floors: Vast.ai RTX 3090 ~$0.05–0.13/hr; A100 80GB PCIe ~$0.29–0.73/hr; RunPod A100 PCIe 40GB ~$0.42/hr spot. A clean release run is **$10–$40 of GPU**, which is cheaper than engineering hours lost to chaining instability.
+5. **Pursue grants in parallel.** Google Research Credits, AWS Activate, Azure for Research, MS Founders Hub, NSF/NEH DEL, ANA Esther Martinez, Endangered Language Fund — all relevant for Hawaiian; multi-month cycles; don't gate on them.
+6. **Do not multi-account.** Ban risk; marginal value is negative.
+
+**When chaining IS worth it:**
+- Personal learning / hobby projects with no deadline.
+- Single QLoRA experiment barely overflowing one provider's weekly cap.
+- Teams with strong ops discipline (pinned envs, automated push/pull, resumable trainer).
+
+**When chaining is NOT worth it:**
+- Anything release-quality or on a deadline.
+- Full-precision fine-tunes (checkpoint sizes + kernel drift).
+- Distributed / multi-node (free tiers don't compose into one cluster).
+- Workloads needing guaranteed GPU availability.
+
+**Cost framing:** This does *not* change the README's $10k–$30k practical training tier or leftover-Azure-credit framing. It clarifies the *bottom* of the stack: free chaining is for QLoRA iteration; paid spot GPUs are for release runs; grants are parallel pursuit, not critical path.
+
+### Implications
+
+- Formalizes Hawaiian-LLM Stage-1 workflow: Kaggle T4×2 iteration, then reserve A100 spot for release run.
+- Enables rapid prototyping without multi-account risk.
+- Clarifies ToS boundaries and operational friction for any future multi-provider experiment.
+- Does *not* unlock pretraining; still fine-tuning a pretrained base.
+
+### Provenance
+
+Basher + Livingston joint deep-dive on GPU compute chaining feasibility. See orchestration-log entries 2026-04-29T03:13:13Z (Basher), 2026-04-29T03:13:14Z (Livingston). Inbox files merged and deleted from `.squad/decisions/inbox/`.
+

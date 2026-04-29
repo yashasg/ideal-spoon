@@ -54,3 +54,13 @@ Delivered QLoRA recipe + compute mapping for the two-stage plan. Stage 1: r=64/�
 - Authored `docs/training-pipeline.md`: Stage 0 readiness gates → Stage 1 CPT/DAPT → fp16 merge → Stage 2 bidirectional translation SFT.
 - Documented eval gates, artifact lineage, compute sequencing, and go/no-go criteria.
 - Cross-linked with `docs/data-pipeline.md` (Linus) after Danny's polish.
+
+### Free-tier GPU chaining feasibility (2026-04-29)
+- User question: can we treat Kaggle (30 h/wk) + Colab + Lightning + Paperspace as one big GPU pool by hand-off?
+- Verdict: **yes for LoRA/QLoRA fine-tuning, no for real multi-node pretraining.** Free tiers can only be *sequenced*, not *parallelized*; you survive preemption, you do not aggregate FLOPs across providers.
+- Real risks live at the seam: bitsandbytes 4-bit non-determinism across CUDA/arch, dataloader-skip cost on mid-epoch resume (use HF stateful dataloader), GPU heterogeneity drifting the global batch size, base-model revision drift, TOS gray zone for automated relays.
+- Checkpoint contract (adapter + optimizer + scheduler + RNG + dataloader state + env.lock + base-model SHA pin) is the portable unit. Storage = HF Hub private repo (most provider-agnostic).
+- Save policy: every 30 min + on SIGTERM/exit + epoch end. Resume policy: recompute grad-accum to preserve *global* batch size when GPU count/size changes between providers.
+- Implication for Hawaiian LLM: formalizes what we'd already planned (Kaggle for Stage 1, possible provider switch between stages). Reserve one consistent paid A100 spot for the release-candidate run so the final loss curve isn't stair-stepped by quantization-kernel drift.
+- Decision adopted: `.squad/decisions.md` (section "Chaining Free GPU Providers for LLM Training") — checkpoint contract, practical workflow, and implications consolidated with Livingston's cost analysis.
+- Session log: `.squad/log/2026-04-29T03-46-05Z-gpu-free-tier-chaining.md`.

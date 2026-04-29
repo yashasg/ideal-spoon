@@ -42,3 +42,16 @@
 ### Cross-agent: prototype-vs-release split (2026-04-29T03:01:58Z)
 - Budget framing unchanged. Prototype scope reduces pressure on the upper-tier full-fine-tune contingency since release-quality runs are now explicitly gated separately.
 - Qwen2.5-0.5B smoke test remains the right first artifact under prototype scope.
+
+### Free-GPU Chaining Feasibility (2026-04-29)
+- Question: can free GPU tiers (Kaggle 30hr/wk, Colab ~40hr/mo, Lightning ~20hr/mo, Modal $30/mo, SMSL 4hr/day, ZeroGPU) be chained into one big training budget by transferring weights between hops?
+- Verdict: **technically yes, practically only for QLoRA iteration; never for a release run.** Combined ceiling ≈ 85 T4-hr-equiv/week with high friction.
+- Required mechanics: HF Hub as checkpoint bus; save adapter + optimizer + scheduler + RNG + global_step; pin env (torch/transformers/peft/bnb/accelerate); keep effective batch constant across different GPUs; reproducible/seeded data.
+- ToS: multi-accounting ONE provider (e.g., burner Kaggles) violates Kaggle ToS → ban risk. Using DIFFERENT providers under one real identity is fine.
+- ZeroGPU is NOT a training target (per-call ~60s default, configurable to a couple minutes; quota is minutes/day). Use it for eval/inference only.
+- SageMaker Studio Lab's 4hr/24hr cap makes it a poor primary; OK as overflow.
+- Footguns: idle disconnects, no-GPU-guarantee on Colab free, bnb/CUDA kernel drift between providers, optimizer-state upload size, and engineering tax of every hop (~15–60 min).
+- Recommendation: iterate on Kaggle alone (30 hr/wk P100 or 2×T4 is enough for QLoRA 7B); add Colab/Lightning/Modal only when a single experiment overflows; for the release run, pay $10–$40 for ~10–20 hr A100/H100 spot on Vast/RunPod/Lambda — current floors: Vast 3090 ~$0.05–0.13/hr, A100 80GB ~$0.29–0.73/hr; RunPod A100 40GB ~$0.42/hr spot.
+- Doesn't change README's $10k–$30k practical tier or Azure-credit framing; this clarifies the bottom of the stack.
+- Decision adopted: `.squad/decisions.md` (section "Chaining Free GPU Providers for LLM Training") — cost model, provider matrix, and recommendations consolidated with Basher's technical analysis.
+- Session log: `.squad/log/2026-04-29T03-46-05Z-gpu-free-tier-chaining.md`.
