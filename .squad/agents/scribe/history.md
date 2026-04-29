@@ -9,3 +9,9 @@
 ## Learnings
 
 <!-- Append learnings below -->
+
+### Free-compute + base-model research session (2026-04-29)
+- Merged 3 inbox decisions into `.squad/decisions.md`: Livingston Azure-credit framing, Basher credit-fit advisory, Rusty base-model recommendation.
+- Wrote 5 orchestration-log entries (one per spawn) and 1 session log under `.squad/log/`.
+- Decisions.md size ~10KB, well under archive threshold; no archive needed.
+- All agent histories self-updated by the spawned agents (Livingston, Basher, Rusty); no cross-agent appends required.
