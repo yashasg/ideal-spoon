@@ -477,3 +477,8 @@ scripts.
 - **Did not modify** `data-sources/hawaiian-data-sources.json`: that's a routing
   config for collectors, and Stage-0 eval-only slices belong in
   `data/eval/...` + per-source manifests, not the routing config.
+
+## 2026-04-29T10:13:35Z — Manual Micro-Eval Planning Complete (Independent of FineWeb Fetch)
+
+W1 manual micro-eval TSV spec finalized and repo scaffold committed. **Planning does not block on or depend on your FineWeb-2 raw fetch.** Eval planning is independent; row authoring can start in parallel. Manual eval is a separate eval-only source using hand-authored Hawaiian content, not web-sourced.
+

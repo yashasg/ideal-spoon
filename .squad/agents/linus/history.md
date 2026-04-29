@@ -607,3 +607,42 @@ Open queries filed for Frank (Hawaiian Data Collector) + Rusty (NLP Researcher) 
 - User directive inbox entry merged into decisions.md (2026-04-29T10-08-17Z)
 
 **Blocking status:** Awaiting Frank's raw FineWeb-2 fetch; your implementation is ready to start once data lands.
+
+## 2026-04-29 — W1 manual micro-eval TSV (independent eval source)
+
+Landed scaffolding for a hand-authored Hawaiian micro-eval (~50–100 items) as a W1 cheap-eval source independent of FineWeb-2. Schema + authoring rules in repo; populated rows stay off-git under `data/eval/manual_w1/` (covered by existing `/data/` gitignore). Decision proposal: `linus-manual-micro-eval.md`.
+
+Key points:
+- Probes: `okina_survival`, `kahako_retention`, `unicode_nfc`, `generation_sanity`. Sliced by `category` and `diacritic_density` per `docs/eval_pipeline.md` §5.
+- Schema (TSV): `item_id, category, prompt, reference, diacritic_density, notes, author, review_status, nfc_normalized`. NFC + `accepted` enforced at load time; U+2018 / U+0027 in the ʻokina slot rejected.
+- **Never training data.** All `accepted` row hashes go into `eval_hashes.parquet` with `origin=manual_w1, stage=eval-only`; existing Stage 1/2 dataloader CI assertion (`train ∩ eval_hashes = ∅`) is the leakage guard.
+- **No fabricated Hawaiian.** Drafts from non-Hawaiian-speaking authors stay `review_status=draft` until a Hawaiian-literate reviewer marks them `accepted`.
+- Files touched: `data-sources/manual-eval/w1-haw-micro-eval.template.tsv` (new, header-only), `data-sources/manual-eval/README.md` (new), `docs/eval_pipeline.md` §3.1 (one-paragraph pointer added).
+- Independent of Frank's FineWeb-2 fetch; FineWeb split/dedup remains blocked on that raw data, this does not.
+- Blocked steps: actual row authoring (needs Hawaiian-literate reviewer — same open team gap as `docs/data-pipeline.md`); harness wiring (needs Rusty's harness to exist). Unblocked: drafting can start now against the template.
+
+## 2026-04-29T10:13:35Z — W1 Manual Micro-Eval Scaffolding Merged into Decisions (Orchestration Complete)
+
+Repo scaffold committed. Decision merged into decisions.md. Key deliverables locked:
+- **Template:** `data-sources/manual-eval/w1-haw-micro-eval.template.tsv` (header-only TSV)
+- **Documentation:** `data-sources/manual-eval/README.md` (schema, hard rules, integration plan)
+- **Pointer:** `docs/eval_pipeline.md` §3.1 (mentions new source in eval cadence)
+- **Off-git data path:** `data/eval/manual_w1/w1-haw-micro-eval.tsv` (covered by `/data/` gitignore)
+
+**Hard rules cemented:**
+1. Hand-authored or rights-cleared, per-row citation
+2. No fabricated Hawaiian; `review_status=draft` until Hawaiian-literate reviewer marks `accepted`
+3. NFC-normalized before use; loader rejects U+2018/U+0027 (ʻokina) or NFD kahakō
+4. Never training data; all `accepted` hashes → `eval_hashes.parquet` before training
+5. Frozen once shipped; schema changes bump eval-suite SHA
+6. Explicitly not public; no HF/leaderboard
+
+**Next:** 
+1. Wire TSV loader + NFC validator into eval harness (after Rusty's harness exists)
+2. Add micro-eval hashes to `data/eval/eval_hashes.parquet` when ledger first written
+3. Ensure `301_build_stage1_dataset.py` excludes training rows matching any micro-eval hash
+
+**Blocked on:** Rusty/Livingston/Basher eval-harness implementation. Authoring happens off-git in parallel.
+
+**Independent of:** Frank's FineWeb-2 fetch — this plan does not block/depend on that raw data arrival.
+

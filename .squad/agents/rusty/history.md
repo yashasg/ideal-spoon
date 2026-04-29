@@ -266,3 +266,31 @@ No new ADR. This is operational guidance extending `data-pipeline.md` manifest s
 **Implementation:** Linus routes dedupe + frozen-split logic to Livingston or Basher for Stage-0 harness integration.
 
 **Reference:** Orchestration log `2026-04-29T09-59-05Z-fineweb2-checkpoint-eval.md`, session log `2026-04-29T09-59-05Z-fineweb2-checkpoint-reuse-question.md`.
+
+### W1 Manual Micro-Eval TSV Spec (2026-04-29)
+- Authored minimal spec at `.squad/decisions/inbox/rusty-manual-micro-eval.md` for an ~80-item hand-authored Hawaiian micro-eval TSV; range 50–100, target 80.
+- Categories (counts): `orth_okina` 15, `orth_kahako` 15, `nfc_roundtrip` 10, `tokenizer_survival` 10, `gen_completion` 10, `gen_register` 5, `codeswitch_resist` 10, `closed_qa_trivial` 5.
+- Columns include `item_id`, `category`, `task_type`, `prompt`, `reference`, `expected_chars`, `forbidden_chars`, `notes`, `author`, `reviewed_by`, `review_date`, `license`, `is_holdout`, `train_leak_check` (SHA-256 of NFC `prompt+reference`).
+- Auto-scored every checkpoint: NFC integrity, ʻokina (U+02BB) presence / absence of U+0027/U+2018/U+2019/U+02BC, kahakō NFC precomposed (U+0101 etc., not base+U+0304), per-item PPL, cloze EM, tokenizer round-trip.
+- Manually reviewed at milestone checkpoints only: `gen_completion`, `gen_register`, `codeswitch_resist`. Holdout (~20%) frozen — same discipline as FineWeb-2 test holdout, never used for tuning.
+- Leakage discipline: every item's NFC SHA-256 added to `data/eval/eval_hashes.parquet`; `301_build_stage1_dataset.py` excludes matches from training. Items must be paraphrased / composed, not lifted from `hawwiki`, FineWeb-2, Baibala, or nūpepa.
+- Explicitly **not a public benchmark**: hygiene tripwire, no speaker-authority claim, no HF / leaderboard upload. Dual-author + reviewer required (`author != reviewed_by`).
+- Cadence: cheap automatic slice (~55 items) every checkpoint; generative slice (~25 items) milestone-only; holdout only at Stage-1 final report + Stage-2 entry gate.
+- Owners: Rusty authors items + schema; Linus wires loader / hash gate after FineWeb-2 fetch; eval-architect (Livingston/Basher) places cadence in harness config.
+
+## 2026-04-29T10:13:35Z — W1 Manual Micro-Eval TSV Spec Locked (Orchestration Complete)
+
+Spec merged into decisions.md. Row drafting now unblocked off-git. Key points locked:
+- **Categories:** 8 probes, target 80 items (range 50–100)
+- **Columns:** 13 fields incl. `item_id`, `category`, `task_type`, `prompt`, `reference`, `expected_chars`, `forbidden_chars`, `notes`, `author`, `reviewed_by`, `review_date`, `license`, `is_holdout`, `train_leak_check` (SHA-256 NFC)
+- **Auto-scoring every checkpoint:** NFC, ʻokina (U+02BB) vs. forbidden, kahakō precomposed, PPL, cloze EM, tokenizer round-trip
+- **Manual-scoring milestones:** `gen_completion`, `gen_register`, `codeswitch_resist` outputs reviewed by you + Hawaiian-literate reviewer
+- **Holdout (20%):** frozen, never tuned, only at Stage-1 final + Stage-2 gate (same as FineWeb-2)
+- **Leakage:** every item's SHA-256 → `data/eval/eval_hashes.parquet`; `301_build_stage1_dataset.py` excludes train rows matching it
+- **Hard rules:** no fabrication, no lifted items, NFC enforced, dual-reviewed (`author != reviewed_by`)
+- **Cadence:** cheap auto slice (~55) every checkpoint; generative (~25) milestones only
+
+**Next:** Start authoring rows off-git against the template. Coordinate 2nd-reviewer pass when ready.
+
+**Blocked on:** Hawaiian-literate reviewer (same team gap as before). Harness wiring awaits Linus/eval-architect.
+
