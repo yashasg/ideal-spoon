@@ -1,0 +1,19 @@
+item_id	category	prompt	reference	diacritic_density	notes	author	review_status	nfc_normalized
+# Header-only template for the W1 hand-authored Hawaiian micro-eval (~50–100 items).
+# This file intentionally contains no Hawaiian content. Real items live off-git at
+# data/evals/manual_w1/w1-haw-micro-eval.tsv (see data/ is gitignored) and must be
+# hand-authored or copied from rights-cleared sources with per-row citation.
+#
+# Field semantics:
+#   item_id            stable id, e.g. w1-okina-001 (kebab-case, category-prefixed)
+#   category           one of: okina_survival | kahako_retention | unicode_nfc | generation_sanity
+#   prompt             the model input (Hawaiian or English depending on probe)
+#   reference          gold continuation / answer / expected substring; may be empty for open-ended sanity probes
+#   diacritic_density  count of ʻokina (U+02BB) + kahakō vowels (ā ē ī ō ū) in prompt+reference
+#   notes              what this item is testing; cite source if quoted from rights-cleared text
+#   author             initials of the human author/reviewer
+#   review_status      draft | reviewed | accepted (only `accepted` rows are run)
+#   nfc_normalized     true | false — must be true before commit; verified by NFC check at load time
+#
+# Lines beginning with `#` are comments and are stripped at load time. Tabs separate fields.
+# Do not commit populated rows to git; this template stays empty.

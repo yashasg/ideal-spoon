@@ -725,3 +725,30 @@ Implications for your data pipeline:
 - FineWeb-2 holdout slice migration (`data/evals/fineweb2_haw_test/holdout/` → `data/final/fineweb2_haw_holdout/`) is docs-only for now; flagged for Frank when ingest script lands.
 
 **Reference:** `.squad/decisions.md` §"2026-04-29: Dataset Division Taxonomy Corrected — `final` is Milestone Holdout, Not Run Manifests".
+
+## 2026-04-29 — FineWeb-2 haw_Latn split/dedupe (310) complete
+
+Implemented `scripts/310_split_dedupe_fineweb2_haw.py` end-to-end. Key details:
+
+- **Input:** Frank's fully fetched FineWeb-2 `haw_Latn` corpus (`data/raw/fineweb2_haw/20260429/train.jsonl` 95,507 rows, `test.jsonl` 887 rows).
+- **Test split:** Deterministic hash-modulo split on sorted test rows with seed=42 → 582 dev (65.6%) / 305 holdout (34.4%). Close to target 70/30 split.
+- **Dedupe:** Train deduplicated against FULL test split (all 887 rows) using exact text SHA-256. Zero overlaps found (train and test were already disjoint).
+- **Outputs:**
+  - `data/evals/fineweb2_haw/dev.jsonl` — 582 rows, 400k tokens (checkpoint/dev eval)
+  - `data/final/fineweb2_haw/holdout.jsonl` — 305 rows, 225k tokens (protected holdout eval)
+  - `data/stage1/fineweb2_haw/train.jsonl` — 95,507 rows, 67.8M tokens (Stage 1 training)
+  - `data/evals/fineweb2_haw/eval_hashes.jsonl` — 887 hash records (simple JSONL format)
+  - `data/stage1/fineweb2_haw/split_dedupe_manifest.json` — row/token/char counts, split ratios, dedupe stats, deterministic method, input/output paths, invariant `train ∩ eval_hashes = ∅`
+- **Validation:** Sampled 1000 train records, verified zero overlap with eval hashes. Invariant holds.
+- **Data gitignored:** All generated data under `data/` stays out of git per repo policy.
+- **Docs updated:**
+  - `docs/data-pipeline.md` §300-phase now includes `310_split_dedupe_fineweb2_haw.py` entry.
+  - `docs/eval_pipeline.md` §3.1 now documents FineWeb-2 eval splits (dev/holdout) and hash ledger format.
+- **Format choice:** Eval hashes written as simple JSONL (one hash + metadata per line) rather than parquet. Defers parquet dependency decision to later. Compatible with existing JSONL toolchain; easily convertible to parquet when needed.
+- **Script features:** Dry-run by default, reproducible with seed, computes whitespace token counts from actual text, deterministic split via hash-modulo on sorted row IDs, exact text-hash dedupe, manifest with full provenance.
+- **Stats from manifest:**
+  - Dev: 582 rows, 1.9M chars, 400k tokens
+  - Holdout: 305 rows, 1.1M chars, 225k tokens
+  - Train (deduped): 95,507 rows, 323.6M chars, 67.8M tokens
+  - Removed from train: 0 rows (train/test were already disjoint)
+- **Next:** Downstream scripts (301 or eval harness) should load `data/evals/fineweb2_haw/eval_hashes.jsonl` and exclude any training candidate matching those hashes. The hash format is `{"sha256_text": <hash>, "origin": "fineweb2_haw", "split": "test", "division": "evals|final", "row_id": <id>, "char_count": <n>, "token_count": <n>}` per line.

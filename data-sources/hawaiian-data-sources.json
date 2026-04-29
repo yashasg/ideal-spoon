@@ -1,0 +1,553 @@
+{
+  "schema_version": "0.1.0",
+  "generated_by": "frank (Hawaiian Data Collector)",
+  "purpose": "URL inventory of candidate Hawaiian-language and Hawaiian-parallel sources, grouped by the installed collection tool best suited to a first-pass pull. This is a routing config, not a license determination. No bulk data is fetched here. Rights status is a hint; per-source legal review is required before any publication.",
+  "rights_status_legend": {
+    "public_domain_candidate": "Source itself appears to be in the public domain or pre-1925 US works; still requires per-document confirmation.",
+    "open_license_candidate": "Source advertises an open license (e.g., CC BY-SA 4.0, CC BY 2.0 FR, Apache-2.0); flow-down conditions must be respected.",
+    "rights_review_required": "Mixed or unclear rights; manual per-document review before any use beyond evaluation.",
+    "eval_only": "Use restricted to evaluation/benchmark dev/test; never train on this source.",
+    "unknown_review_required": "Rights posture not yet established; treat as restricted until reviewed."
+  },
+  "global_provenance_fields_to_capture": [
+    "source_id",
+    "source_url",
+    "fetch_timestamp_utc",
+    "http_status",
+    "content_type",
+    "content_length",
+    "raw_sha256",
+    "raw_storage_path",
+    "warc_path_if_any",
+    "tos_or_license_url",
+    "tos_snapshot_path",
+    "license_observed",
+    "robots_txt_snapshot_path",
+    "source_specific_ids",
+    "edition_or_version",
+    "fetcher_user_agent",
+    "fetcher_tool_and_version"
+  ],
+  "buckets": {
+    "requests_tenacity": {
+      "tool_description": "Direct HTTP GET with retries/backoff (requests + tenacity). Use for small, stable, well-known endpoints: dump indexes, single PDFs, well-formed JSON/TSV files, and per-page polite fetches with manual rate limiting.",
+      "sources": [
+        {
+          "name": "Hawaiian Wikipedia — XML dump (latest)",
+          "stage": "stage1_monolingual",
+          "language_content": "haw",
+          "tool": "requests_tenacity",
+          "urls": [
+            "https://dumps.wikimedia.org/hawwiki/latest/hawwiki-latest-pages-articles.xml.bz2",
+            "https://dumps.wikimedia.org/hawwiki/latest/hawwiki-latest-pages-meta-current.xml.bz2",
+            "https://dumps.wikimedia.org/hawwiki/latest/"
+          ],
+          "url_templates": [
+            "https://dumps.wikimedia.org/hawwiki/{YYYYMMDD}/hawwiki-{YYYYMMDD}-pages-articles.xml.bz2"
+          ],
+          "rights_status_hint": "open_license_candidate",
+          "license_observed": "CC BY-SA 4.0 + GFDL (per-revision; see Wikimedia Terms)",
+          "tos_or_license_url": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+          "collection_notes": "Cleanest licensing posture per data-pipeline.md §Stage 1. Pull dump, then extract with a WikiExtractor-style pass downstream. Capture the dump-status JSON alongside the XML for reproducibility.",
+          "provenance_fields_to_capture": ["dump_date", "dump_sha1_from_status_json", "revision_ids_extracted"],
+          "priority": "P0"
+        },
+        {
+          "name": "Hawaiian Wikipedia — dump status manifest",
+          "stage": "stage1_monolingual",
+          "language_content": "haw",
+          "tool": "requests_tenacity",
+          "urls": [
+            "https://dumps.wikimedia.org/hawwiki/latest/dumpstatus.json"
+          ],
+          "url_templates": [
+            "https://dumps.wikimedia.org/hawwiki/{YYYYMMDD}/dumpstatus.json"
+          ],
+          "rights_status_hint": "open_license_candidate",
+          "license_observed": "Wikimedia infrastructure metadata",
+          "tos_or_license_url": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+          "collection_notes": "Use to pin SHA1s of the actual dump files before downloading.",
+          "provenance_fields_to_capture": ["dump_date", "files_listed"],
+          "priority": "P0"
+        },
+        {
+          "name": "Hawaiian Wikipedia — interlanguage link API (haw ↔ en)",
+          "stage": "stage2_parallel",
+          "language_content": "haw+eng comparable",
+          "tool": "requests_tenacity",
+          "urls": [
+            "https://haw.wikipedia.org/w/api.php?action=query&format=json&prop=langlinks&lllang=en&titles=Hawaiʻi"
+          ],
+          "url_templates": [
+            "https://haw.wikipedia.org/w/api.php?action=query&format=json&prop=langlinks&lllang=en&titles={haw_title}",
+            "https://en.wikipedia.org/w/api.php?action=query&format=json&prop=langlinks&lllang=haw&titles={en_title}"
+          ],
+          "rights_status_hint": "open_license_candidate",
+          "license_observed": "CC BY-SA 4.0",
+          "tos_or_license_url": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+          "collection_notes": "Used to enumerate haw↔en comparable doc pairs per data-pipeline.md §Stage 2. Respect MediaWiki API etiquette: maxlag=5, identify User-Agent, low concurrency.",
+          "provenance_fields_to_capture": ["page_id", "revision_id", "langlink_target_title"],
+          "priority": "P1"
+        },
+        {
+          "name": "Hawaiian Wiktionary — dump",
+          "stage": "stage1_monolingual",
+          "language_content": "haw (lexicon, definitions)",
+          "tool": "requests_tenacity",
+          "urls": [
+            "https://dumps.wikimedia.org/hawwiktionary/latest/hawwiktionary-latest-pages-articles.xml.bz2",
+            "https://dumps.wikimedia.org/hawwiktionary/latest/"
+          ],
+          "rights_status_hint": "open_license_candidate",
+          "license_observed": "CC BY-SA 4.0",
+          "tos_or_license_url": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+          "collection_notes": "Small but useful for lexicon / tokenizer audit fodder (ʻokina, kahakō coverage).",
+          "provenance_fields_to_capture": ["dump_date", "dump_sha1_from_status_json"],
+          "priority": "P2"
+        },
+        {
+          "name": "FLORES-200 — devtest archive (Hugging Face mirror)",
+          "stage": "stage2_parallel_eval",
+          "language_content": "haw (hawn_Latn) + eng (eng_Latn) sentence-aligned",
+          "tool": "requests_tenacity",
+          "urls": [
+            "https://tinyurl.com/flores200dataset",
+            "https://huggingface.co/datasets/facebook/flores/resolve/main/floresp-v2.0-rc.3/dev/dev.hawn_Latn",
+            "https://huggingface.co/datasets/facebook/flores/resolve/main/floresp-v2.0-rc.3/devtest/devtest.hawn_Latn",
+            "https://huggingface.co/datasets/facebook/flores/resolve/main/floresp-v2.0-rc.3/dev/dev.eng_Latn",
+            "https://huggingface.co/datasets/facebook/flores/resolve/main/floresp-v2.0-rc.3/devtest/devtest.eng_Latn"
+          ],
+          "url_templates": [
+            "https://huggingface.co/datasets/facebook/flores/resolve/main/floresp-v2.0-rc.3/{split}/{split}.{lang_code}"
+          ],
+          "rights_status_hint": "eval_only",
+          "license_observed": "CC BY-SA 4.0 (FLORES-200) — but project policy is eval-only",
+          "tos_or_license_url": "https://github.com/facebookresearch/flores/blob/main/flores200/README.md",
+          "collection_notes": "Per data-pipeline.md §Stage 2: hash all FLORES sentences into eval_hashes.parquet BEFORE any other ingest. Never train on FLORES. Confirm hawn_Latn presence in the pinned release; if absent, downgrade priority and document.",
+          "provenance_fields_to_capture": ["flores_release_tag", "split", "line_index", "sha256_per_line"],
+          "priority": "P0"
+        },
+        {
+          "name": "Tatoeba — Hawaiian sentences and links (per-language exports)",
+          "stage": "stage2_parallel",
+          "language_content": "haw + haw↔eng pairs",
+          "tool": "requests_tenacity",
+          "urls": [
+            "https://downloads.tatoeba.org/exports/per_language/haw/haw_sentences.tsv.bz2",
+            "https://downloads.tatoeba.org/exports/per_language/haw/haw-eng_links.tsv.bz2",
+            "https://downloads.tatoeba.org/exports/per_language/haw/haw_sentences_detailed.tsv.bz2"
+          ],
+          "url_templates": [
+            "https://downloads.tatoeba.org/exports/per_language/haw/{filename}"
+          ],
+          "rights_status_hint": "open_license_candidate",
+          "license_observed": "CC BY 2.0 FR (per Tatoeba site)",
+          "tos_or_license_url": "https://tatoeba.org/eng/terms_of_use",
+          "collection_notes": "Hash all pairs before deciding train vs dev (data-pipeline.md §Stage 2). Small volume; respect attribution flow-down.",
+          "provenance_fields_to_capture": ["tatoeba_sentence_id", "contributor", "license_per_sentence"],
+          "priority": "P0"
+        },
+        {
+          "name": "OPUS — haw-containing parallel subsets (Tatoeba, QED, Ubuntu, GNOME, KDE)",
+          "stage": "stage2_parallel",
+          "language_content": "haw↔eng (and haw↔xx) sentence-aligned",
+          "tool": "requests_tenacity",
+          "urls": [
+            "https://opus.nlpl.eu/Tatoeba/v2023-04-12/moses/en-haw.txt.zip",
+            "https://opus.nlpl.eu/QED/v2.0a/moses/en-haw.txt.zip",
+            "https://opus.nlpl.eu/Ubuntu/v14.10/moses/en-haw.txt.zip",
+            "https://opus.nlpl.eu/GNOME/v1/moses/en-haw.txt.zip",
+            "https://opus.nlpl.eu/KDE4/v2/moses/en-haw.txt.zip"
+          ],
+          "url_templates": [
+            "https://opus.nlpl.eu/{corpus}/{version}/moses/{src}-{tgt}.txt.zip",
+            "https://opus.nlpl.eu/{corpus}/{version}/xml/{lang}.zip"
+          ],
+          "rights_status_hint": "rights_review_required",
+          "license_observed": "Per-corpus (varies). JW300 explicitly excluded per data-pipeline.md unless ToS re-verified.",
+          "tos_or_license_url": "https://opus.nlpl.eu/",
+          "collection_notes": "Software-l10n sets are domain-skewed; tag register=software-l10n and cap. Confirm exact version IDs at fetch time.",
+          "provenance_fields_to_capture": ["opus_corpus", "opus_version", "pair_direction"],
+          "priority": "P1"
+        },
+        {
+          "name": "NLLB Seed / NLLB-MD (Hawaiian slices, if present)",
+          "stage": "stage2_parallel",
+          "language_content": "haw↔eng (and pivot)",
+          "tool": "requests_tenacity",
+          "urls": [
+            "https://huggingface.co/datasets/allenai/nllb",
+            "https://huggingface.co/datasets/facebook/flores"
+          ],
+          "rights_status_hint": "rights_review_required",
+          "license_observed": "Per dataset card; mined data is noisy and rights-mixed",
+          "tos_or_license_url": "https://huggingface.co/datasets/allenai/nllb",
+          "collection_notes": "NLLB-mined is referenced as a `source` value in data-pipeline.md §Stage 2 schema. Confirm hawn_Latn coverage and license before pulling. Treat as last-resort, not P0.",
+          "provenance_fields_to_capture": ["dataset_revision", "config_name", "split", "row_id"],
+          "priority": "P3"
+        },
+        {
+          "name": "Baibala Hemolele — official site (verse-aligned Hawaiian Bible)",
+          "stage": "stage2_parallel",
+          "language_content": "haw (verse-keyed)",
+          "tool": "requests_tenacity",
+          "urls": [
+            "https://baibala.org/",
+            "https://baibala.org/cgi-bin/bible"
+          ],
+          "url_templates": [
+            "https://baibala.org/cgi-bin/bible?e={edition}&b={book}&c={chapter}"
+          ],
+          "rights_status_hint": "rights_review_required",
+          "license_observed": "Site ToS governs; pinning a pre-1925 edition (e.g., 1868 Andrews/Bingham) is the public-domain candidate path.",
+          "tos_or_license_url": "https://baibala.org/",
+          "collection_notes": "Per data-pipeline.md §Stage 2: pin one Hawaiian edition + one PD English edition (KJV/ASV). Verse-ID alignment is deterministic. Cap ≤30% of parallel-train tokens, 0% of dev/test. Snapshot ToS per fetch; polite rate (≤1 req/sec).",
+          "provenance_fields_to_capture": ["edition_or_version", "book", "chapter", "verse", "edition_year"],
+          "priority": "P1"
+        },
+        {
+          "name": "English Bible — public-domain editions for verse-pair anchor (KJV / ASV)",
+          "stage": "stage2_parallel",
+          "language_content": "eng (verse-keyed, public domain)",
+          "tool": "requests_tenacity",
+          "urls": [
+            "https://ebible.org/find/details.php?id=eng-kjv2006",
+            "https://ebible.org/find/details.php?id=eng-asv",
+            "https://ebible.org/Scriptures/eng-kjv2006_usfm.zip",
+            "https://ebible.org/Scriptures/eng-asv_usfm.zip"
+          ],
+          "rights_status_hint": "public_domain_candidate",
+          "license_observed": "KJV / ASV are public domain in the US; eBible packaging metadata may carry its own license — record both.",
+          "tos_or_license_url": "https://ebible.org/about.htm",
+          "collection_notes": "Pair with a single pinned Hawaiian edition for verse-aligned Bible. USFM preserves verse IDs cleanly.",
+          "provenance_fields_to_capture": ["edition_or_version", "ebible_id", "package_sha256"],
+          "priority": "P1"
+        }
+      ]
+    },
+    "internetarchive": {
+      "tool_description": "Use the `internetarchive` Python client for archive.org item-level metadata and file downloads. Best when collection IDs are known and the item already lives on archive.org with stable file lists.",
+      "sources": [
+        {
+          "name": "archive.org — Ulukau / Hawaiian newspaper (nūpepa) mirrored items",
+          "stage": "stage1_monolingual",
+          "language_content": "haw (OCR'd newspapers, ~1834–1948)",
+          "tool": "internetarchive",
+          "urls": [
+            "https://archive.org/details/ulukau",
+            "https://archive.org/search.php?query=subject%3A%22Hawaiian+language%22",
+            "https://archive.org/search.php?query=collection%3A%22hawaii%22+language%3A%22haw%22"
+          ],
+          "url_templates": [
+            "https://archive.org/details/{item_id}",
+            "https://archive.org/download/{item_id}/{filename}"
+          ],
+          "rights_status_hint": "rights_review_required",
+          "license_observed": "Per-item; many pre-1925 nūpepa are public_domain_candidate by US copyright term, but per-item review required. Ulukau-mirrored items may carry additional terms.",
+          "tos_or_license_url": "https://archive.org/about/terms.php",
+          "collection_notes": "Per data-pipeline.md §52–53 and §214: pre-1925 nūpepa kept private (prototype_only=true); not for bulk publication. Use `ia` CLI / library to enumerate items by collection and language facet, capture metadata.json + files.xml + the per-item ToS snapshot. Manual review of ~50 random docs before bulk ingest.",
+          "provenance_fields_to_capture": ["ia_item_id", "ia_collection", "ia_metadata_json_sha256", "ia_files_xml_sha256", "ocr_engine_if_listed", "publication_date"],
+          "priority": "P1"
+        },
+        {
+          "name": "archive.org — Hawaiian-language books / readers / dictionaries",
+          "stage": "stage1_monolingual",
+          "language_content": "haw (books, readers, dictionaries)",
+          "tool": "internetarchive",
+          "urls": [
+            "https://archive.org/search.php?query=language%3A%22haw%22+mediatype%3Atexts",
+            "https://archive.org/details/hawaiiandiction00andrgoog",
+            "https://archive.org/details/hawaiianenglishd00pukurich"
+          ],
+          "url_templates": [
+            "https://archive.org/details/{item_id}"
+          ],
+          "rights_status_hint": "rights_review_required",
+          "license_observed": "Per-item; pre-1925 imprints are public_domain_candidate.",
+          "tos_or_license_url": "https://archive.org/about/terms.php",
+          "collection_notes": "Useful for Pukui-Elbert / Andrews dictionary lookups and Hawaiian readers. Narrow register — flag accordingly.",
+          "provenance_fields_to_capture": ["ia_item_id", "publication_year", "publisher", "ocr_quality_indicator"],
+          "priority": "P2"
+        },
+        {
+          "name": "archive.org — Baibala Hemolele scanned editions (pre-1925)",
+          "stage": "stage2_parallel",
+          "language_content": "haw (Bible, verse-keyed, archival scans)",
+          "tool": "internetarchive",
+          "urls": [
+            "https://archive.org/search.php?query=title%3A%22Baibala+Hemolele%22",
+            "https://archive.org/details/baibalahemoleleo00amer"
+          ],
+          "url_templates": [
+            "https://archive.org/details/{item_id}"
+          ],
+          "rights_status_hint": "public_domain_candidate",
+          "license_observed": "Pre-1925 imprints are public_domain_candidate in the US; confirm imprint year per item.",
+          "tos_or_license_url": "https://archive.org/about/terms.php",
+          "collection_notes": "An alternative / supplement to baibala.org, useful for pinning a specific historical edition (e.g., 1868 Andrews/Bingham) named in data-pipeline.md.",
+          "provenance_fields_to_capture": ["ia_item_id", "edition_or_version", "publication_year"],
+          "priority": "P2"
+        }
+      ]
+    },
+    "wayback_cdx_toolkit": {
+      "tool_description": "Use `wayback` and `cdx_toolkit` to query the Wayback Machine CDX index for historical snapshots, then fetch specific captures. Best when the live site is gone, rate-limited, or when we need a stable point-in-time snapshot for provenance.",
+      "sources": [
+        {
+          "name": "Wayback CDX — Ulukau snapshots (nūpepa portal + per-issue pages)",
+          "stage": "stage1_monolingual",
+          "language_content": "haw",
+          "tool": "wayback_cdx_toolkit",
+          "urls": [
+            "https://web.archive.org/cdx/search/cdx?url=ulukau.org/*&output=json&limit=1000"
+          ],
+          "url_templates": [
+            "https://web.archive.org/cdx/search/cdx?url={domain}/*&output=json&from={YYYY}&to={YYYY}&filter=statuscode:200",
+            "https://web.archive.org/web/{timestamp}/{original_url}"
+          ],
+          "rights_status_hint": "rights_review_required",
+          "license_observed": "Wayback Machine ToS; underlying content rights are Ulukau's.",
+          "tos_or_license_url": "https://archive.org/about/terms.php",
+          "collection_notes": "Use Wayback when ulukau.org is unreachable or rate-limited. Always record both the Wayback capture URL and the original_url + timestamp.",
+          "provenance_fields_to_capture": ["original_url", "wayback_timestamp", "wayback_digest", "wayback_status"],
+          "priority": "P1"
+        },
+        {
+          "name": "Wayback CDX — nupepa.org legacy snapshots",
+          "stage": "stage1_monolingual",
+          "language_content": "haw",
+          "tool": "wayback_cdx_toolkit",
+          "urls": [
+            "https://web.archive.org/cdx/search/cdx?url=nupepa.org/*&output=json&limit=1000",
+            "https://web.archive.org/cdx/search/cdx?url=nupepa-hawaii.com/*&output=json&limit=1000"
+          ],
+          "rights_status_hint": "rights_review_required",
+          "license_observed": "Per-snapshot underlying rights apply.",
+          "tos_or_license_url": "https://archive.org/about/terms.php",
+          "collection_notes": "Older nūpepa portal mirrors that may have moved or shut down. Wayback gives a stable historical handle.",
+          "provenance_fields_to_capture": ["original_url", "wayback_timestamp", "wayback_digest"],
+          "priority": "P2"
+        },
+        {
+          "name": "Wayback CDX — OHA / DOE Kaiapuni / UH Hawaiian-language pages",
+          "stage": "stage1_monolingual_or_parallel",
+          "language_content": "haw (and haw+eng bilingual PDFs)",
+          "tool": "wayback_cdx_toolkit",
+          "urls": [
+            "https://web.archive.org/cdx/search/cdx?url=oha.org/*&output=json&limit=1000",
+            "https://web.archive.org/cdx/search/cdx?url=hawaiipublicschools.org/*&output=json&filter=urlkey:.*kaiapuni.*",
+            "https://web.archive.org/cdx/search/cdx?url=hawaii.edu/*&output=json&filter=mimetype:application/pdf"
+          ],
+          "rights_status_hint": "rights_review_required",
+          "license_observed": "Government / educational rights are mixed; per-doc review per data-pipeline.md §Stage 1 / §Stage 2.",
+          "tos_or_license_url": "https://archive.org/about/terms.php",
+          "collection_notes": "For bilingual PDFs (OHA reports, DOE Kaiapuni curriculum, UH publications). Use CDX to enumerate, but pull each PDF only after rights review.",
+          "provenance_fields_to_capture": ["original_url", "wayback_timestamp", "mimetype", "publisher_inferred"],
+          "priority": "P2"
+        }
+      ]
+    },
+    "scrapy_scrapy_warc": {
+      "tool_description": "Use Scrapy + scrapy-warc for polite, structured crawls of multi-page sites where bulk pulls need WARC provenance. Required for nūpepa-style enumeration that spans thousands of pages.",
+      "sources": [
+        {
+          "name": "Ulukau — Hawaiian-language newspapers (nūpepa) crawl",
+          "stage": "stage1_monolingual",
+          "language_content": "haw (~1834–1948 OCR'd newspapers)",
+          "tool": "scrapy_scrapy_warc",
+          "urls": [
+            "https://www.ulukau.org/",
+            "https://nupepa.org/",
+            "https://nupepa-hawaii.com/"
+          ],
+          "url_templates": [
+            "https://www.ulukau.org/cgi-bin/?a=cl&cl=CL1&sp={collection_code}&e=-------haw-50--1--txt-txIN--------",
+            "https://www.ulukau.org/cgi-bin/?a=d&d={doc_id}",
+            "https://nupepa.org/?a=d&d={doc_id}"
+          ],
+          "rights_status_hint": "rights_review_required",
+          "license_observed": "Ulukau ToS governs crawl behavior; pre-1925 underlying content is public_domain_candidate. Pre-1925 bulk kept private per data-pipeline.md §53 / §214.",
+          "tos_or_license_url": "https://www.ulukau.org/",
+          "collection_notes": "Politeness is mandatory: respect robots.txt, ≤1 concurrent request, ≥1s delay, identifying User-Agent with contact, AUTOTHROTTLE_ENABLED. Capture ToS snapshot at crawl start. Write WARC via scrapy-warc to keep raw bytes. Per data-pipeline.md §214: ToS snapshot, polite fetch, OCR-confidence capture, paragraph-level LID, manual review of ~50 random docs before bulk ingest.",
+          "provenance_fields_to_capture": ["ulukau_doc_id", "issue_date", "page_number", "ocr_engine_if_exposed", "warc_record_id", "tos_snapshot_path_at_crawl_start"],
+          "priority": "P1"
+        },
+        {
+          "name": "Hawaiian Wikisource — public-domain Hawaiian texts",
+          "stage": "stage1_monolingual",
+          "language_content": "haw (cleaner than nūpepa OCR)",
+          "tool": "scrapy_scrapy_warc",
+          "urls": [
+            "https://haw.wikisource.org/",
+            "https://wikisource.org/wiki/Main_Page/haw"
+          ],
+          "url_templates": [
+            "https://haw.wikisource.org/wiki/{title}",
+            "https://haw.wikisource.org/w/api.php?action=query&list=allpages&aplimit=500&format=json"
+          ],
+          "rights_status_hint": "open_license_candidate",
+          "license_observed": "CC BY-SA 4.0 wrapper over public-domain source texts.",
+          "tos_or_license_url": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+          "collection_notes": "Smaller than nūpepa, cleaner text per data-pipeline.md §90. Prefer the MediaWiki API with `requests_tenacity` for enumeration; only use Scrapy if a full WARC of the rendered pages is desired for provenance parity with other crawls.",
+          "provenance_fields_to_capture": ["page_title", "revision_id", "warc_record_id"],
+          "priority": "P2"
+        },
+        {
+          "name": "Awaiaulu — public Hawaiian translations / readers",
+          "stage": "stage1_or_stage2",
+          "language_content": "haw (and where bilingual, haw↔eng)",
+          "tool": "scrapy_scrapy_warc",
+          "urls": [
+            "https://awaiaulu.org/",
+            "https://awaiaulu.org/about/",
+            "https://awaiaulu.org/our-work/"
+          ],
+          "rights_status_hint": "rights_review_required",
+          "license_observed": "Per-page; modern Hawaiian prose with mixed rights per data-pipeline.md §98 / §243.",
+          "tos_or_license_url": "https://awaiaulu.org/",
+          "collection_notes": "High quality, low volume. Crawl only public pages; do NOT scrape kūpuna/named-tradition-bearer materials without explicit permission. Hard-escalate categories from data-pipeline.md §52 apply.",
+          "provenance_fields_to_capture": ["page_url", "warc_record_id", "publication_date_inferred"],
+          "priority": "P3"
+        },
+        {
+          "name": "OHA — Office of Hawaiian Affairs publications portal",
+          "stage": "stage1_or_stage2",
+          "language_content": "haw + eng (bilingual reports / Ka Wai Ola pages)",
+          "tool": "scrapy_scrapy_warc",
+          "urls": [
+            "https://www.oha.org/",
+            "https://kawaiola.news/"
+          ],
+          "rights_status_hint": "rights_review_required",
+          "license_observed": "Government-adjacent / publisher rights mixed; per-doc review.",
+          "tos_or_license_url": "https://www.oha.org/terms-of-use/",
+          "collection_notes": "Side-by-side or sequential bilingual PDFs are useful for document-level parallel data per data-pipeline.md §244. Confirm reuse terms before any redistribution.",
+          "provenance_fields_to_capture": ["page_url", "pdf_url", "warc_record_id", "publication_date"],
+          "priority": "P3"
+        },
+        {
+          "name": "Hawaii DOE — Kaiapuni (Hawaiian-medium) program pages",
+          "stage": "stage1_or_stage2",
+          "language_content": "haw + eng (curriculum, public communications)",
+          "tool": "scrapy_scrapy_warc",
+          "urls": [
+            "https://www.hawaiipublicschools.org/TeachingAndLearning/StudentLearning/HawaiianEducation/Pages/home.aspx"
+          ],
+          "rights_status_hint": "rights_review_required",
+          "license_observed": "State-government materials; rights vary, fair-use posture is not assumed.",
+          "tos_or_license_url": "https://www.hawaiipublicschools.org/Pages/SitePolicies.aspx",
+          "collection_notes": "Per data-pipeline.md §97 / §244: mixed rights, manual per-doc review. Crawl is for inventorying only — do not bulk-redistribute.",
+          "provenance_fields_to_capture": ["page_url", "warc_record_id"],
+          "priority": "P3"
+        },
+        {
+          "name": "UH Mānoa — Hawaiian-language scholarly / open repository pages",
+          "stage": "stage1_or_stage2",
+          "language_content": "haw (and haw+eng theses, journals)",
+          "tool": "scrapy_scrapy_warc",
+          "urls": [
+            "https://scholarspace.manoa.hawaii.edu/",
+            "https://www.hawaii.edu/site/info/copyright.php"
+          ],
+          "url_templates": [
+            "https://scholarspace.manoa.hawaii.edu/handle/{handle_id}"
+          ],
+          "rights_status_hint": "rights_review_required",
+          "license_observed": "Per-item rights; some items CC-licensed, others all-rights-reserved.",
+          "tos_or_license_url": "https://www.hawaii.edu/site/info/copyright.php",
+          "collection_notes": "ScholarSpace exposes per-item license metadata; capture it verbatim in provenance. Useful for high-quality modern Hawaiian academic prose.",
+          "provenance_fields_to_capture": ["handle_id", "item_license_field", "warc_record_id"],
+          "priority": "P3"
+        }
+      ]
+    },
+    "trafilatura_selectolax": {
+      "tool_description": "HTML main-text extraction (trafilatura) and fast DOM parsing (selectolax) for cleaning already-fetched pages. Not a fetcher — these are post-fetch extractors used downstream of any of the fetch buckets above.",
+      "sources": [
+        {
+          "name": "Ulukau / nūpepa rendered pages — main-text extraction pass",
+          "stage": "stage1_monolingual_postprocess",
+          "language_content": "haw",
+          "tool": "trafilatura_selectolax",
+          "urls": [
+            "(consumes raw HTML/WARC produced by the scrapy_scrapy_warc bucket)"
+          ],
+          "rights_status_hint": "inherits_from_source",
+          "license_observed": "inherits_from_source",
+          "tos_or_license_url": "(see source bucket entry)",
+          "collection_notes": "Strip boilerplate (nav, page-furniture). For OCR'd newspaper pages, trafilatura's article-detection is unreliable — fall back to selectolax with site-specific selectors and keep the raw OCR block as a parallel field.",
+          "provenance_fields_to_capture": ["extractor_tool_and_version", "extraction_config_hash"],
+          "priority": "P1"
+        },
+        {
+          "name": "Hawaiian Wikisource rendered pages — main-text extraction pass",
+          "stage": "stage1_monolingual_postprocess",
+          "language_content": "haw",
+          "tool": "trafilatura_selectolax",
+          "urls": [
+            "(consumes raw HTML produced upstream)"
+          ],
+          "rights_status_hint": "inherits_from_source",
+          "license_observed": "CC BY-SA 4.0 (inherited)",
+          "tos_or_license_url": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+          "collection_notes": "Prefer parsing the dump XML directly when available; HTML extraction is the fallback path.",
+          "provenance_fields_to_capture": ["extractor_tool_and_version"],
+          "priority": "P2"
+        },
+        {
+          "name": "OHA / DOE / UH bilingual HTML pages — extraction pass",
+          "stage": "stage2_parallel_postprocess",
+          "language_content": "haw + eng",
+          "tool": "trafilatura_selectolax",
+          "urls": [
+            "(consumes raw HTML produced by the scrapy_scrapy_warc bucket)"
+          ],
+          "rights_status_hint": "inherits_from_source",
+          "license_observed": "inherits_from_source",
+          "tos_or_license_url": "(see source bucket entry)",
+          "collection_notes": "Extracted text is only safe for downstream use after the per-doc rights review noted on the upstream entry.",
+          "provenance_fields_to_capture": ["extractor_tool_and_version"],
+          "priority": "P3"
+        }
+      ]
+    },
+    "yt_dlp": {
+      "tool_description": "Use yt-dlp ONLY to retrieve subtitles / closed captions from videos that explicitly permit reuse, or where we have rights confirmation. Audio/video bytes are out of scope here.",
+      "sources": [
+        {
+          "name": "Public Hawaiian-language video transcripts — captions only, rights-confirmed",
+          "stage": "stage1_monolingual_optional",
+          "language_content": "haw (captions/subtitles)",
+          "tool": "yt_dlp",
+          "urls": [
+            "(no concrete channels listed by default — populate only after rights confirmation per channel)"
+          ],
+          "url_templates": [
+            "https://www.youtube.com/channel/{channel_id}",
+            "https://www.youtube.com/playlist?list={playlist_id}"
+          ],
+          "rights_status_hint": "unknown_review_required",
+          "license_observed": "Per-video license metadata only; YouTube's default ToS does NOT grant reuse.",
+          "tos_or_license_url": "https://www.youtube.com/static?template=terms",
+          "collection_notes": "Per requirements.txt header (\"audio/video transcripts where rights allow\"): pull `--write-subs --write-auto-subs --skip-download` ONLY for items that publish a permissive license (e.g., Creative Commons on YouTube) or where we have written permission. Keep this bucket empty until a channel passes rights review with Linus.",
+          "provenance_fields_to_capture": ["video_id", "channel_id", "uploader", "upload_date", "license_field_from_metadata", "subtitle_format"],
+          "priority": "P3"
+        }
+      ]
+    }
+  },
+  "deferred_or_excluded": [
+    {
+      "name": "JW300 — haw subset",
+      "reason": "Explicitly excluded in data-pipeline.md §233 unless ToS re-verified. Do not fetch."
+    },
+    {
+      "name": "Hard-escalate categories (mele, oli, pule, moʻolelo from named tradition-bearers, moʻokūʻauhau)",
+      "reason": "Excluded per data-pipeline.md §52 until a cultural-review owner exists, even for prototype use."
+    },
+    {
+      "name": "General web crawls / Common Crawl Hawaiian slices",
+      "reason": "Undercurated scrapes are out of scope per team posture (Linus). Revisit only with a per-document provenance plan."
+    }
+  ]
+}

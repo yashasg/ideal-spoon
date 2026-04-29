@@ -6,3 +6,19 @@
 .squad/sessions/
 .squad-workstream
 docs/.obsidian
+
+# Python
+.venv/
+.venv-*/
+__pycache__/
+*.pyc
+
+# Corpus payloads / raw + extracted data — local-only per
+# .squad/decisions.md "Raw archive storage = local disk only" ADR
+# and docs/data-pipeline.md §80 ("Nothing in data/ is committed to git").
+# Code, schemas, docs, configs, source inventories, manifests/templates,
+# checksums, and tiny rights-cleared fixtures live in-repo; everything
+# else under data/ stays local.
+/data/
+*.warc
+*.warc.gz

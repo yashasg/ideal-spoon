@@ -1,0 +1,34 @@
+# Raw data gathering dependencies (prototype).
+# Playwright is intentionally omitted — the Hawaiian-language web/archive
+# sources we currently target (e.g. Ulukau, Wikisource, archive.org,
+# Tatoeba/FLORES, and similar static or downloadable corpora) are
+# overwhelmingly static HTML or downloadable archives, so a JS-rendering
+# browser is not worth the install cost yet. Licensing/rights are tracked
+# per-source elsewhere, not assumed here. Revisit if a target source
+# turns out to require JS rendering.
+
+# --- Core HTTP + retries ---
+requests>=2.31
+tenacity>=8.2
+
+# --- Web archive / WARC handling ---
+warcio>=1.7
+
+# --- HTML extraction / parsing ---
+trafilatura>=1.8     # boilerplate-stripping main-text extraction
+selectolax>=0.3.21   # fast lxml-free HTML parsing
+
+# --- Crawling (optional but useful for nūpepa-style bulk pulls) ---
+scrapy>=2.11
+scrapy-warc>=0.2     # write crawl output as WARC for provenance
+
+# --- Internet Archive / Wayback access ---
+internetarchive>=3.5
+wayback>=0.4
+cdx_toolkit>=0.9.34
+
+# --- Misc media (audio/video transcripts where rights allow) ---
+yt-dlp>=2024.5.27
+
+# --- Dedup (MinHash; matches Stage-1/Stage-2 ADR) ---
+datasketch>=1.6
