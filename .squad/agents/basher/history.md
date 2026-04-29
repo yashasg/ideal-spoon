@@ -257,3 +257,19 @@ Implications for your training pipeline:
 - Framework-pinning ADR before cloud GPU spend
 - Tokenizer audit on Llama-3.1-8B (Rusty gate)
 - Data foundation (Linus gate) before training entry
+
+## 2026-04-29T10:49:36Z — Vendor observation: Lightning AI L40S as practical training surface
+
+**From:** Scribe (Cross-agent context)
+
+**Update:** Lightning AI Free plan shows L40S with unlimited session time (vs 4-hr cap on A100/H100). User flagged as potential cost/availability win.
+
+**Your assessment requested:**
+- **Practical fit for Llama-3.1-8B QLoRA:** L40S 48GB has NVLink 400 GB/s (lower than A100), but tensor-core tuning may not matter much for single-GPU 4-bit work. Verify `bf16` + Flash Attention 2 vendor claims in practice.
+- **Quantization stability:** bitsandbytes + CUDA kernel compatibility on L40S is known friction; flag if Vivitashkam/Faster-than-I8 ops drift. This is a real blocker — don't assume it "just works."
+- **Throughput vs A100:** expect L40S to hit ~60–75% of A100's peak matrix throughput for this workload. If that's acceptable for iteration, it's worth exploring.
+- **Keep A100 40GB as reference.** Don't swap the config default; add L40S as an optional profile if empirical testing confirms stability + reasonable throughput.
+
+**Advisory intent:** L40S is a candidate surface for iteration if you confirm CUDA/bnb alignment; not a replacement for A100 reference. Livingston will verify credit burn and provider reliability.
+
+**Reference:** `.squad/decisions.md` → "Vendor Observation: Lightning AI Free Plan (2026-04-29T10-49-36Z)"

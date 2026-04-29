@@ -140,3 +140,22 @@
 - Smoke-tier baseline measurement (Qwen2.5-0.5B) can proceed without framework ADR (it's local sanity). Serious runs wait on framework decision.
 
 **Reference:** `.squad/decisions.md` → "Decision: PyTorch + Hugging Face for the Learning Skeleton under `code/`".
+
+## 2026-04-29T10:49:36Z — Vendor observation: Lightning AI unlimited sessions with L40S availability
+
+**From:** Scribe (Cross-agent context)
+
+**Update:** User flagged Lightning AI Free plan: L40S has unlimited session time (vs 4-hr cap on A100/H100), 15 credits/mo free, pay-as-you-go overage.
+
+**Your verification requested:**
+- **Credit burn on L40S at typical prototype batch:** ~15/mo at current rates → estimate actual training hours before overage kicks in (likely 4–8 hrs for a full 7B Stage-1 run). Is that within prototype iteration budget?
+- **Idle timeout / background execution limits:** Does free tier cap session duration differently from "unlimited"? (Common friction on Colab/Modal.) Will long-running training get killed by provider, or is it truly 24/7-capable?
+- **Storage/egress for HF Hub sync:** Lightning advertises 2TB storage on Pro; confirm free tier doesn't throttle egress (critical for checkpoint pushes to HF Hub mid-training).
+- **Exact SKU confirmation:** L40S 48GB, not a downgrade variant? SKU drift happens.
+- **Preemption risk:** Does free tier guarantee preemption-free execution, or do interruptions happen? (Affects reproducibility.)
+
+**Advisory framing:** If L40S checks out (credit efficiency, no edge-case timeouts, stable CUDA/bnb compat per Basher), it's a practical mid-tier option for iteration **at lower cost than A100 spot.** Current recommendation stays: Kaggle for cheap iteration + RunPod/Lambda A100 for final runs. Lightning L40S would slot between them if details pan out.
+
+**Do NOT adopt without cost/limit verification.** Unlimited session time ≠ unlimited credit.
+
+**Reference:** `.squad/decisions.md` → "Vendor Observation: Lightning AI Free Plan (2026-04-29T10-49-36Z)"

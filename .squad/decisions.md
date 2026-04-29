@@ -2703,3 +2703,46 @@ Three user directives, collected 2026-04-29 10:33–10:46 UTC, guided Basher's s
 3. **2026-04-29T10-46-04Z:** A single A100 40GB is acceptable as serious-run reference target because prototype uses QLoRA; A100 80GB not required
 
 **Outcome:** Both Basher decisions (learning skeleton, config-driven defaults) now reflect user intent. No conflicting directives remain in inbox.
+
+---
+
+## Vendor Observation: Lightning AI Free Plan (2026-04-29T10-49-36Z)
+
+**Date:** 2026-04-29  
+**By:** yashasg (via Copilot)  
+**Status:** Vendor observation, not a commitment  
+**Relevance:** Provider landscape for prototype GPU training
+
+### Observation
+
+User shared Lightning AI Free plan pricing table:
+
+| GPU | Session Limit | Credits | Cost Model |
+|-----|---|---|---|
+| **T4/L4/L40S** | **Unlimited** | 15/mo free | Pay-as-you-go for overage |
+| **A100/H100/H200** | 4 hours | 15/mo free | Pay-as-you-go for overage |
+
+Free credits estimated at ~80 T4-hr or ~20–22 A100-hr equivalent per Livingston's prior research.
+
+### Cross-Agent Notes
+
+**Basher:** L40S 48GB is viable for Llama-3.1-8B QLoRA if available. Monitor:
+- `bf16` + Flash Attention 2 support on L40S (vendor claims supported; verify in practice)
+- CUDA kernel compatibility with `bitsandbytes` (known friction on newer GPUs)
+- Throughput vs A100/H100 (L40S tensor core tuning lags high-end; expect ~60–75% of A100 FP8 peak for matrix ops)
+- Keep A100 40GB as reference; consider L40S profile for provider configs if cost-benefits materialize
+
+**Livingston:** Unlimited session ≠ unlimited credit. Verify before adoption:
+- Credit burn rate at typical batch size for L40S (15/mo at current price → likely 4–8 training hours before paid overage kicks in)
+- Idle timeout / background execution limits on free tier (common friction on Colab/Modal-style platforms)
+- Storage allocation and egress policy for HF Hub sync (if applicable)
+- Exact SKU confirmation (L40S 48GB, not L40 24GB or downgrade variant)
+- Preemption/interruption risk on free tier (rare but affects reproducibility)
+
+### Status
+
+No immediate action. Candidate for next provider-fit pass if Basher + Livingston confirm cost-effectiveness. Current recommendation remains: **Kaggle for iteration, RunPod/Lambda A100 spot for final runs**. Lightning L40S is practical mid-tier option if details pan out.
+
+### Reference
+
+- Observation inbox: `.squad/decisions/inbox/copilot-observation-2026-04-29T10-49-36Z-lightning-l40-unlimited.md` (merged into this entry)
