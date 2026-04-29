@@ -49,3 +49,8 @@ Delivered QLoRA recipe + compute mapping for the two-stage plan. Stage 1: r=64/�
 - New ADR splits gates into prototype (private, lighter) and release (public, full clearance). Training recipe unchanged.
 - Loader will enforce: `release_candidate` runs reject `prototype_private` / `unreviewed*` / `unclear` rows. Plan training jobs against the right `intended_use`.
 - No prototype-tainted weights in the released chain; cleared-corpus retrain required for release.
+
+### Training Pipeline Doc (2026-04-29T03:21:29Z)
+- Authored `docs/training-pipeline.md`: Stage 0 readiness gates → Stage 1 CPT/DAPT → fp16 merge → Stage 2 bidirectional translation SFT.
+- Documented eval gates, artifact lineage, compute sequencing, and go/no-go criteria.
+- Cross-linked with `docs/data-pipeline.md` (Linus) after Danny's polish.

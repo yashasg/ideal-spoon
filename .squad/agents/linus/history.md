@@ -59,3 +59,8 @@ Approved the two-stage strategy in principle with hard pre-launch gates. Locked 
 ## 2026-04-29T03:13:13Z — Stage-1 + Stage-2 pipelines consolidated into ADR
 
 Scribe merged `linus-stage1-data-pipeline.md` and `linus-stage2-data-pipeline.md` from inbox into a single appended ADR in `.squad/decisions.md` ("Stage-1 monolingual + Stage-2 bidirectional en↔haw data pipelines (prototype)"). Inbox files deleted. Stage-2 ingest stays gated on Stage-1 artifacts + `eval_hashes.parquet`. Open gaps unchanged: cultural-review owner, Hawaiian-literate alignment/OCR spot-checker, pinned Bible edition rights, raw-archive storage location. README sequencing update flagged for a later Scribe pass.
+
+### Data Pipeline Doc (2026-04-29T03:21:29Z)
+- Authored `docs/data-pipeline.md`: Stage 1 monolingual Hawaiian DAPT/CPT + Stage 2 bidirectional en↔haw SFT.
+- Includes source tiers, NFC/ʻokina/kahakō normalization, MinHash dedup, manifests (`stage1_manifest.parquet`, `stage2_manifest.parquet`), JSONL schemas, `eval_hashes.parquet` contamination guard, risks, next steps.
+- Cross-linked with `docs/training-pipeline.md` (Basher) after Danny's polish.
