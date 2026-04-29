@@ -108,6 +108,15 @@
   - **Big Chinese enterprise clouds (Alibaba/Tencent/Huawei/Baidu) are NOT cheaper** than RunPod/Lambda at list price — that "China is cheaper" intuition only holds for the AutoDL/Featurize/OpenBayes-tier marketplaces.
 - Decision note: advisory only; written to `.squad/decisions/inbox/livingston-china-gpu-pricing.md` for team awareness. Does not change the README budget or vendor recommendations.
 
+### Data Storage for Prototype (2026-04-29)
+- Question: GitHub repo vs Git LFS vs HF Datasets vs S3/R2/B2 vs local disk for tens of GB of WARC/OCR/native.
+- Verdict: **hybrid**. Git for code + schemas + URL inventories + small configs; local external disk as primary working store for `data/`; off-site backup of `data/raw/` (immutable, SHA-256 keyed) on Azure Blob Hot LRS while leftover credits last (<$2/mo, fits inside the existing $50–60/mo experiment envelope), migrating to **Backblaze B2** (cheapest) or **Cloudflare R2** (zero egress, best when shipping shards to rented GPUs) once Azure access ends.
+- Rejected: GitHub repo (file/repo size caps, public-by-default risk), Git LFS (bandwidth-priced data packs are hostile to dataset workloads), HF Datasets private (third-party platform for a rights-sensitive cultural corpus before Linus's licensing review = wrong order), AWS S3 standard (egress kills it once we pull shards to GPU rentals).
+- Reuses existing `.gitignore` (`data/` already excluded) and `docs/data-pipeline.md` invariant #4 ("Raw archive is immutable, SHA-256 keyed, and not in git. Storage location TBD") — this note closes that gap.
+- Guardrails: private bucket, SHA-256 object keys (not URLs/titles), no CDN, manifests carry license/provenance not blob names, sources of uncertain redistributability stay local-only until Linus clears them.
+- HF Hub stays reserved for adapter/checkpoint bus and eventual *releasable* derived artifacts — never the raw corpus at prototype scope.
+- Decision note: `.squad/decisions/inbox/livingston-data-storage-prototype.md`.
+
 ### Scribe orchestration: China GPU research (2026-04-29T04:40:54Z)
 
 - Livingston China GPU pricing research (2026-04-29T04:40:54Z) documented in orchestration log.

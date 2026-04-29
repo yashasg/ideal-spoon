@@ -124,3 +124,30 @@ Locked formats per layer:
 Format rules captured: Parquet for manifests/hashes, JSONL for trainer-facing text; gzip (`.jsonl.gz`) for text >few MB, zstd for Parquet; one file per (source, fetch_date) at raw/extracted layers (re-fetches make new dirs); no CSV past bootstrap (quoting eats diacritics); hashes are the cross-layer join keys, never paths.
 
 Wrote inbox decision proposal `linus-storage-formats.md` to lock this.
+
+## 2026-04-29 — Storage location: local-first, not GitHub, not LFS
+
+User asked "should we just put it in a github repo?" Closed the open gap from
+prior ADRs ("raw archive storage location TBD"). Wrote
+`.squad/decisions/inbox/linus-data-storage-location.md`.
+
+Locked split:
+- **In git:** code, schemas, docs, URL inventory (`data-sources/*.json`),
+  `requirements.txt`, `scripts/`, ADRs.
+- **Off git:** everything under `data/` — WARCs, extracted JSONL, both stage
+  manifests, training JSONL, packed tensors, `eval_hashes.parquet`.
+- **Where off-git lives (prototype):** local workstation tree at
+  `IDEAL_SPOON_DATA_ROOT` (default `./data/`, gitignored), with one offline
+  external-disk backup of `raw/` only. Everything else regenerable from raw +
+  code. FileVault/LUKS at-rest encryption.
+- **GitHub LFS rejected:** doesn't change the rights/redistribution story
+  (private LFS still egresses to GH storage), wrong workload shape for
+  WARC+Parquet, history-immutability is a takedown liability for
+  rights-sensitive Hawaiian material, and clones get fat.
+- **If local outgrows the disk:** single private Azure Blob container under
+  the leftover-credit budget already approved in decisions.md. Same hash-keyed
+  layout, SAS tokens, no public access. HF Datasets / Kaggle off the table
+  until cultural-review owner is named and per-source rights are cleared.
+
+Pre-emptive `.gitignore` addition for `data/` flagged as an action item but
+deferred until proposal is accepted to avoid preempting the team review.

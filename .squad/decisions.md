@@ -1054,3 +1054,191 @@ Project structure clarification to avoid mixing documentation markup with data r
 - `docs/` remains the home for all Markdown specs, ADRs, and architectural documentation.
 
 ---
+
+---
+
+## Decision Note: Where data lives (and why GitHub is not the answer)
+
+**Date:** 2026-04-29  
+**Status:** Proposed — team awareness  
+**Owner:** Linus (Data Engineer)  
+**Closes open gap:** "Raw archive storage location TBD" (from Stage-1/Stage-2 ADRs)
+
+### Decision
+
+GitHub holds **code, schemas, docs, and the URL inventory**. Nothing else. Raw bytes, manifests, training JSONL, packed tensors, and the eval-hash ledger live **off-git**, on a single private disk (local workstation + external backup) for the prototype. **No GitHub LFS.**
+
+### Context
+
+Three prior ADRs named storage formats and named an open gap: "raw archive storage location TBD." The team lacks clarity on whether a GitHub repo (public or private), Git LFS, or local disk is appropriate for a prototype Hawaiian cultural corpus. Linus has flagged that posting raw WARCs/OCR/manifests to any Git host is a redistribution event we cannot justify per-source before a licensing review is complete.
+
+### What goes in the GitHub repo
+
+| Artifact | Path | Format | Why in git |
+|---|---|---|---|
+| URL inventory | `data-sources/hawaiian-data-sources.json` | JSON | Tiny, text, reviewable, the spec for adapters |
+| Pipeline / training docs | `docs/*.md` | Markdown | Design narrative |
+| Per-source adapter code + configs | `scripts/`, future `src/` | Python / TOML / JSON | This is the code |
+| Manifest / JSONL **schemas** (when written) | `schemas/*.json` | JSON Schema | Contract, not data |
+| Setup / tooling | `requirements.txt`, `scripts/setup.sh` | text | Reproducibility |
+| ADRs / team notes | `.squad/`, `README.md` | Markdown | Already there |
+
+Rule of thumb: if it's hand-written, small, and reviewable as a diff, it goes in git. If it's machine-emitted bulk, it doesn't.
+
+### What does **not** go in the GitHub repo
+
+Everything under `data/` from `docs/data-pipeline.md` § Storage formats:
+
+- `data/raw/**` — WARCs, PDFs, dump tars, native bytes, `fetch.jsonl` sidecars
+- `data/extracted/**` — gzipped JSONL extraction output (incl. OCR text)
+- `data/stage1/stage1_manifest.parquet`, `data/stage1/stage1.jsonl.gz`, `data/stage1/packed/**`
+- `data/stage2/stage2_manifest.parquet`, `data/stage2/stage2.jsonl.gz`, `data/stage2/templates.json`
+- `data/eval/eval_hashes.parquet`
+
+Add a top-level `data/` ignore line to `.gitignore` to make this mechanical.
+
+### Why not just push it to GitHub (or GitHub LFS)
+
+1. **Prototype posture is explicit.** `docs/data-pipeline.md` and Stage-1/2 ADRs say public sharing of *any* artifact — corpora, manifests, tokenizer, adapters — is out of scope. GitHub (even private repos) is the wrong default surface for rights-sensitive material we have not cleared for redistribution.
+
+2. **Rights / licensing.** The corpus mixes CC-BY-SA Wikipedia, public-domain Bible editions, OCR'd nūpepa with unclear downstream rights, and bilingual PDFs from Awaiaulu/OHA/DOE/UH. We capture `license_observed` per row and keep `license_inferred=null`. Pushing the union to a Git host effectively *re-publishes* it under one location, which we cannot justify per-source. Hawaiian-language material in particular is rights- and culture-sensitive; "git push" is not a license.
+
+3. **Immutability bites us.** Git history is forever. If we later discover a source pull violated ToS or a rightsholder asks for takedown, scrubbing from git history is painful and incomplete (forks, caches, LFS retention).
+
+4. **LFS specifically:**
+   - Same redistribution problem as plain git, plus bandwidth/quota costs.
+   - WARC + Parquet are append-by-new-file workloads, not the small-binary-asset workflow LFS is designed for.
+   - LFS objects on private repos still egress to GitHub's storage; it doesn't change the rights story.
+   - Deleting LFS objects requires repo-admin gymnastics; not the right fit for "prototype, may need to nuke and re-fetch."
+
+5. **Repo hygiene.** A 30M-token Stage-1 corpus + WARCs + manifests will easily reach tens of GB. That makes clones slow and CI unhappy. Code repos should stay code-sized.
+
+### Where the data **does** live (prototype scale)
+
+Single source of truth: a local directory tree on one workstation, mirrored to one external disk. No cloud by default.
+
+```
+~/data/ideal-spoon/         # or wherever; not under the git repo
+  raw/{source}/{fetch_date}/...        # WARCs + native bytes + fetch.jsonl
+  extracted/{source}/{fetch_date}/*.jsonl.gz
+  stage1/stage1_manifest.parquet
+  stage1/stage1.jsonl.gz
+  stage1/packed/...
+  stage2/stage2_manifest.parquet
+  stage2/stage2.jsonl.gz
+  eval/eval_hashes.parquet
+```
+
+Operational rules:
+
+- **Path is configurable**, not hardcoded. Adapters read `IDEAL_SPOON_DATA_ROOT` (or a `config.toml`) and default to `./data/` *outside* the git checkout.
+- **`raw/` is immutable and append-only.** Re-fetches go to a new `{fetch_date}` dir; never overwrite. SHA-256 of each raw blob is the provenance key (already in the ADR).
+- **One offline backup** of `raw/` on an external disk. Everything else (`extracted/`, `stage1/`, `stage2/`, `eval/`) is reproducible from `raw/` + code, so it's cheaper to lose; backing up `raw/` is the must-have.
+- **Encrypt-at-rest** on the workstation disk (FileVault / LUKS) — cheap, matches the rights-sensitive posture.
+
+### If/when local stops being enough
+
+Use the Azure leftover-credit channel already approved in `.squad/decisions.md` ("Azure leftover credit is experiment budget"):
+
+- **Azure Blob Storage**, single private container, no anonymous access, no static-website hosting. Same hash-keyed layout as local. SAS tokens only, short-lived, never committed.
+- One container per logical layer (`raw`, `derived`) so we can apply different retention policies and ACLs.
+- Manifests + `eval_hashes.parquet` can ride in the same container; they're small.
+- **Still not GitHub, still not LFS.** Cloud move is a backup/sharing-with-self question, not a publication question.
+
+A managed dataset hub (HF Datasets, Kaggle) is **not** appropriate for this project at any tier until a named cultural reviewer + per-source rights clearance exist. That gate is currently open (see prior ADRs).
+
+### Action items
+
+1. Add `data/` to `.gitignore` (pre-emptive; the dir doesn't exist yet but adapters will create it).
+2. Adapters resolve data root from env/config, default outside the repo.
+3. Document this in `docs/data-pipeline.md` as a short "Storage location" note under § Storage formats — one paragraph, points at this ADR. *(Defer the doc edit until this proposal is accepted; don't preempt.)*
+4. Open gap to keep tracking: cultural-review owner — unrelated to storage, but blocks any future "share this dataset" conversation regardless of where the bytes sit.
+
+### Non-decisions (deliberately left open)
+
+- Choice of cloud provider beyond "Azure if we need one, because the credit exists." If Azure credit goes away, revisit.
+- Whether to ever publish a *derived, rights-cleared* slice (e.g., Wikipedia-only Stage-1 manifest). That is a separate decision after a cultural reviewer is named and rights are audited per source.
+
+---
+
+## Decision Note: Data storage for prototype — local disk, Azure backup Phase 1, B2/R2 fallback
+
+**Date:** 2026-04-29  
+**Status:** Proposed — team awareness  
+**Owner:** Livingston (Cost Strategist)
+
+### Decision
+
+**Hybrid layout, no surprises:**
+
+1. **Git repository (`yashasg/ideal-spoon`)** — code, schemas, URL inventories (`data-sources/*.json`), ADRs/docs, `requirements.txt`, small JSON/YAML configs. **Nothing under `data/` is committed** (already enforced by `.gitignore` patterns + `data-pipeline.md` invariants).
+
+2. **Local external disk** (or large internal SSD on the workstation) — primary `data/raw/`, `data/extracted/`, `data/stage1/`, `data/stage2/`. Path-of-truth for actual training. SHA-256 keyed per pipeline spec.
+
+3. **Off-site backup of `data/raw/` only** — immutable WARCs + native originals, mirrored as-is by SHA-256.
+   - **First choice while credits last:** Azure Blob, Hot LRS, single Storage Account `hawaiianllmraw<suffix>`, single container `raw`, lifecycle rule moves objects >30 days to Cool. Spend tracked under the existing `project=hawaiian-llm` tag and ~$50–$60/mo credit envelope; storage at this scale is ~$1/mo, well inside the noise floor of that budget.
+   - **When credits expire / project outlives Azure access:** migrate to **Backblaze B2** (cheapest) or **Cloudflare R2** (zero egress; preferred if we expect to repeatedly pull shards onto rented GPUs). Both are S3-compatible — same `boto3` / `rclone` code path, swap endpoint + keys.
+
+4. **Provenance manifests (`*_manifest.parquet`, `eval_hashes.parquet`)** — Parquet files are small (tens of MB). Keep authoritative copies on the local disk + off-site backup; do **not** commit them to git either (they reference content, not source code, and they will churn).
+
+5. **Hugging Face Hub** — reserved for *adapter checkpoints during training* and, eventually, *releasable* derived artifacts. **Not** the raw corpus, **not** while the rights review is open.
+
+### Data shape (what we're sizing for)
+
+Per `docs/data-pipeline.md`:
+- Raw WARCs + native PDFs/dumps, SHA-256 keyed, immutable, **not in git** — tens of GB plausible at full prototype scope (Ulukau + nūpepa + IA items + Wikisource dumps).
+- Extracted JSONL.gz: low single-digit GB.
+- Stage-1/Stage-2 Parquet manifests + `eval_hashes.parquet`: tens of MB.
+- Stage-1 packed/tokenized `.bin`: a few GB.
+- Trainer JSONL.gz: a few GB.
+
+Working assumption for sizing: **20–80 GB raw + ~10 GB derived**.
+
+### Cost summary (prototype)
+
+| Layer | Where | Cost |
+|---|---|---|
+| Source code + small artifacts | GitHub | $0 |
+| Working raw/derived data (~30–80 GB) | Local external disk | one-time HW |
+| Off-site raw backup (~30–80 GB), Phase 1 | Azure Blob Hot LRS | <$2/mo, paid from existing leftover credit |
+| Off-site raw backup, Phase 2 (post-credits) | Backblaze B2 *or* Cloudflare R2 | $0.30–$1.50/mo |
+| Adapter/checkpoint bus during training | HF Hub (private) | $0 |
+
+**Key insight:** Storage cost is negligible at every option other than Git LFS. The decision is dominated by **fit (file size, egress pattern), governance (rights-sensitive, no public release), and operational ergonomics (S3-compatible, mountable with rclone, integrates with existing tooling).**
+
+### Why not the alternatives
+
+| Option | Verdict |
+|---|---|
+| **GitHub repo (no LFS)** | Hard 100 MB/file cap, soft 1 GB repo cap, terrible for WARCs, public-by-default risk on a public repo, history bloat is permanent. **No.** |
+| **Git LFS (GitHub)** | $5 per 50 GB *data pack* — and that's both **storage and bandwidth**. One CI fetch of the corpus eats the monthly bandwidth quota. Re-fetches across machines compound. Pricing is hostile to dataset-sized blobs. **No.** |
+| **Hugging Face Datasets — private repo** | Nominally fine technically, but: (a) the project is explicitly **prototype-only, no public release**, and pushing a Hawaiian cultural corpus — even private — to a third-party platform without a provenance/licensing review contradicts Linus's per-document rights stance; (b) HF private quotas and ToS for "private but contains scraped content" are not a hill to die on; (c) we already plan to use HF Hub as the *adapter/checkpoint bus*, not the raw-corpus store. **No, not at prototype scope.** Reconsider only for *derived, releasable* artifacts later. |
+| **AWS S3 (Standard)** | ~$1.15 storage + $0.09/GB egress. Egress is the killer once you start pulling shards onto rented GPUs. **Avoid unless already standardized on AWS.** |
+| **Cloudflare R2** | ~$0.75 storage, **$0 egress**, S3-compatible. Egress-free is a real advantage when shipping shards to RunPod/Lambda/Vast. Free tier covers up to 10 GB storage + 1M Class-A ops/mo. **Strong fallback / non-Azure default.** |
+| **Backblaze B2** | ~$0.30 storage, $0.01/GB egress (free up to 3× daily storage), S3-compatible. Cheapest by absolute storage cost. Egress is fine for our volumes. **Cheapest credible option.** |
+| **Azure Blob (Hot LRS)** | ~$0.90 storage, first 100 GB egress/mo free on most accounts; well within the leftover $50–60/mo credit. We already have leftover Azure credits ear-marked as "experiment budget" (see ADR 2026-04-29). Storing the corpus there spends credits that would otherwise expire, keeps it inside one tenant the user already controls, and integrates with the auto-shutdown / RG / tagging guardrails already in place. **Recommended primary off-site copy** while credits last. |
+| **Local external disk** | $0/mo (one-time HW cost). Fastest for the RTX 2080 workstation, no quota anxiety, no network. **No off-site redundancy** — single drive failure = full re-fetch from sources, some of which may have rotated/disappeared. **Recommended primary working store**, paired with off-site backup. |
+
+### Rights-sensitive guardrails (non-negotiable)
+
+- Off-site backup bucket is **private**, no public-read ACL, no anonymous list, no static-website hosting.
+- Object keys are SHA-256 hex, not URLs / titles — no incidental disclosure of source identifiers via key names.
+- No third-party CDN in front.
+- Per-document license/provenance lives in the manifest, not in the blob name or metadata.
+- If we're ever uncertain whether a source is redistributable, it stays **off** every cloud bucket and lives only on the local disk until Linus signs off.
+
+### What this does *not* decide
+
+- Storage class transitions / retention beyond the 30-day Hot→Cool lifecycle rule.
+- Whether to keep `extracted/` and `stage1/`/`stage2/` JSONL off-site too (defaults to *no*, since they are reproducible from `raw/` + pipeline code; revisit if pipeline runtimes get long).
+- Multi-region replication. Not justified at prototype scope.
+- HF Datasets posture for the eventual *release* artifact — that's a separate decision tied to Linus's licensing review and is explicitly out of scope for this prototype.
+
+### Open questions for the user
+
+1. Is there an existing external SSD/HDD on the workstation, or do we need to budget HW (~$60–$120 for a 1–2 TB external SSD)?
+2. Is the Azure tenant the user-personal MSDN one, or an employer tenant? If employer-tenant, **do not** put a Hawaiian cultural corpus there; jump straight to B2/R2.
+3. Comfortable standardizing on `rclone` (works against Azure Blob, B2, R2, S3 with one config) for the backup tool, vs writing per-provider scripts?
+
+---
+
