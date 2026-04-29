@@ -561,3 +561,22 @@ Open queries filed for Frank (Hawaiian Data Collector) + Rusty (NLP Researcher) 
 **W2 sources flagged (research-gated):** BibleNLP cross-check, Weblate l10n, Taxi1500 classification, IA PD slice, Hawaiian Corpus Project (status unknown). Not blockers for W1.
 
 **Avoid list confirmed:** FLORES absent, hwc false-friend, Cloudflare-blocked (Nupepa, Ulukau), JW300 ToS-blocked, Mozilla Common Voice haw absent, CC-100 haw absent. No changes from prior ADRs.
+
+## 2026-04-29T09:59:05Z — FineWeb-2 Test Split: Checkpoint Eval Reuse Locked
+
+**From Scribe:** Rusty answered the open question on FineWeb-2 test-split reuse for checkpoint monitoring.
+
+**Decision locked for Linus data engineering:**
+- ✅ FineWeb-2 `haw_Latn` test (887 rows) can be used for checkpoint monitoring/dev signal **during** Stage 1 (not a final benchmark)
+- ✅ **Dedupe FineWeb-2 train set (95,507 rows) against test set** via exact hash match on ingest — prevents train-test leak
+- ✅ **Frozen split:** 887 test rows → ~710 (80%) checkpoint dev + ~177 (20%) holdout. Holdout rows never touched for any tuning/learning-rate decisions
+- ✅ **Pair with independent Stage-0 sources** (FLORES haw_Latn if available, UDHR, Taxi1500) — FineWeb-only signal can mask generalization failures
+
+**Your implementation tasks:**
+1. Before Stage 1 harness: load FineWeb-2 full test (887), dedupe against train hashes, split into dev (≈710) + holdout (≈177) with fixed seed.
+2. During Stage 1: probe checkpoint dev rows only; do not touch holdout rows for any decision.
+3. Stage 1 final report: dev-set metrics with caveat ("checkpoint monitoring only"), holdout-set metrics separately. Record which rows in each split for reproducibility.
+
+**Escalation:** Coordinate dedupe + frozen-split logic with Livingston or Basher for Stage-0 harness integration.
+
+**Reference:** Orchestration log `2026-04-29T09-59-05Z-fineweb2-checkpoint-eval.md`, session log `2026-04-29T09-59-05Z-fineweb2-checkpoint-reuse-question.md`.

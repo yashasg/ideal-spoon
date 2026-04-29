@@ -2230,3 +2230,42 @@ Stage-0 = tiny sanity-check / smoke-test eval slices for prototype loops. Not fo
 
 ✅ **W1 sources approved for harness integration.** Linus rights + review-gate decisions unblock quoted diagnostics. Rusty row-count decisions unblock manual-seed trust. Coordinator routes paragraph-level LID decision. Stage-0 eval harness ready to load W1 bundle once decisions resolve.
 
+---
+
+## FineWeb-2 Test Split: Checkpoint Eval Reuse (2026-04-29T09:59:05Z)
+
+**Question:** Can FineWeb-2 `haw_Latn` test split (887 rows) be reused for checkpoint evals (PPL, fluency metrics) during Stage 1 DAPT training?
+
+**Answer:** Yes, **with hard constraints.**
+
+**Decision:**
+- ✅ FineWeb-2 test (887 rows) is safe for **checkpoint monitoring/dev signal** during Stage 1 (not a final benchmark)
+- ✅ **Dedupe requirement:** Remove any FineWeb-2 train-set rows (95,507 total) that overlap with test rows via exact hash match on ingest. FineWeb train and test come from the same source pool; without train-test dedupe, the checkpoint signal measures memorization, not generalization.
+- ✅ **Frozen split:** Deterministically split 887 test rows (fixed seed, stratified if possible) into:
+  - **~80% (≈710 rows) = Checkpoint dev:** use for perplexity, orthography, fluency metrics *during* training
+  - **~20% (≈177 rows) = Final holdout:** never use for any hyperparameter tuning, learning-rate decisions, or model selection
+- ✅ **Stage-0 diversity:** Pair FineWeb-2 checkpoint monitoring with independent Stage-0 sources (FLORES `haw_Latn` if available, UDHR, Taxi1500). Single-source checkpoint signals can mask generalization failures.
+
+**Implementation:**
+- Before Stage 1 harness start: Load FineWeb-2 full test set (887), dedupe against train hashes, split into dev + holdout with fixed seed. Record which rows appear in each split for reproducibility.
+- During Stage 1 training: Checkpoint probes only touch dev rows. Never use holdout rows for any decision.
+- Stage 1 final report: Report dev-set metrics with explicit caveat ("checkpoint monitoring only, not final benchmark"). Report holdout-set metrics separately, unreleased during training.
+- Stage 2 onward: Holdout rows remain frozen; do not include in Stage-2 dev sets unless explicitly re-approved in a separate ADR.
+
+**Rationale:**
+- **Checkpoint evals are not benchmarks:** They measure training diagnostics (learning curves, metric stability). Implicit hyperparameter leakage risk is managed by the frozen holdout split.
+- **Dedupe is critical:** Train-test contamination inflates checkpoint signals; mechanical hash filtering is the solution.
+- **Frozen split prevents taint:** Once dev rows are used for *any* decision (learning rate, early stopping, model selection), they bias all downstream estimates. Final holdout isolation is non-negotiable.
+- **Diversity prevents overfitting:** FineWeb-2 alone exhibits CCNet filtering + language-model biased-crawl artifacts. Checkpoint monitoring on FineWeb alone can hide generalization failures on other data distributions.
+
+**Next Steps:**
+- **Linus (Data Engineer):** Implement dedupe + frozen-split logic in Stage-0 harness. Coordinate with Livingston or Basher for eval harness integration.
+- **Rusty (NLP Researcher):** Confirm checkpoint dev signal does not drive Stage 1 stopping decisions (holdout remains frozen).
+- **Basher/Livingston (Eval Architect):** Ensure eval harness tracks FineWeb-2 split membership; never leak holdout rows into training loop.
+
+**Reference:**
+- Orchestration log: `.squad/orchestration-log/2026-04-29T09-59-05Z-fineweb2-checkpoint-eval.md`
+- Session log: `.squad/log/2026-04-29T09-59-05Z-fineweb2-checkpoint-reuse-question.md`
+- Rusty history: `.squad/agents/rusty/history.md` (2026-04-29T09:59:05Z entry)
+- Linus history: `.squad/agents/linus/history.md` (2026-04-29T09:59:05Z entry)
+

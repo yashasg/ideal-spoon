@@ -252,3 +252,17 @@ No new ADR. This is operational guidance extending `data-pipeline.md` manifest s
 - Stage-0 framing: this stage is *sanity / tokenizer / pipeline plumbing*, not benchmark scoring. No headline chrF/BLEU/COMET number is justified by Stage-0 data alone, and none of these sources should be quoted as such.
 - Bundle keeps eval cost inside the `docs/eval_pipeline.md` "cheap fixed eval ~30–60 min" budget and reuses already-wired collectors (101/102/103/105) plus Tatoeba/Baibala adds.
 - Open question pinned for Linus: Baibala edition pin + matched English PD edition; whether the hand-authored micro-eval needs a Hawaiian-reader pass before any *quoted* Stage-0 number.
+
+## 2026-04-29T09:59:05Z — FineWeb-2 Checkpoint Eval Reuse: Yes, with Hard Constraints
+
+**From Scribe:** Logged decision on FineWeb-2 `haw_Latn` test split (887 rows) reuse for checkpoint monitoring during Stage 1.
+
+**Your answer (locked for team):**
+- ✅ FineWeb-2 test split **can be used for checkpoint monitoring/dev signal** (not final benchmark)
+- ✅ **Dedupe against FineWeb-2 train set** (95,507 rows) via exact hash match before any eval use
+- ✅ **Split 887 test rows deterministically:** ~80% dev (≈710 rows) for checkpoint probing, ~20% holdout (≈177 rows) frozen from any tuning decisions
+- ✅ **Pair with independent Stage-0 sources** (FLORES if available, UDHR, Taxi1500 if available) to avoid FineWeb-only overfitting signals
+
+**Implementation:** Linus routes dedupe + frozen-split logic to Livingston or Basher for Stage-0 harness integration.
+
+**Reference:** Orchestration log `2026-04-29T09-59-05Z-fineweb2-checkpoint-eval.md`, session log `2026-04-29T09-59-05Z-fineweb2-checkpoint-reuse-question.md`.
