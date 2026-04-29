@@ -112,3 +112,11 @@ Rationale aligns with ADR "GPU compute chaining feasibility" (2026-04-29, Basher
 - Decision advisory merged into `.squad/decisions.md` alongside Livingston's cost analysis.
 - Inbox files deleted post-merge.
 - Cross-agent: Livingston affirmed cost seams (registration, GFW friction) dwarf headline savings. HF Hub push reliability is now jointly acknowledged as a key provider-fit dimension affecting our checkpoint-contract ADR.
+
+### Provider-switch handoff checklist (2026-04-29)
+- User asked whether "push to HF / pull on next provider" is sufficient for provider switching. Answered: shape is right, but HF Hub only carries artifacts, not env or loop state.
+- Portable unit is the **9-item checkpoint contract**: adapter, optimizer state, scheduler state, RNG, dataloader position, trainer_state.json, env.lock, base-model SHA pin, tokenizer SHA pin. Plus eval log alongside.
+- Seams to watch on hop: bnb 4-bit kernel non-determinism across CUDA/arch, dtype (T4/P100 fp16 vs A10/A100 bf16 — don't toggle mid-stage), FA2 availability (SM≥80 only), global-batch-size preservation via recomputing grad_accum, dataloader-skip cost (use stateful dataloader), base/tokenizer revision pinning, eval-harness version pinning, provider path/secret differences, HF push reliability (PRC excluded).
+- Sanity gate after resume on new provider: first cheap-eval point on B must match A's last within ±0.02 PPL; otherwise env isn't really restored — stop.
+- Acceptable to switch: Stage 1 prototype, smokes, ablations, eval re-runs. Pin to one provider for: release-candidate Stage 1+2 final runs, gate-threshold-close decisions, anything FSDP/ZeRO-sharded.
+- No new team-level decision; reaffirms existing "Chaining Free GPU Providers" ADR and Stage-1/Stage-2 pinning rules.
