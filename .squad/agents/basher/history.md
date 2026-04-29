@@ -146,3 +146,27 @@ Rationale aligns with ADR "GPU compute chaining feasibility" (2026-04-29, Basher
 
 **Reference:** `.squad/decisions.md` → "ADR: Hawaiian Language/Script Code Normalization" (Rusty's full normalization spec) + "Inventory: Hawaiian Dataset Variants" (Frank's source breakdown) (appended 2026-04-29T09:27:41Z).
 
+
+## 2026-04-29T10:18:43Z — Dataset Taxonomy Finalized: Training Data Contamination Gates Locked
+
+**From:** Scribe (via Orchestration)
+
+**Update:** Final dataset taxonomy adopted. Critical gate for your training pipeline:
+
+**Data divisions:**
+- `data/evals/` — held-out eval only; never train
+- `data/stage1/` — unsupervised; deduped against evals
+- `data/stage2/` — supervised; deduped against evals
+- `data/final/<run_id>/` — manifest pointers (your runs' artifact provenance)
+
+**For Stage-1 and Stage-2 training:**
+- **Mandatory gate:** Stage-1 ingest asserts `train ∩ eval_hashes = ∅` (read `data/evals/eval_hashes.parquet`).
+- **Mandatory gate:** Stage-2 ingest asserts `train ∩ eval_hashes = ∅` (same ledger).
+- **Manifest output:** Your run writes to `data/final/<run_id>/manifest.json` (pointers + SHAs to stage1/stage2/evals rows actually used, not payload).
+
+**Implications:**
+- Your training loop gates on Linus's `eval_hashes.parquet` existing and populated. Nothing trains until that ledger is ready.
+- Post-run eval (final/holdout) reads from `data/evals/fineweb2_haw_test/holdout/` and `data/evals/manual_w1/w1-haw-micro-eval.tsv` (frozen).
+
+**Reference:** `.squad/decisions.md` → "Decision: Final Dataset Taxonomy — `evals` / `stage1` / `stage2` / `final`".
+

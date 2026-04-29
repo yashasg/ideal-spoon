@@ -294,3 +294,20 @@ Spec merged into decisions.md. Row drafting now unblocked off-git. Key points lo
 
 **Blocked on:** Hawaiian-literate reviewer (same team gap as before). Harness wiring awaits Linus/eval-architect.
 
+
+## 2026-04-29T10:18:43Z — Dataset Taxonomy Finalized: Eval Artifact Paths Locked
+
+**From:** Scribe (via Orchestration)
+
+**Update:** Final dataset taxonomy adopted. All future eval artifacts rooted at `data/evals/` (renamed from `data/eval/`):
+- FineWeb-2 `haw_Latn` test: `data/evals/fineweb2_haw_test/{dev,holdout}/`
+- W1 manual micro-eval: `data/evals/manual_w1/w1-haw-micro-eval.tsv`
+- Contamination ledger: `data/evals/eval_hashes.parquet`
+
+**For your eval work:**
+- Stage-1 checkpoint evals: slice on FineWeb-2 dev rows under `data/evals/fineweb2_haw_test/dev/`; holdout frozen.
+- Manual micro-eval: auto-score ~55 items per checkpoint from `data/evals/manual_w1/...`; generative (~25 items) milestones only.
+- W1 manual item hashes added to `data/evals/eval_hashes.parquet` before any train ingest re-runs.
+
+**Reference:** `.squad/decisions.md` → "Decision: Final Dataset Taxonomy — `evals` / `stage1` / `stage2` / `final`".
+

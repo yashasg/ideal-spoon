@@ -68,6 +68,79 @@ Add a W1 manual micro-eval TSV to the eval mix: hand-authored ~50–100 prompts/
 
 ---
 
+## Decision: Final Dataset Taxonomy — `evals` / `stage1` / `stage2` / `final`
+
+**Date:** 2026-04-29  
+**By:** Linus (Data Engineer)  
+**Status:** Adopted; docs-only; no code changes yet  
+**Related directive:** User directive 2026-04-29T10-13-58Z (canonical top-level dataset taxonomy)  
+
+### Decision
+
+Adopt a single canonical four-division taxonomy for **final dataset artifacts** on disk and in docs, rooted at `data/`:
+
+| Division | On-disk root | Contents | Train Policy |
+|---|---|---|---|
+| `evals` | `data/evals/` | Held-out / eval-only: FineWeb-2 `haw_Latn` test dev+holdout, W1 manual micro-eval, Stage-0/checkpoint/final eval anchors, `eval_hashes.parquet` (contamination ledger) | **Never train; hash-ledger gated** |
+| `stage1` | `data/stage1/` | Unsupervised / base-adaptation: `stage1_manifest.parquet`, `stage1.jsonl.gz`, packed/tokenized shards | Dedupe against `evals` before ingest |
+| `stage2` | `data/stage2/` | Supervised / instruction / preference / tiny task-tuning: `stage2_manifest.parquet`, `stage2.jsonl.gz`, `templates.json` (populated only when sources exist) | Dedupe against `evals` before ingest |
+| `final` | `data/final/<run_id>/` | Assembled local-final manifest outputs: pointers + SHAs to stage1/stage2/evals artifacts a run consumed (not payload duplicates) | Local prototype only; private |
+
+### Contamination Gates (Mandatory)
+
+1. **`evals` is held out from training, period.** Every `evals`-tier row is hashed into `data/evals/eval_hashes.parquet` *before* any train ingest reads it. Stage-1/Stage-2 dataloaders CI-assert `train ∩ eval_hashes = ∅`. Cluster-aware split isolation handles near-dups; exact-hash dedup is the leakage backstop. **Never train on `evals`.**
+
+2. **`final` is not public release.** This project is private prototype/learning work. Publication CI gate refuses any external emit of pipeline artifacts; `final` is local-only.
+
+3. **Raw and intermediate stay outside the taxonomy.** `data/raw/` and `data/extracted/` remain inputs to `stage1`/`stage2`/`evals`; they are not divisions of the final taxonomy.
+
+4. **Nothing under `data/` is committed to git.** Existing `/data/` `.gitignore` rule covers all four divisions; only schemas, templates, URL inventories, and docs live in-repo.
+
+### Path Migration
+
+The previous singular `data/eval/` path is **renamed to `data/evals/`** for taxonomy consistency. This affects:
+- `data/eval/eval_hashes.parquet` → `data/evals/eval_hashes.parquet`
+- `data/eval/manual_w1/...` → `data/evals/manual_w1/...`
+- `data/eval/fineweb2_haw_test/{dev,holdout}/...` → `data/evals/fineweb2_haw_test/{dev,holdout}/...`
+
+**No fetcher or builder script currently writes those paths** (eval harness not implemented, `eval_hashes.parquet` does not exist on disk), so the rename is documentation-only at this point. Future scripts and harnesses **MUST use `data/evals/`**.
+
+### Consistency with Prior Decisions
+
+- **FineWeb-2 `haw_Latn` test split (887 rows):** ~80/20 dev/holdout under `data/evals/fineweb2_haw_test/{dev,holdout}/`. Train deduped against full test set before Stage 1. Unchanged from locked decision.
+- **W1 manual micro-eval:** Lives at `data/evals/manual_w1/w1-haw-micro-eval.tsv`, schema unchanged, `origin=manual_w1, stage=eval-only` in ledger, `accepted`-only, NFC-validated. Unchanged from prior decision.
+- **Stage-1 token gates and Stage-2 sequencing:** Unchanged. Stage 2 still blocks on Stage 1 artifacts existing and `eval_hashes.parquet` being populated.
+
+### Repo Footprint (Surgical, Docs-Only)
+
+- `docs/data-pipeline.md` — added "Final dataset taxonomy" section; updated Storage formats table (split eval ledger row into "Evals — contamination ledger" + "Evals — held-out anchors"; added "Final — assembled run manifest" row); updated Cross-stage invariants #5 to anchor on `data/evals/`.
+- `docs/eval_pipeline.md` — `data/eval/...` paths in §3.1 micro-eval paragraph updated to `data/evals/...`.
+- `data-sources/manual-eval/README.md` — file-layout table and integration loader paths updated to `data/evals/...`.
+- `data-sources/manual-eval/w1-haw-micro-eval.template.tsv` — comment header path updated.
+
+No code changes, schema changes, or fetcher changes. No raw payloads added. `/data/` `.gitignore` rule already covers all four divisions.
+
+### Out of Scope
+
+- Updating historical decision-log entries in `.squad/decisions.md` that reference `data/eval/...` (audit trail only; this entry supersedes them).
+- Formal schema for `data/final/<run_id>/manifest.json` (sketched as pointer + SHAs; will be defined when first prototype run is assembled).
+- Updating `301_build_stage1_dataset.py` and future Stage-2 builder to read/write under `data/evals/` instead of `data/eval/` (follow-up; grep shows no current script writes the old path).
+
+### Next Steps
+
+- **Linus/Frank/Basher:** When implementing Stage-1 / Stage-2 builders and eval harness, wire paths to the new four-division taxonomy.
+- **CI:** Ensure `train ∩ eval_hashes` assertion runs before Stage-1/Stage-2 training begins.
+- **Final manifest:** Schema for `data/final/<run_id>/manifest.json` will be defined at first prototype run assembly.
+
+### Reference
+
+- User directive: `.squad/decisions/inbox/copilot-directive-2026-04-29T10-13-58Z-dataset-taxonomy.md` (merged into this entry)
+- Implementation: `.squad/decisions/inbox/linus-dataset-taxonomy.md` (merged into this entry)
+- Orchestration log: `.squad/orchestration-log/2026-04-29T10-18-43Z-dataset-taxonomy.md`
+- Session log: `.squad/log/2026-04-29T10-18-43Z-dataset-taxonomy.md`
+
+---
+
 ## Decision Note: FineWeb-2 `haw_Latn` 100/200 Scripts Landed
 
 **From:** Frank (Hawaiian Data Collector)  
