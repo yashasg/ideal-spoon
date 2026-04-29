@@ -74,3 +74,13 @@ Tightening plan (pilot, ~1–2 days, no bulk fetch):
 - Land all of the above in `data-sources/pilot_token_counts.parquet` (one row per source: `sample_size`, `observed_haw_tokens`, `extrapolated_total`, `ci_low`, `ci_high`, `rights_posture`, `prototype_only`).
 
 This pilot replaces the current ±2× ranges with ±20% bands without committing to any rights-questionable bulk pull.
+
+### 2026-04-29 — GitHub tracking and issue assignment
+
+- **Issue #1 created:** "Frank: pull data from rights-light sources" (https://github.com/yashasg/ideal-spoon/issues/1).
+- **Assignment method:** Label-based routing via `squad:frank` (team label assignment).
+- **Milestone:** prototype.
+- **Labels:** squad, squad:frank, data, prototype.
+- **Project:** ideal-spoon (GitHub Project v2: https://github.com/users/yashasg/projects/5).
+- **Scope:** Issue #1 integrates both rights-light source pulling and the approved ADR on local-first corpus storage (prototype_only data, no git blobs, storage encryption). All data-collection work for the prototype phase should reference this issue.
+- **Coordination:** Team communications, PRs, and data manifests related to Hawaiian source collection should link to this issue or the project board for visibility.
