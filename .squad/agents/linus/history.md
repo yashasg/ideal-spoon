@@ -317,3 +317,76 @@ and extracted.jsonl.gz. Decision note written to `.squad/decisions/inbox/linus-s
 - Confirmed Linus references updated to numbered filenames throughout history and decisions.
 - Frank history also appended with current filenames and manifest discipline note.
 - All `.squad/` changes committed with trailer.
+
+## 2026-04-29 — Stage-1 token-volume gate + 002↔003 schema fix
+
+User flagged: "the fetch plan didnt pull enough raw data in the first place".
+Two real problems behind the symptom:
+
+1. **Schema mismatch hid 002's actual output.** `002_fetch_rightslight_raw.py`
+   writes `data/raw/<source>/fetch.jsonl` (source-level) with `ProvenanceRecord`
+   field names (`raw_sha256`, `raw_storage_path`, `tos_or_license_url`,
+   `fetch_timestamp_utc`). `003_build_stage1_dataset.py` was walking
+   `data/raw/<source>/<fetch_date>/fetch.jsonl` with field names `sha256_raw`,
+   `path`/`raw_path`/`filename`, `tos_snapshot_id`. Net effect: 0 records seen
+   even after 002 ran.
+
+   Fix: rewrote `iter_fetch_records` + new `_coerce_record` / `_iter_manifest_paths`
+   helpers. Loader now finds source-level `fetch.jsonl` (002 actual) and still
+   accepts the legacy date-nested layout. Field aliases mean both schemas
+   parse cleanly. `fetch_date` is derived from the YYYYMMDD parent dir of
+   the raw artefact (or `fetch_timestamp_utc[:10]`) when not present.
+
+2. **No mechanical token-volume gate.** `003` was reporting docs/splits/sources
+   but not whether the corpus was actually big enough to call Stage-1 ready.
+   On a near-empty manifest the summary looked green.
+
+   Fix: added `TOKEN_TARGETS` (Conservative 2.5M / Base 4.5M / Upside 7M
+   right-clearable train tokens) as first-class constants, a
+   `compute_train_tokens` (sum over `split=train`, `language_id=haw`),
+   and a `token_volume_report` block in every summary. `--strict` exits 2
+   when train tokens fall below the conservative target. New CLI flags:
+   `--token-target {conservative,base,upside}` and `--show-targets` (prints
+   targets + current gap without needing a corpus download).
+   Stage-1 doc updated to reference the mechanical gate.
+
+**Discipline note:** the gate is right-clearable only. Closing the gap is
+an upstream fetch-plan job for Frank, not a license relaxation; do not patch
+by adding rights-heavy sources. This is called out explicitly in the stderr
+warning and in the decision note.
+
+Files touched:
+- `scripts/003_build_stage1_dataset.py` — loader + targets + gate + flags
+- `docs/data-pipeline.md` — one-line addition under Stage-1 next steps
+- `.squad/decisions/inbox/linus-stage1-token-gate.md` — decision note
+
+Validated:
+- `python3 -m py_compile` clean.
+- `--help` / `--show-targets` work with no data on disk.
+- `--dry-run` on empty `data/raw/` reports `below_conservative=true` and
+  warns on stderr.
+- Local fixture with 002's actual schema (source-level `fetch.jsonl`,
+  `raw_sha256`/`raw_storage_path`/`tos_or_license_url`, raw bytes under
+  `data/raw/<source>/<YYYYMMDD>/<sha>.xml`) is discovered, one wiki doc
+  emitted; `--strict --dry-run` exits 2 because tokens << 2.5M. Fixture
+  removed; pre-existing `data/raw/rightslight` and `data/local/` left untouched.
+
+## 2026-04-29 — Orchestrated Stage-1 token-gap correction (parallel with Frank)
+
+Completed as part of paired agent session with Frank. Scribe consolidated outputs, merged decisions, filed orchestration log, and staged for git commit.
+
+**Session outcome:**
+- **Numbered pipeline convention locked:** 001_ (collect), 002_ (fetch), 003_ (build), with extension point for 004_+.
+- **Schema handoff fixed:** 003 reads 002's source-level `fetch.jsonl` layout (raw_sha256, raw_storage_path, tos_or_license_url, fetch_timestamp_utc); backward compatible with legacy date-level paths; field-name aliases for older fixtures.
+- **Token-volume gate first-class:** Conservative 2.5M / Base 4.5M / Upside 7M targets, mechanical go/no-go on conservative floor, exit code 2 in `--strict` mode below target.
+- **New CLI flags:** `--show-targets` (print targets + gap, no corpus I/O), `--token-target {conservative|base|upside}` (select reported tier).
+- **Token-volume block in every summary:** current train tokens, target, gap, `below_conservative` flag.
+- **Right-clearable discipline:** gate does not add rights-heavy sources; closing the gap is Frank's upstream job (expansion candidates).
+- All three numbered scripts validated via `py_compile` and CLI `--help`. `--dry-run` tests exercise renamed paths; no corpus committed.
+- `.squad/orchestration-log/2026-04-29T07-19-07Z-linus.md` filed.
+- Decisions merged into `.squad/decisions.md` as Accepted.
+
+**Open follow-ups:**
+- Frank: Expand fetch plan (Tatoeba, Wikisource, Wikipedia langlinks adapters).
+- Rusty: Tokenizer audit to replace ±2× bands with ±20% bands.
+- Coordinate Wikisource extracted-text contract (NFC sensitivity, ʻokina canonicalization).

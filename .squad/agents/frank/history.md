@@ -163,3 +163,39 @@ This pilot replaces the current ±2× ranges with ±20% bands without committing
 - Validated: `python3 -m py_compile scripts/001_collect_rightslight.py scripts/002_fetch_rightslight_raw.py scripts/003_build_stage1_dataset.py` — all clean.
 - Manifest-first discipline confirmed: every fetch-time field (ToS snapshot, source URL, fetch date, sha256_raw) is captured at ingest and unrecoverable later.
 - Scribe logged coordination in `.squad/orchestration-log/` and `.squad/log/`. All `.squad/` changes committed.
+
+## 2026-04-29 — Fetch plan now tiered against the 2.5M right-clearable token floor
+
+User flagged that "the fetch plan didnt pull enough raw data in the first place." Reworked `scripts/001_collect_rightslight.py` so the plan no longer implies the MVP allow-list is sufficient for Stage-1.
+
+- **Schema bumped to 0.2.0.** Plan now emits three tiers per source: `mvp_smoke` (covered by 002 today), `expansion_candidate` (right-clearable, needed to reach the 2.5M floor, blockers documented), `deferred` (rights-heavy/ambiguous, never used to backfill the gap).
+- **Per-source fields added:** `token_estimate_haw{conservative,base,upside}`, `fetcher_status` ∈ {`supported`, `metadata_only`, `blocked_upstream`, `not_yet_implemented`}, `fetcher_script`, `blockers[]`.
+- **Coverage roll-up** in `coverage_summary` exposes the gap explicitly:
+  - target floor 2.5M; fetchable today (just hawwiki) ≈ 1.5M → **shortfall ~1.0M**.
+  - mvp_smoke at face value ≈ 2.05M (Wiktionary 404s upstream; Wikisource only enumerates titles).
+  - with expansion candidates ≈ 2.62M → barely clears the floor.
+- **Expansion candidates promoted (right-clearable only):** Wikipedia interlanguage API (langlinks), Tatoeba haw exports (CC BY 2.0 FR), Hawaiian Wikisource bulk page text (action=parse or scrapy+WARC). Each carries blockers; none are auto-fetched.
+- **No rights-heavy promotions.** Baibala without reviewed edition, nūpepa OCR, OHA/DOE/UH, Awaiaulu, OPUS/NLLB, JW300, hard-escalate cultural categories all stay deferred. FLORES stays eval-only.
+- **`scripts/002_fetch_rightslight_raw.py`** docstring amended with a "Scope vs. the Stage-1 token target" paragraph pointing at the new `coverage_summary`. Fetcher behaviour, CLI, and provenance schema are unchanged.
+- **Validation:** `python3 -m py_compile scripts/001_collect_rightslight.py scripts/002_fetch_rightslight_raw.py scripts/003_build_stage1_dataset.py` clean. `python3 scripts/001_collect_rightslight.py` (no smoke, no network) emits the new tiered plan and prints the shortfall against the floor. `git status --short data/` empty — outputs still gitignored.
+- **Decision filed:** `.squad/decisions/inbox/frank-rightslight-token-target.md`. Coordination points: Linus on Wikisource extracted-text contract; Rusty on whether tokenizer fragmentation could push effective tokens below the floor even after expansion lands.
+- **Honest go/no-go posture locked in:** if expansion adapters slip, delay Stage-1 DAPT; do **not** backfill with rights-ambiguous data. Captured in `coverage_summary.gap_vs_conservative_floor.note`.
+
+## 2026-04-29 — Orchestrated Stage-1 token-gap correction (parallel with Linus)
+
+Completed as part of paired agent session with Linus. Scribe consolidated outputs, merged decisions, filed orchestration log, and staged for git commit.
+
+**Session outcome:**
+- Tiered fetch plan in place (mvp_smoke / expansion_candidate / deferred).
+- ~1.0M shortfall today (hawwiki only); expansion candidates needed to reach 2.5M floor.
+- Coverage summary rolls up token estimates and blocker dependencies.
+- `scripts/001_collect_rightslight.py` schema v0.2.0 locked.
+- All three numbered scripts validated via `py_compile` and CLI `--help`.
+- No corpus fetched. `.squad/orchestration-log/2026-04-29T07-19-07Z-frank.md` filed.
+- Decision merged into `.squad/decisions.md` as Accepted.
+
+**Open follow-ups:**
+1. Land Tatoeba adapter (small, polite GET; minutes of work).
+2. Land Wikisource bulk-text adapter (coordinate with Linus on extracted-text contract).
+3. Land Wikipedia langlinks adapter (small but useful).
+4. Pilot token counts post-fetch to replace ±2× bands with ±20% bands.

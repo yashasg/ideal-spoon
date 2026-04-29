@@ -1540,3 +1540,188 @@ For the Stage-1 prototype, emit `data/stage1/stage1_manifest.jsonl` (not `.parqu
 
 Promote to Parquet once corpus > 50k docs OR first DuckDB analytical query in CI. Default threshold: 50k unless team consensus differs.
 
+
+---
+
+## Decision: Number pipeline scripts to encode execution order
+
+**Date:** 2026-04-29
+**Author:** Linus (Data Engineer)
+**Status:** Accepted
+
+### Decision
+
+Python data-pipeline scripts in `scripts/` carry a zero-padded numeric prefix
+(`NNN_`) that encodes their canonical execution order. Initial mapping:
+
+1. `scripts/001_collect_rightslight.py` — plan rights-light sources (Frank).
+2. `scripts/002_fetch_rightslight_raw.py` — fetch raw artifacts + write per-source `fetch.jsonl` provenance (Frank).
+3. `scripts/003_build_stage1_dataset.py` — Stage-1 manifest builder consuming `fetch.jsonl` (Linus).
+
+### Rules
+
+- New pipeline stages take the next free `NNN_` prefix. Do not renumber existing scripts; the prefix is stable once published.
+- One-shot utilities, smoke tests, or non-pipeline tooling stay unprefixed.
+- Docstrings, `generated_by`, `fetcher_tool_and_version`, and any cross-script comments must reference the prefixed filename.
+- Historical `.squad` logs may continue to mention old (un-prefixed) names as history; current docs and code reference the new names.
+
+### Rationale
+
+- Makes pipeline order obvious from `ls scripts/` without reading docs.
+- Removes ambiguity for new contributors and for downstream agents (Basher, Rusty).
+- Keeps the contract additive: future stages slot into `004_…`, `005_…` without breaking existing references.
+
+### Validation
+
+- `python3 -m py_compile` clean on all three numbered scripts.
+- `--help` works for all three.
+- `002 --dry-run` and `003 --dry-run` exercise the renamed paths; no network writes, no corpus committed.
+
+---
+
+## Decision: Stage-1 fetch plan tiers sources against the 2.5M right-clearable token floor
+
+**Date:** 2026-04-29
+**Author:** Frank (Hawaiian Data Collector)
+**Status:** Accepted
+
+### Decision
+
+`scripts/001_collect_rightslight.py` now emits a **tiered** fetch plan
+(`schema_version: 0.2.0`) instead of a flat allow-list. Three tiers,
+each machine-readable:
+
+1. **`mvp_smoke`** — right-clearable sources covered by
+   `scripts/002_fetch_rightslight_raw.py` today (fully or partially):
+   hawwiki XML dump, hawwiki dumpstatus manifest, hawwiktionary dump,
+   hawwikisource (metadata-only).
+2. **`expansion_candidate`** — right-clearable sources with a
+   defensible licensing path that are needed to defensibly reach the
+   ~2.5M conservative Stage-1 train-token floor: Wikipedia
+   interlanguage API, Tatoeba haw exports, Wikisource bulk page text.
+   Each carries explicit blockers (adapter work in 002 or a 002b) so
+   the gap is owned, not hidden.
+3. **`deferred`** — rights-heavy or ambiguous sources (Baibala
+   without a reviewed edition, nūpepa OCR, OHA/DOE/UH, Awaiaulu,
+   OPUS/NLLB, FLORES eval-only, JW300, hard-escalate cultural
+   categories). **Not used to backfill the token gap.**
+
+Every plan entry now records `token_estimate_haw` (conservative /
+base / upside), `fetcher_status`
+(`supported` / `metadata_only` / `blocked_upstream` / `not_yet_implemented`),
+`fetcher_script`, and `blockers[]`.
+
+A new `coverage_summary` block in the plan rolls these up against the
+target band (2.5M / 4.5M / 7M) and emits explicit shortfall numbers.
+
+### Honest Token Accounting
+
+- **Fetchable today (mvp_smoke, fetcher_status=supported only):**
+  ~1.5M / 2.25M / 3.0M haw tokens — that's **just hawwiki**.
+- **MVP smoke at face value (incl. partial/blocked entries):**
+  ~2.05M / 3.35M / 4.65M.
+- **With expansion candidates landed:** ~2.62M / 4.5M / 6.45M.
+- **Shortfall vs. 2.5M floor, fetchable now:** ~1.0M tokens.
+- **Shortfall after expansion:** 0 (just barely hits floor at conservative band).
+
+The expansion tier is therefore **load-bearing** for the conservative floor, and its blockers (Wikisource bulk-text adapter, Wikipedia langlinks adapter, Tatoeba adapter) are the actual Stage-1 critical path — not nūpepa OCR or rights-heavy fillers.
+
+### What This Changes
+
+- **Linus:** Wikisource bulk-text path needs an extracted-text
+  contract before any pull. The Wikisource pages are NFC-sensitive
+  and should ride the same ʻokina canonicalization as the dump path.
+  Coordination point.
+- **Rusty:** the tokenizer audit's "go/no-go" gate for Stage-1 DAPT
+  is now also a *coverage* gate — even with expansion landed, the
+  conservative band only barely clears the 2.5M floor (≈2.62M).
+  Tokenizer fragmentation could push effective tokens below the
+  floor; pilot token counts (history.md plan) should run before any
+  GPU spend.
+- **Basher / training:** if expansion adapters slip, the honest
+  answer is to **delay Stage-1 DAPT**, not to backfill with
+  rights-ambiguous data. The plan's `coverage_summary.note` makes
+  this explicit.
+
+### Files Touched
+
+- `scripts/001_collect_rightslight.py` — tiered allow-list, token
+  estimates, fetcher readiness, coverage summary, new printout.
+  Schema bumped to 0.2.0.
+- `scripts/002_fetch_rightslight_raw.py` — docstring "Scope vs. the
+  Stage-1 token target" paragraph added; behaviour unchanged.
+
+---
+
+## Decision: Stage-1 train-token volume gate + 002↔003 schema reconciliation
+
+**Date:** 2026-04-29
+**Author:** Linus (Data Engineer)
+**Status:** Accepted
+
+### Decision
+
+1. `scripts/003_build_stage1_dataset.py` now reads provenance directly in the
+   layout that `scripts/002_fetch_rightslight_raw.py` actually writes:
+   `data/raw/<source>/fetch.jsonl` (source-level), with `raw_sha256`,
+   `raw_storage_path`, `tos_or_license_url`, `fetch_timestamp_utc`.
+   The legacy `data/raw/<source>/<fetch_date>/fetch.jsonl` layout is still
+   accepted, and field-name aliases (`sha256_raw`, `path`/`raw_path`/`filename`,
+   `tos_snapshot_id`) keep older fixtures working. `fetch_date` is derived
+   from the YYYYMMDD parent of the raw artefact when not supplied.
+
+2. Stage-1 right-clearable train-token targets are now first-class in the
+   builder:
+   - Conservative: **2,500,000** (go/no-go gate)
+   - Base: **4,500,000**
+   - Upside: **7,000,000**
+   The summary always includes a `token_volume` block (current train tokens,
+   target, gap, `below_conservative`). In `--strict` mode the script exits
+   `2` when train tokens fall below the conservative target, regardless of
+   any other gate. `--token-target {conservative|base|upside}` selects the
+   reported tier and adds a strict failure if below that tier too.
+
+3. New `--show-targets` flag prints targets and the current gap without
+   requiring a corpus download — safe to run on a clean checkout.
+
+### Why This Matters
+
+- The current local data is metadata/smoke output, not the Stage-1 corpus.
+  Without a token-volume gate, `003` happily emits a green-looking summary
+  on a near-empty manifest, which masks the real status of Stage-1.
+- The `002`/`003` schema mismatch (source-level vs date-level `fetch.jsonl`,
+  `raw_sha256` vs `sha256_raw`, `raw_storage_path` vs `path`) was silently
+  causing zero records to be discovered even when 002 had run.
+
+### What This Does NOT Do
+
+- Does not add any rights-heavy source (Baibala, JW300, NLLB, OCR'd nūpepa)
+  to chase the target. The conservative 2.5M target is a **right-clearable**
+  number; closing the gap is an upstream fetch-plan job, not a license
+  relaxation.
+- Does not change the local-only data policy. No corpus is committed.
+
+### Validation
+
+- `python3 -m py_compile scripts/003_build_stage1_dataset.py` — clean.
+- `--help` and `--show-targets` print the targets without I/O on a corpus.
+- `--dry-run` on an empty `data/raw/` reports `train_tokens_est=0`,
+  `below_conservative=true`, and warns to stderr.
+- Tiny local fixture written in 002's actual schema (source-level
+  `fetch.jsonl`, `raw_sha256`/`raw_storage_path`/`tos_or_license_url`,
+  raw bytes under `data/raw/<source>/<YYYYMMDD>/<sha>.xml`) is discovered
+  and emits one wiki doc; `--strict` exits 2 because tokens are far below
+  the 2.5M target.
+
+### Follow-ups for the Team
+
+- Frank: 002 fetch plan still doesn't pull enough raw to clear the 2.5M
+  conservative target; the gap is now visible and machine-readable in 003's
+  summary. Suggest the next pass widens `corpus_artifacts` for `hawwiki` /
+  `hawwiktionary` and wires the `hawwikisource` page-render path within the
+  existing rights-light allow-list.
+- Rusty: token counts here are whitespace-token estimates. Once the real
+  tokenizer audit lands, swap `token_count_est` for the audited count and
+  re-run the gate.
+- Basher: the strict-mode exit code on the volume gate is `2`, same as the
+  existing quality-gate path; CI can keep a single non-zero check.
