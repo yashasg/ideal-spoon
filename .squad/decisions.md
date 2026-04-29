@@ -552,3 +552,123 @@ Queue a follow-up README pass:
 ### Provenance
 
 Consolidates three inbox proposals (now deleted): `copilot-directive-2026-04-28T19-55-04-0700-prototype-public-data.md`, `linus-prototype-data-posture.md`, `danny-prototype-scope.md`. See orchestration-log entries dated 2026-04-29T03:01:58Z.
+
+---
+
+## ADR: Stage-1 monolingual + Stage-2 bidirectional en↔haw data pipelines (prototype)
+
+**Date:** 2026-04-29
+**Status:** Accepted (design); ingest gated as noted
+**Owner:** Linus (Data Engineer)
+**Scope:** Stage-1 monolingual Hawaiian CPT/DAPT pipeline; Stage-2 bidirectional en↔haw SFT pipeline with 10–20% Hawaiian monolingual retention. Prototype posture per the Prototype-vs-release ADR; both default `release_eligible=false`, `prototype_only=true`. No public weights / datasets / adapters / demos / release-style eval claims without separate clearance.
+
+Consolidates two inbox proposals (now deleted): `linus-stage1-data-pipeline.md`, `linus-stage2-data-pipeline.md`. Companion orchestration entries: `.squad/orchestration-log/2026-04-29T03:13:13Z-linus-stage1-data-pipeline.md`, `…-linus-stage2-data-pipeline.md`.
+
+### Hard precondition
+
+Stage-2 *ingest* does not begin until Stage-1 artifacts (`stage1_manifest.parquet`, packed JSONL, populated `eval_hashes.parquet`) exist. Stage-2 *design + adapter scaffolding* may land now.
+
+---
+
+### Stage-1 — Monolingual Hawaiian CPT/DAPT
+
+**Source tiers**
+
+- **Tier A (high value, prototype-only until cleared):** Ulukau nūpepa (~1834–1948, OCR'd; pre-1925 bulk default-excluded for release; ToS snapshot per fetch); Ulukau dictionaries / readers / Baibala; Hawaiian Wikipedia (`hawwiki` dump, CC BY-SA 4.0 — closest to release-eligible); Hawaiian Wikisource.
+- **Tier B (useful, narrow register):** Hawaiian Bible (Baibala Hemolele) — **cap ≤10% of Stage-1 tokens**, tag `register=religious-archaic`; OHA / DOE Kaiapuni / UH educational PDFs (per-doc review); Awaiaulu / kūpuna prose where public.
+- **Tier C (HF/GitHub/Kaggle):** treat as *pointers* to original sources; re-derive provenance, do not trust HF metadata as license truth.
+- **Tier D (avoid for Stage 1):** generic CommonCrawl `haw` LID (poor recall, FP from Pidgin / Eng-with-loanwords); social media without explicit permission; mele/oli/pule, moʻolelo from named tradition-bearers, moʻokūʻauhau (hard-escalate; strip if found).
+
+**Pipeline**
+
+```
+crawl/download → raw archive (immutable, SHA-256, off-git) → extraction/OCR (Tesseract haw, record OCR confidence) → paragraph-level LID (cld3/fasttext) → Unicode normalization (NFC; ʻokina canonicalized to U+02BB; kahakō preserved as combining macron U+0304 / NFC precomposed) → boilerplate removal → paragraph/sentence segmentation (Hawaiian-aware) → MinHash dedup with cluster IDs persisted → quality filters (min length, max symbol/digit ratio, min Hawaiian-char ratio, optional perplexity) → register/cultural tags → cluster-aware split isolation (any cluster touching dev/test → fully held out; also held out from Stage-2 eval hashes) → stage1_manifest.parquet → packed JSONL (Rusty-audited tokenizer)
+```
+
+Apostrophe canonicalization is non-trivial (U+0027 / U+2018 / U+2019 / U+02BB / U+02BC all show up); canonicalize to ʻokina **only** when context indicates ʻokina; track original codepoint in a debug column for the first prototype run.
+
+**`stage1_manifest.parquet` fields (strict subset of release manifest):**
+`doc_id, source, source_url, fetch_date, fetch_http_status, sha256_raw, sha256_clean, content_type, extraction_method, ocr_confidence_mean (nullable), language_id, language_id_confidence, char_count, token_count_est, unicode_normalized, register_tag, cultural_flag, dedup_cluster_id, split, license_observed, license_inferred (always null), release_eligible (default false), prototype_only (default true), notes`. `eval_hashes.parquet` non-negotiable contamination guard.
+
+**JSONL contract:** one example per line — `{doc_id, text, source, register, split, prototype_only}`. **Excluded from training text:** license / copyright / ToS boilerplate, source URLs, fetch dates, manifest fields, HTML, page-number artifacts, OCR markers, dev/test rows, mixed-language paragraphs that failed paragraph-LID, hard-escalate cultural categories.
+
+**Top risks (ranked):** tiny corpus → overfitting / register collapse (cleaned corpus likely <50M tokens, possibly <10M); Bible / religious register skew; nūpepa OCR noise (pre-1900 mean-confidence filter + manual sample review); apostrophe / diacritic chaos fragmenting tokenizer; English contamination in mixed pages; duplicate texts (Bible reprints, nūpepa reprints, Wikipedia mirrors); eval contamination (CI assertion, not suggestion); accidental publication of prototype-tainted artifacts (CI must refuse to publish `prototype_only=true`); cultural overreach via auto-ingest (use allow-list, not deny-list).
+
+**Next 3 steps for Stage 1:**
+
+1. Land adapter framework + empty manifest in-repo. One source adapter (Hawaiian Wikipedia dump — cleanest, closest to release-eligible) end-to-end through pipeline. Output: `stage1_manifest.parquet` with real rows, packed JSONL, CI check refusing publication of `prototype_only=true`.
+2. Add Ulukau nūpepa adapter with ToS snapshot, polite fetch, OCR-confidence capture, paragraph-level LID, manual sample review of ~50 random docs before bulk ingest. Document register and OCR-quality stats per decade.
+3. Tokenizer audit + token-count report (Rusty owns tokenizer; Linus supplies corpus + manifest stats). **This is the honest go/no-go gate for Stage 1.**
+
+---
+
+### Stage-2 — Bidirectional en↔haw SFT (target-only loss, 10–20% Hawaiian retention)
+
+**Source tiers**
+
+- **Tier A — true parallel, prototype-usable:**
+  - **Baibala Hemolele ↔ public-domain English Bible** (verse-aligned; chapter-level not safe; pin specific Hawaiian translator/year + KJV/ASV); cap ≤30% of Stage-2 parallel-train tokens, **0% of dev/test**.
+  - **FLORES-200 `hawn_Latn` / `eng_Latn`** as the **Stage-2 dev/test anchor only — never train.** Hash all FLORES sentences into `eval_hashes.parquet` *before any other Stage-2 ingest*.
+  - **OPUS `haw` subsets** — Tatoeba clean; Ubuntu/GNOME/KDE software-l10n tag + cap; **JW300 excluded** pending OPUS ToS recheck.
+  - **NLLB-Seed / NLLB mined `haw`-`eng`** — train signal only, never dev/test; re-derive provenance from originating URLs, not HF mirror.
+  - **Tatoeba `haw`↔`eng`** (CC-BY 2.0 FR; small but clean smoke-test; hash before deciding train vs dev).
+- **Tier B — comparable, alignment scoring required:** Wikipedia interlanguage-link pairs (CC BY-SA 4.0; expect <5k usable sentence pairs); Wikisource pairs; Awaiaulu modern prose; OHA/DOE/UH bilingual PDFs; Ulukau bilingual / annotated holdings; Hawaiian-language news with English summary pages (rare).
+- **Tier C — dictionary / glossary:** Pukui-Elbert / Andrews **example sentences** only (headword entries are not pairs — memorizes lexicon, doesn't teach translation); tag `register=dictionary-example`, cap, exclude from dev/test.
+- **Tier D — synthetic (capped per prior ADR):** back-translation of Stage-1 Hawaiian via Stage-1-merged base allowed in train, `synthetic=true`, `synthetic_source_model` recorded, ≤25% cap, **0% dev/test**, source-model ToS must permit training derivatives. Forward-translation suggested ≤10% inside the 25% cap (translationese feedback risk). Dictionary-templated synthesis excluded (teaches templates, not translation).
+- **Tier E — excluded:** hard-escalate cultural categories (unchanged); JW300 / proselytizing-org bitext (until ToS re-verified); auto-MT not flagged synthetic; social-media bilingual without permission; ungrounded LLM-generated "Hawaiian dialogues."
+
+**Alignment typing:** every pair carries `alignment_type ∈ {parallel-verse, parallel-sentence, parallel-doc, comparable-aligned, dictionary-example, synthetic-bt, synthetic-ft}`. **Dev/test accepts only `parallel-*`.**
+
+**Pipeline (additions over Stage-1)**
+
+```
+per-source adapter (raw fetch + ToS snapshot)
+  → per-side LID (catches swapped/mixed sides)
+  → per-side normalization (Hawaiian unchanged from Stage-1; English smart-quote/whitespace cleanup)
+  → alignment:
+      • deterministic for verse-keyed/TMX sources
+      • embedding alignment (LaBSE/LASER) for comparable; record alignment_model + per-row alignment_score
+  → length-ratio filter (length_ratio_haw_over_en)
+  → pair-hash + MinHash dedup; cluster-aware split isolation
+  → three-way contamination check:
+      (a) Stage-2 eval hashes
+      (b) Stage-1 eval hashes
+      (c) Stage-1 train hashes via crosslink_stage1_overlap (forbidden in Stage-2 held-out splits)
+  → register / cultural / cap tagging
+  → stage2_manifest.parquet (per pair)
+  → directional JSONL emission (canonical pair → two rows)
+```
+
+**`stage2_manifest.parquet` per-pair fields:** `pair_id`, both-side raw + clean hashes, `sha256_pair` (primary contamination key), `alignment_type`, `alignment_method`, `alignment_model`, `alignment_score`, `length_ratio_haw_over_en`, both-side LID + confidence, `direction_original`, `register`, `edition_or_version`, `synthetic` + `synthetic_source_model`, both-side `license_observed`, `license_inferred=null`, `tos_snapshot_id`, `prototype_only=true` / `release_eligible=false` defaults, `dedup_cluster_id`, `crosslink_stage1_overlap`, `alignment_review_required`, `split`.
+
+**JSONL contract:** one canonical pair → **two directional rows** (en→haw and haw→en) with explicit `direction`, `loss_mask=target_only`, instruction resolved into the row (template paraphrases stored separately, not in the prompt set itself); no metadata leakage into instruction or target. Hawaiian-language instruction allowed for haw→en. **Retention slice:** monolingual Hawaiian rows in same JSONL file, `direction=haw-mono`, `loss_mask=all_target`, **10–20% by token** per the two-stage ADR.
+
+**Excluded from JSONL:** prompts in target / source leakage; sub-threshold alignments; Bible duplicates beyond cap; anything in `eval_hashes`; Stage-1 eval-hash overlaps on the haw side; hard-escalate cultural categories; mixed-language sentences; boilerplate (copyright, translator credits, chapter headers, TMX metadata, URLs); unflagged auto-MT; dictionary headword-only rows.
+
+**Top risks:** Bible / register skew; verse-style overfitting; tiny-corpus memorization; translationese / synthetic feedback loops; OCR'd bilingual PDF misalignment; English tokens leaking into Hawaiian targets; FLORES leakage given small corpus; direction-confused training; prototype lineage leaking into released artifacts; cross-stage contamination; unbalanced `direction_original`; cultural overreach in outputs.
+
+**Next 3 steps for Stage 2 (post-Stage-1 only):**
+
+1. FLORES-200 adapter + populated `eval_hashes.parquet` + CI assertion landing **before any other Stage-2 ingest**.
+2. Bible verse-aligned adapter with pinned Hawaiian + English editions and the ≤30% / 0%-dev-test cap enforced.
+3. Tatoeba + one Wiki-aligned LaBSE slice + retention slice → tiny Stage-2 prototype dataset and a register / direction report as the Stage-2 go/no-go gate.
+
+---
+
+### Implications
+
+- Linus's prior data-gate posture and the Prototype-vs-release ADR are unchanged; this ADR adds the *concrete pipeline* both stages run through.
+- Stage-2 cannot break ground until Stage-1 produces real `stage1_manifest.parquet` rows and a populated `eval_hashes.parquet`.
+- Rusty's tokenizer audit is the Stage-1 go/no-go gate; ensures register skew + diacritic handling are characterized before any DAPT smoke test.
+- README is out of date with respect to Stage-1 → Stage-2 sequencing; flagged for a follow-up Scribe pass (not edited here).
+
+### Open team gaps (carry forward, unchanged)
+
+- **Cultural-review owner unassigned** — softer at prototype; remains *the* blocker for any release path.
+- **Hawaiian-literate alignment / OCR spot-checker** — needed for Stage-2 alignment threshold tuning and Stage-1 nūpepa OCR sample review.
+- **Bible edition rights** — pinned editions (Hawaiian translator/year + English KJV/ASV public-domain) need confirmation before Stage-2 Bible adapter ships.
+- **Raw-archive storage location** (not in git) — Livingston cost input requested.
+
+### Provenance
+
+Consolidates two inbox proposals (now deleted): `linus-stage1-data-pipeline.md`, `linus-stage2-data-pipeline.md`. See orchestration-log entries dated 2026-04-29T03:13:13Z.
