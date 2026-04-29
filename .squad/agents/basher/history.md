@@ -170,3 +170,35 @@ Rationale aligns with ADR "GPU compute chaining feasibility" (2026-04-29, Basher
 
 **Reference:** `.squad/decisions.md` → "Decision: Final Dataset Taxonomy — `evals` / `stage1` / `stage2` / `final`".
 
+
+## Learnings (2026-04-29: @code/ scaffold)
+
+- **Repo layout source of truth:** `README.md` §"Repository Layout" (lines ~107–123) is the only place that enumerates top-level directories. `docs/training-pipeline.md` and `docs/data-pipeline.md` do not re-describe layout, so layout edits go in README only.
+- **Folder name is literal `@code/`** (with the `@`). Quote the path in shell and scripts (`'@code/'`) to avoid glob/zsh interpretation. `.gitkeep` is the marker style used here — repo prefers minimal markers over README stubs for empty scaffolds (consistent with `data-sources/manual-eval/` pattern of only adding READMEs when there's real schema content).
+- **Framework is undecided (PyTorch / TF / Karpathy-style / other).** Until an ADR lands in `.squad/decisions.md`, do **not** add framework imports, pins to `requirements.txt`, or vendored training libraries. Decision captured in `.squad/decisions/inbox/basher-code-folder.md`.
+- **Model choice is decided** per user (separate from framework). Training stack ADR is the next gate before any code under `@code/`.
+- **Gitignore posture:** `/data/` is hard-ignored (raw payloads local-only). `@code/` is **not** ignored — code, configs, schemas, manifests are in-repo per the existing `.gitignore` comment block.
+- **Prototype labeling convention:** every artifact dir is expected to carry `Status: PROTOTYPE — learning project, not for redistribution.` markers per the prototype-vs-release ADR (`docs/training-pipeline.md` line ~287). When real code lands in `@code/`, add the marker to its README.
+
+
+## Learnings (2026-04-29: `code/` rename)
+
+- **Canonical folder is `code/`** (no leading `@`). Earlier scaffold note used `@code/`; user corrected via `copilot-directive-2026-04-29T10-25-59Z-code-folder-renamed.md`. The old shell-quoting warning (`'@code/'`) is moot — no special quoting needed.
+- **Framework choice remains undecided** (PyTorch / TF / Karpathy-style / other). Same gate as before: no framework imports or `requirements.txt` pins until an ADR lands in `.squad/decisions.md`.
+- **README §"Repository Layout"** is still the single source of truth for top-level dirs; updated the entry from `@code/` to `code/` and preserved the "framework undecided" note.
+
+### Cross-Agent: Framework ADR is the Gate (2026-04-29T10-29-52Z)
+
+**From:** Scribe
+
+**Update:** Code scaffold work consolidated into `.squad/decisions.md` entry "2026-04-29: Basher Code Scaffold Lands — Framework Undecided".
+
+**Critical reminder for next sprint:**
+- **The framework choice is an ADR gate.** Anyone landing first training/eval code under `code/` must propose the framework decision in `.squad/decisions.md` **before importing a framework**.
+- **No premature pins:** Until that ADR is approved, no `import torch`, no `import tensorflow`, no vendored nanoGPT/minGPT, no framework pin in `requirements.txt`.
+- **The model is decided** (separate from framework). The model choice does not unblock code work — the framework ADR does.
+
+Implications for your training pipeline:
+- Stage-1 entry gate includes: (1) Linus data foundation ready, (2) framework ADR approved. Sync with Linus and any framework-decision sponsor before wiring trainers.
+
+**Reference:** `.squad/decisions.md` §"2026-04-29: Basher Code Scaffold Lands — Framework Undecided" + section "2026-04-29: Dataset Division Taxonomy Corrected".

@@ -685,3 +685,43 @@ User directive establishes the four top-level divisions for final dataset artifa
 
 **Reference:** `.squad/decisions.md` → "Decision: Final Dataset Taxonomy — `evals` / `stage1` / `stage2` / `final`" (merged from user directive + your taxonomy proposal).
 
+
+## 2026-04-29 — Final-division taxonomy correction (`final` = milestone holdout eval, not run manifests)
+
+User clarified: "by final i meant the holdout/major milestone eval data". The prior taxonomy ADR mis-locked `final` as `data/final/<run_id>/` for assembled run-manifest pointers. Corrected to: `final` is the **major-milestone holdout eval division**, sibling to `evals`. Decision proposal: `linus-final-holdout-taxonomy.md`.
+
+Key locked points:
+- Four divisions unchanged in name: `evals`, `stage1`, `stage2`, `final`. Semantics now: `evals` = cheap/frequent (every-checkpoint) eval data; `final` = major-milestone holdout eval data (stage gates, candidate-checkpoint promotion, end-of-run only).
+- Both `evals` and `final` are held-out from training. The distinction is **access cadence**, not contamination scope. `train ∩ eval_hashes = ∅` invariant preserved and now explicitly spans both held-out divisions.
+- `eval_hashes.parquet` stays at `data/evals/eval_hashes.parquet` as the single ledger. Schema gains a `division` column (`evals` | `final`). Hashes from both divisions are appended before any train ingest.
+- Path convention picked: flat siblings (`data/evals/...`, `data/final/...`) over nested (`data/evals/final/...`), so the access-discipline distinction is visible in the path and the four divisions stay symmetric.
+- `final` is **not** a release/shipping/run-manifest bucket. The previously-described `data/final/<run_id>/manifest.json` "assembled run manifest" artifact is withdrawn from the taxonomy; if needed later it lives under `training/` or `runs/`, not `final`.
+- FineWeb-2 holdout slice nominally moves from `data/evals/fineweb2_haw_test/holdout/` to `data/final/fineweb2_haw_holdout/` (docs-only; no script writes either path yet — flagged for Frank).
+- Prototype posture unchanged: nothing under `data/` is shared externally regardless of division.
+
+Files touched (docs-only):
+- `docs/data-pipeline.md` — section renamed "Final dataset taxonomy" → "Dataset division taxonomy"; `final` row rewritten; posture reminders updated; storage-formats table now has "Evals — cheap held-out anchors" + "Final — major-milestone holdout anchors" (replacing the old "Evals — held-out anchors" + "Final — assembled run manifest" rows); contamination-ledger row schema updated to include `division`; cross-stage invariant #5 updated to span `data/evals/` ∪ `data/final/`.
+- `docs/eval_pipeline.md` — section-name reference updated; W1 manual micro-eval ledger entry tagged `division=evals`.
+- `data-sources/manual-eval/README.md` — section-name reference updated; clarified W1 lives under `evals` (cheap) and the ledger covers both `evals` and `final`.
+- `.squad/decisions/inbox/linus-final-holdout-taxonomy.md` — new decision proposal correcting prior ADR.
+
+Out of scope (intentionally): rewriting the prior `final-dataset-taxonomy` ADR text in `.squad/decisions.md` (audit trail; will be amended in a follow-up ADR if/when this proposal is accepted); defining a schema for run-pointer artifacts (no current home).
+
+### Cross-Agent: Dataset Division Taxonomy Locked (2026-04-29T10-29-52Z)
+
+**From:** Scribe
+
+**Update:** Dataset division taxonomy correction consolidated into `.squad/decisions.md` entry "2026-04-29: Dataset Division Taxonomy Corrected — `final` is Milestone Holdout, Not Run Manifests".
+
+**Critical update for ingest pipeline:**
+- **The `final` division is now officially milestone-holdout eval data**, not run manifests. `final` is held-out from training (both Stage-1 and Stage-2), same as `evals`, distinguished only by **access cadence** (milestone-only vs. checkpoint-every-save).
+- **Path convention:** `data/evals/...` (frequent) and `data/final/...` (milestone-only) are flat siblings, not nested.
+- **Contamination ledger:** `data/evals/eval_hashes.parquet` gains a `division` column to tag rows as `evals` | `final`. Both divisions are hashed before any training ingest reads the ledger.
+- **`train ∩ eval_hashes = ∅` invariant preserved and now explicitly spans both held-out divisions.**
+
+Implications for your data pipeline:
+- When wiring `301_build_stage1_dataset.py` and Stage-2 ingest: read the `eval_hashes.parquet` ledger (single source of truth) and exclude matches. The `division` column is informational; treat all hashes as train-forbidden.
+- Post-run eval (final/holdout): reads from `data/final/<milestone-anchor>/` (frozen). No training loop touch.
+- FineWeb-2 holdout slice migration (`data/evals/fineweb2_haw_test/holdout/` → `data/final/fineweb2_haw_holdout/`) is docs-only for now; flagged for Frank when ingest script lands.
+
+**Reference:** `.squad/decisions.md` §"2026-04-29: Dataset Division Taxonomy Corrected — `final` is Milestone Holdout, Not Run Manifests".

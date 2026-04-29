@@ -2435,3 +2435,142 @@ Once Frank completes the FineWeb-2 raw pull, implement the following in Linus da
 **Implementation Owner:** Linus (Data Engineering)
 
 **Reference:** Orchestration log `2026-04-29T10-08-17Z-fineweb2-eval-split-directive.md`, session log `2026-04-29T10-08-17Z-fineweb2-eval-split-directive.md`.
+
+---
+
+## 2026-04-29T10-19-35Z: User Directive — Dataset Division Taxonomy
+
+**By:** yashasg (via Copilot)  
+**Logged by:** Scribe (2026-04-29T10-29-52Z)
+
+**What:** Clarification to dataset division taxonomy: `final` dataset division means **major-milestone holdout evaluation data**, not assembled run manifests or release buckets.
+
+**Why:** User correction — align dataset divisions so `final` is holdout-eval focused and separate from training, distinct from `evals` (cheap, frequent) by access cadence (milestone-only vs. checkpoint-every-save).
+
+**Reference:** `.squad/log/2026-04-29T10-29-52Z-code-taxonomy-framework.md` (session log)
+
+---
+
+## 2026-04-29T10-21-16Z: User Directive — Create Code Scaffold
+
+**By:** yashasg (via Copilot)  
+**Logged by:** Scribe (2026-04-29T10-29-52Z)
+
+**What:** Create root-level code folder to house training/eval code. The model choice is already decided, but the training stack / framework is **not yet decided** — options remain PyTorch, TensorFlow, Karpathy-style/minimal, or other approaches. Do not prematurely lock the project code/docs to one framework.
+
+**Why:** User request — need a stable home for forthcoming prototype code while keeping the framework choice open.
+
+**Resolution:** See "2026-04-29: Basher Code Scaffold Lands (Framework Undecided)" below.
+
+**Reference:** `.squad/log/2026-04-29T10-29-52Z-code-taxonomy-framework.md` (session log)
+
+---
+
+## 2026-04-29T10-25-59Z: User Directive — Code Folder Naming
+
+**By:** yashasg (via Copilot)  
+**Logged by:** Scribe (2026-04-29T10-29-52Z)
+
+**What:** The root code scaffold is named `code/`, not `@code/`. Treat `code/` as the canonical project code folder going forward. Prior notes referring to `@code/` are superseded.
+
+**Why:** User correction — captures naming clarification before scaffold is finalized and referenced downstream.
+
+**Reference:** `.squad/log/2026-04-29T10-29-52Z-code-taxonomy-framework.md` (session log)
+
+---
+
+## 2026-04-29: Basher Code Scaffold Lands — Framework Undecided
+
+**By:** Basher (Training Engineer)  
+**Logged by:** Scribe (2026-04-29T10-29-52Z)  
+**Status:** Accepted; repo scaffold committed  
+
+### Outcome
+
+- Created root-level `code/` directory with `.gitkeep` to ensure git tracks it.
+- Updated `README.md` §"Repository Layout" to list `code/` as where prototype training/eval code will land.
+- Explicitly noted in README that the training framework (PyTorch / TensorFlow / Karpathy-style / other) is **not yet chosen**.
+- No framework-specific files, requirements pins, configs, or stubs added. No edits to `requirements.txt`.
+
+### Why
+
+Per user directives (2026-04-29T10-21-16Z and 2026-04-29T10-25-59Z), the model is decided but the training stack is open. Need a stable home for forthcoming code without prematurely locking the framework.
+
+### Implications for the Team
+
+- Anyone landing first training/eval code should drop it under `code/` and, in the same PR, propose the framework decision in `.squad/decisions.md` (ADR format) **before importing a framework**.
+- Until that ADR lands: **no framework imports**, **no `requirements.txt` pins**, **no vendored reference implementations**.
+- The framework ADR is a gate; implementation starts after it's approved.
+
+### Reference
+
+- Orchestration log: `.squad/orchestration-log/2026-04-29T10-29-52Z-scribe.md`
+- Session log: `.squad/log/2026-04-29T10-29-52Z-code-taxonomy-framework.md`
+
+---
+
+## 2026-04-29: Dataset Division Taxonomy Corrected — `final` is Milestone Holdout, Not Run Manifests
+
+**By:** Linus (Data Engineer)  
+**Logged by:** Scribe (2026-04-29T10-29-52Z)  
+**Status:** Adopted; docs-only; no code changes yet  
+**Related directive:** User directive 2026-04-29T10-19-35Z (dataset division semantics correction)
+
+### Context
+
+The prior "Final Dataset Taxonomy" ADR (earlier in this document) locked `final` as `data/final/<run_id>/` for **assembled run manifests** — pointers/SHAs to stage1, stage2, and eval artifacts. That framing treated `final` as a **release / run-output bucket**.
+
+The user has clarified: **"by final i meant the holdout/major milestone eval data"**. The prior interpretation was wrong.
+
+### Correction
+
+The four canonical dataset divisions remain `evals`, `stage1`, `stage2`, `final`. Their updated semantics are:
+
+| Division | Role | Cadence | Training Policy |
+|---|---|---|---|
+| `evals` | **Cheap, frequent eval data.** FineWeb-2 dev split, W1 manual micro-eval, Stage-0/per-checkpoint sanity anchors. Plus `eval_hashes.parquet` ledger. | Every checkpoint save. | **Never train; hash-ledger gated.** |
+| `stage1` | Monolingual Hawaiian CPT corpus. | Training only. | Dedupe against `evals` before ingest. |
+| `stage2` | Bidirectional en↔haw SFT pairs + retention slice. | Training only. | Dedupe against `evals` before ingest. |
+| `final` | **Major-milestone holdout eval data.** FineWeb-2 `haw_Latn` test holdout split, milestone anchors (`global-piqa-parallel`, held-out Tatoeba), and any future milestone probe sets. | Stage gates, candidate-checkpoint promotion, end-of-run eval — **not on every checkpoint.** | **Never train; held-out.** |
+
+**Key distinction:** `final` is **not** a release, shipping, or run-manifest bucket. There is no `data/final/<run_id>/manifest.json` under this taxonomy. The "assembled run manifest" concept is **withdrawn**; if a run-pointer artifact is needed later, it will live elsewhere (likely under `training/` or `runs/`) and will not reuse the `final` name.
+
+### Path Convention
+
+Held-out anchors live as sibling directories under each division root. Picked flat siblings (`data/evals/...`, `data/final/...`) over nested (`data/evals/final/...`) so the access-discipline distinction is visible in the path and the four divisions stay symmetric:
+
+- `data/evals/fineweb2_haw_test/dev/` (checkpoint evals, every save)
+- `data/evals/manual_w1/w1-haw-micro-eval.tsv` (cheap sanity)
+- `data/evals/eval_hashes.parquet` *(canonical ledger; covers both divisions)*
+- `data/final/fineweb2_haw_holdout/` (milestone holdout, frozen)
+- `data/final/global_piqa_parallel/` (milestone anchor)
+- `data/final/<other-milestone-anchor>/` (future probes)
+
+### Invariants Preserved
+
+- `train ∩ eval_hashes = ∅` (unchanged). The single ledger at `data/evals/eval_hashes.parquet` covers both `evals` and `final`; rows are tagged with a new `division` column (`evals` | `final`).
+- `evals` ∪ `final` = the held-out boundary. Both are off-limits to training. The distinction is **access cadence** (checkpoint-every-save vs. milestone-only), not contamination scope.
+- Prototype posture unchanged: nothing under `data/` is shared externally; publication CI gate refuses external emit regardless of division.
+
+### Files Changed (Docs-Only)
+
+- `docs/data-pipeline.md` — renamed section "Final dataset taxonomy" → "Dataset division taxonomy"; rewrote the `final` row semantics; updated posture reminders; replaced the "Final — assembled run manifest" storage-formats row with "Final — major-milestone holdout anchors"; split cheap-anchors row from milestone-anchors row; updated contamination invariant #5 to span both `data/evals/` and `data/final/`; added `division` column to the eval-hashes ledger schema.
+- `docs/eval_pipeline.md` — section-name reference fix; added `division=evals` tag to W1 manual micro-eval ledger entry.
+- `data-sources/manual-eval/README.md` — section-name reference fix; clarified that the W1 micro-eval lives under `evals` (cheap) and the ledger covers both `evals` and `final`.
+
+### Out of Scope (Intentional)
+
+- Rewriting the prior ADR text in `.squad/decisions.md` (audit trail). This proposal supersedes it; once accepted, the ADR will be amended in a follow-up entry.
+- Defining a schema for run-pointer artifacts (no current home). That artifact has no current home; decide separately if/when needed.
+- Updating code paths — none exist yet that write to `data/final/`.
+
+### Open Question
+
+- Whether the FineWeb-2 `haw_Latn` test holdout slice (~177 rows) should be physically moved from `data/evals/fineweb2_haw_test/holdout/` to `data/final/fineweb2_haw_holdout/`. The docs now describe the milestone slice as living under `data/final/`. No script writes either path yet, so this is a docs-vs-future-script alignment question, not a migration. Flagged for Frank when the ingest script lands.
+
+### Reference
+
+- User directive: `.squad/decisions/inbox/copilot-directive-2026-04-29T10-19-35Z-final-means-holdout-eval.md` (merged)
+- Proposal detail: `.squad/decisions/inbox/linus-final-holdout-taxonomy.md` (merged)
+- Orchestration log: `.squad/orchestration-log/2026-04-29T10-29-52Z-scribe.md`
+- Session log: `.squad/log/2026-04-29T10-29-52Z-code-taxonomy-framework.md`
