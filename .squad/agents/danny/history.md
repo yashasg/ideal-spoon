@@ -14,3 +14,8 @@
 - Captured team recommendations (Rusty on tokenization, Basher on training, Livingston on costs, Linus on data licensing) without overstating implementation status.
 - Key trade-off: adapt vs. train from scratch → adapt wins for low-resource language with ~$10k–$30k budget.
 - Emphasized data quality and eval rigor as bottleneck, not GPU cost.
+
+### README Restoration (2026-04-29)
+- README.md had reverted to the two-line stub ("# ideal-spoon" / "training an llc on Hawaiian language").
+- Restored it from the accepted ADR "Hawaiian LLM Planning Repository README" in `.squad/decisions.md`, preserving all team recommendations (Rusty tokenization/diacritics, Basher QLoRA-first, Linus provenance, Livingston $10k–$30k tier with vendor tradeoffs).
+- No new team-level decision; this was a pure restoration of the existing ADR, so no inbox entry created.
