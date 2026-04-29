@@ -1,6 +1,6 @@
 # Data Pipeline (Stage 1 + Stage 2)
 
-> **Status:** Prototype design. No corpora are committed to this repo. This document describes the pipelines we intend to build and run **privately/locally** to produce prototype artifacts. Anything published externally — weights, tokenizer, dataset, demo — is gated separately under release rules (see [§ Prototype vs Release](#prototype-vs-release)).
+> **Status:** Prototype design for a learning project. No corpora are committed to this repo, and **no public release of weights, tokenizer, dataset, or demo is planned.** This document describes pipelines we'd build and run **privately/locally** to produce prototype artifacts. The "Release" column in [§ Prototype vs Release](#prototype-vs-release) describes *hypothetical* gates that would apply if the project ever changed posture — not a release plan.
 >
 > **Owner:** Linus (Data Engineer). Accepted ADRs governing this pipeline (two-stage training plan, prototype-vs-release split, base-model recommendation, credit-fit) live in [`.squad/decisions.md`](../.squad/decisions.md).
 >
@@ -43,7 +43,7 @@ Stage 2 ingest is **blocked on Stage 1 artifacts** existing and `eval_hashes.par
 
 ## Prototype vs Release
 
-The pipeline is designed for **honest prototype use** with a clean upgrade path to release. The two postures coexist by tagging, not by separate code paths.
+This project is currently a **learning prototype** with no plan for public release. The two-column framing below exists so that *if* the project ever pivoted to a release posture, the pipeline could support it without a rewrite — the postures coexist by tagging, not by separate code paths. Until/unless that happens, only the **Prototype** column is operative.
 
 | Aspect | Prototype (private/local) | Release (public artifact) |
 |---|---|---|

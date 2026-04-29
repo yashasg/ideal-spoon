@@ -795,3 +795,77 @@ For a 7B QLoRA on 50–200M tokens, one clean A100 40GB run is ~10–20 hr. Chai
 
 Basher + Livingston joint deep-dive on GPU compute chaining feasibility. See orchestration-log entries 2026-04-29T03:13:13Z (Basher), 2026-04-29T03:13:14Z (Livingston). Inbox files merged and deleted from `.squad/decisions/inbox/`.
 
+## Decision: Project scope is learning prototype only — no public release planned
+
+**Author:** Danny (Lead / Architect)  
+**Date:** 2026-04-29  
+**Status:** Accepted (per user direction)
+
+### Context
+
+User clarified: *"yeah update any docs that say this is going to be released, its just a prototype, a learning project."* Existing docs (README + `docs/training-pipeline.md` + `docs/data-pipeline.md`) had language implying weights/tokenizer/dataset would be released once work landed, plus a Week-7 "prepare a release" milestone. That framing misrepresents the project's actual scope.
+
+### Decision
+
+This project is, and is being documented as, a **learning prototype**. There is **no plan** to publicly release model weights, adapters, tokenizer artifacts, datasets, demos, or hosted services out of this repo.
+
+The existing **prototype-vs-release ADR** in `.squad/decisions.md` is preserved as conditional/hypothetical guidance — it describes the gates that would apply *if* the project ever changed posture toward release. It is not a roadmap or commitment.
+
+### What changed in docs (2026-04-29)
+
+- `README.md`: banner, Goals, Non-Goals, Evaluation, Roadmap Week 7, and License (intent) sections rewritten to reflect prototype-only scope.
+- `docs/training-pipeline.md`: top banner explicitly states no public release is planned; "release-candidate" scope reframed as hypothetical.
+- `docs/data-pipeline.md`: status banner and "Prototype vs Release" section intro clarify only the Prototype column is operative.
+
+### Trade-offs
+
+- **Pro:** Honest framing; sets correct expectations for contributors and readers; removes implicit promise about shipping a Hawaiian-language model, which carries real cultural-review weight per the existing ADR.
+- **Pro:** Preserves the prototype-vs-release ADR machinery as a teaching artifact and as a graceful upgrade path if scope ever changes.
+- **Con:** Slightly weakens the "we're building toward something" energy of the original README. Acceptable: that energy was overstating reality.
+- **Con:** Future contributors may need to re-litigate the release question if they want to publish anything. Acceptable: that's the right gate.
+
+### Implications for the team
+
+- **Linus / Basher / Rusty:** any artifact production work should assume `intended_use=prototype_private` end-to-end. Do not stand up release-only tooling unless and until this decision is revisited.
+- **Livingston:** budget framing in README is now hypothetical ("what it would cost") rather than a spend plan.
+- **Future contributors:** if anyone proposes publishing weights, datasets, or a hosted demo, they need to revisit *both* this decision and the prototype-vs-release ADR — not just one.
+
+### Alternatives considered
+
+1. **Strip the prototype-vs-release ADR entirely.** Rejected: the ADR captures useful thinking about cultural-review gates and lineage; throwing it out loses learning.
+2. **Leave docs as-is and just add a top-level disclaimer.** Rejected: too easy to miss; the Goals/Roadmap/License sections were affirmatively claiming release intent.
+3. **Mark the repo archived.** Out of scope; the user wants to keep working on it as a learning effort.
+
+---
+
+## User Directive: Free-tier GPU provider chaining acceptable for prototype
+
+**Date:** 2026-04-29T03:53:18Z  
+**By:** yashasg (via Copilot)  
+**Status:** Recorded
+
+### Directive
+
+Prototype work is limited to experiments and iteration using a pre-existing model, so chaining free GPU providers is acceptable. Provider-specific API names and resource identifiers may change when switching providers and must be accounted for.
+
+### Rationale
+
+User approval of the prototype-to-release distinction means free-tier chaining with documented provider-switch friction is acceptable risk for learning iteration. Aligns with ADR "GPU compute chaining feasibility" (2026-04-29).
+
+---
+
+## User Directive: Document as learning prototype, not release effort
+
+**Date:** 2026-04-29T03:54:03Z  
+**By:** yashasg (via Copilot)  
+**Status:** Recorded
+
+### Directive
+
+The project should be documented as a prototype and learning project, not as a release or production effort. This directive motivated the Danny scope reframe across `README.md`, `docs/training-pipeline.md`, and `docs/data-pipeline.md`.
+
+### Rationale
+
+User request — captured for team memory and to ensure all future doc updates maintain this framing.
+
+---

@@ -1,25 +1,25 @@
 # ideal-spoon
 
-> A plan for training an open-source **LLM** focused on the Hawaiian language — including data, model choices, infrastructure, evaluation, and costs.
+> A learning project that works through what it would take to train a small **LLM** focused on the Hawaiian language — data, model choices, infrastructure, evaluation, and costs.
 
-⚠️ **This repository is a planning artifact, not an implementation.**
-There is no dataset checked in, no training code, no model weights, and no benchmark results yet. What lives here is the design we intend to execute against, plus the ADRs and team notes that explain why.
+⚠️ **This repository is a prototype and learning project, not a release effort.**
+There is no dataset checked in, no training code, no model weights, and no benchmark results. There is no plan to publicly release a model, hosted service, or dataset out of this repo. What lives here is a design exercise — ADRs and team notes that work through the problem so we (and anyone reading along) learn from the trade-offs, not a roadmap toward shipping a product.
 
 ---
 
 ## Goals
 
-- Produce a small, openly licensed LLM that handles **ʻŌlelo Hawaiʻi** (Hawaiian) with respect for orthography, diacritics (ʻokina, kahakō), and culturally appropriate usage.
-- Keep the work **reproducible and provenance-honest**: every training document should be traceable to a source with a known license and, where relevant, community consent.
-- Stay within a **practical budget tier of roughly $10k–$30k** (compute + data work), per Livingston's cost analysis.
-- Publish weights, tokenizer, eval harness, and data manifests under permissive terms once the work exists.
+- Work through what a small, openly licensed LLM for **ʻŌlelo Hawaiʻi** (Hawaiian) would actually require — orthography, diacritics (ʻokina, kahakō), and culturally appropriate usage included.
+- Practice **reproducible, provenance-honest** design: every training document traceable to a source with a known license and, where relevant, community consent.
+- Reason about a **practical budget tier of roughly $10k–$30k** (compute + data work), per Livingston's cost analysis, even though we don't intend to spend it.
+- Learn in public: keep the design, ADRs, and trade-offs documented so the process is useful to others, even though no weights, tokenizer, or dataset are planned for release.
 
 ## Non-Goals
 
 - Building a frontier-scale general-purpose model.
 - Scraping the open web indiscriminately for Hawaiian-looking text.
-- Claiming production readiness, fluency guarantees, or cultural authority. This is a research/learning effort.
-- Shipping a chat product or hosted API in this repo.
+- Claiming production readiness, fluency guarantees, or cultural authority. This is a learning project.
+- Shipping a chat product, hosted API, or model release out of this repo. None of that is on the roadmap.
 
 ## Approach
 
@@ -73,7 +73,7 @@ Evaluation is treated as a **first-class deliverable**, not an afterthought.
 - Build a small, **curated Hawaiian eval set** with held-out items: comprehension, generation, basic grammaticality, diacritic preservation, code-switching with English.
 - Include **human review** by speakers/learners for at least a sampled subset; automatic metrics alone are not trusted for a low-resource language.
 - Track regressions across runs. A run is not "better" until the eval suite says so on the same harness version.
-- Publish the eval harness alongside any released weights so external users can reproduce numbers.
+- The eval harness is intended to live alongside the rest of the design as a learning artifact; there are no weights to pair it with, and none planned.
 
 ## Budget & Infrastructure
 
@@ -100,7 +100,7 @@ This is a sketch, not a sprint plan. Weeks are nominal.
 4. **Week 4 — Training v0.** First QLoRA run on corpus v0. Compare against baseline on eval v0. Triage failure modes.
 5. **Week 5 — Iterate data.** Expand corpus where eval shows weakness. Improve curation. Re-run.
 6. **Week 6 — Iterate training.** Tune LoRA rank, learning rate, data mix. Possibly extend tokenizer. Re-evaluate.
-7. **Week 7 — Package & document.** Freeze a candidate adapter, document training/eval, draft a model card with honest limitations, prepare a release.
+7. **Week 7 — Package & document.** If the prior weeks produced anything coherent, freeze a candidate adapter *internally*, document training/eval, and draft an honest model card with limitations — as a learning artifact. **No public release of weights, datasets, or hosted services is planned.**
 
 Each step has a clear exit criterion: an artifact (manifest, eval suite, run report) checked in, not a vibe.
 
@@ -137,10 +137,10 @@ When proposing a change that affects direction (data policy, model choice, train
 
 ## License (intent)
 
-The intent is to release:
+This is a learning project, so the license posture is scoped accordingly:
 
-- Code, configs, eval harness, and documentation under a **permissive open-source license** (e.g., Apache-2.0 or MIT).
-- Any released model weights and adapters under a permissive or clearly documented open license, with a model card describing data provenance, training process, and known limitations.
-- Data **manifests** (not raw corpora) under the same permissive license, with each entry pointing to its upstream source and that source's license.
+- Code, configs, eval harness, and documentation: a **permissive open-source license** (e.g., Apache-2.0 or MIT) when a `LICENSE` file lands. The repo is meant to be readable and reusable as a design reference.
+- Model weights, adapters, tokenizer artifacts, and raw corpora: **not planned for release.** If that ever changed, it would require the separate clearance pass described in the prototype-vs-release ADR (`.squad/decisions.md`) — a future decision, not a current commitment.
+- Data **manifests** (if they end up in the repo) would point at upstream sources and their licenses, never bundle the data itself.
 
-The final license file is not yet committed; it will be added when the first concrete artifacts land.
+The final license file is not yet committed; it will be added when the first concrete code/config artifacts land.

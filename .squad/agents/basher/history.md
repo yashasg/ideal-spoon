@@ -64,3 +64,15 @@ Delivered QLoRA recipe + compute mapping for the two-stage plan. Stage 1: r=64/�
 - Implication for Hawaiian LLM: formalizes what we'd already planned (Kaggle for Stage 1, possible provider switch between stages). Reserve one consistent paid A100 spot for the release-candidate run so the final loss curve isn't stair-stepped by quantization-kernel drift.
 - Decision adopted: `.squad/decisions.md` (section "Chaining Free GPU Providers for LLM Training") — checkpoint contract, practical workflow, and implications consolidated with Livingston's cost analysis.
 - Session log: `.squad/log/2026-04-29T03-46-05Z-gpu-free-tier-chaining.md`.
+
+## 2026-04-29T03:58:26Z — Team sync: training/compute rationale captured
+
+**Mode:** Sync (no new decision written)
+
+Scribe requested explanation of training/compute rationale for team memory. Confirmed:
+- **Training:** 7B/8B base + QLoRA fits prototype budget and free-tier GPU constraints.
+- **Smoke model:** Qwen2.5-0.5B for pipeline validation.
+- **Free-tier chaining:** Acceptable for learning prototype per user directive. Provider-specific API names/resource IDs may change on switch; tokenizer hashes + checkpoint versioning protect vector-space drift.
+- **Checkpoint discipline:** RNG state + optimizer state must round-trip for proper resumption.
+
+Rationale aligns with ADR "GPU compute chaining feasibility" (2026-04-29, Basher + Livingston joint). User directive (2026-04-29T03:53:18Z) confirms free-tier chaining acceptable for prototype iteration. Orchestration log: 2026-04-29T03-58-26Z-basher.md. Session: 2026-04-29T03-58-26Z-prototype-docs-and-model-choice.md.

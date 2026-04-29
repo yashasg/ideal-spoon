@@ -1,7 +1,7 @@
 # Training Pipeline
 
 > Status: **PROTOTYPE — learning project, not for redistribution.**
-> Any artifact (weights, adapters, tokenizers, generations, eval scores, derived data) trained on prototype-only data **must not** be publicly released without a separate clearance pass. See the prototype-vs-release ADR in `.squad/decisions.md`.
+> **No public release of weights, adapters, tokenizers, generations, eval scores, or derived data is planned.** The "release-candidate" scope referenced throughout this document describes *hypothetical* gates that would apply if the project ever changed posture from learning prototype to public release — it is not a roadmap toward shipping. See the prototype-vs-release ADR in `.squad/decisions.md`.
 
 This document describes the training pipeline for the Hawaiian-language LLM adaptation. It consolidates the accepted ADRs (two-stage training plan, base-model recommendation, prototype-vs-release split) into an operational sequence: what runs where, in what order, and what must be true before each step costs time or money.
 

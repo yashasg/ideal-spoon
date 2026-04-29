@@ -38,3 +38,19 @@
 ### Pipeline Docs Polish (2026-04-29T03:21:29Z)
 - Removed stale inbox references from `docs/data-pipeline.md`.
 - Cross-linked `docs/data-pipeline.md` ↔ `docs/training-pipeline.md`.
+
+### Prototype-scope doc sweep (2026-04-29)
+- User clarified project is a prototype/learning effort with no release plan. Updated docs to match.
+- **README.md** edits: tagline + banner now say "prototype and learning project, not a release effort"; Goals dropped "Publish weights..." and reframed as design-learning outcomes; Non-Goals strengthened to explicitly exclude shipping models/APIs/datasets; Evaluation no longer references "released weights"; Roadmap Week 7 dropped "prepare a release"; License (intent) section rewritten so code/configs may be MIT/Apache, but weights/adapters/tokenizer/corpora are explicitly *not planned for release*.
+- **docs/training-pipeline.md**: top status banner now declares no public release planned; "release-candidate" scope reframed as *hypothetical* if the project ever changed posture. Existing prototype-vs-release ADR machinery left intact as conditional guidance.
+- **docs/data-pipeline.md**: status line now says "no public release of weights, tokenizer, dataset, or demo is planned"; "Prototype vs Release" section intro clarifies only the Prototype column is operative.
+- Verification: `rg -i '(prepare a release|intent to release|production[- ]ready|public[- ]release|going to release|productioni[sz]e)'` returns only my own clarifying language.
+- **Pattern:** when softening a release-claim doc that already has prototype-vs-release ADR scaffolding, prefer adding banners + reframing the "Release" branch as hypothetical over deleting the ADR machinery — preserves useful gate guidance without committing to ship.
+- **Key paths:** `README.md`, `docs/training-pipeline.md`, `docs/data-pipeline.md`, ADR in `.squad/decisions.md` ("Prototype-vs-release split").
+
+### Team input integrated (2026-04-29T03:58:26Z)
+
+- **Rusty (NLP Researcher)** confirmed Llama-3.1-8B primary model choice (contingent on tokenizer audit for Hawaiian diacritics); Qwen2.5-7B as fallback; Qwen2.5-0.5B for smoke tests. No new decision; rationale aligned with existing model ADR in decisions.md.
+- **Basher (Training Engineer)** confirmed 7B/8B + QLoRA training approach fits prototype budget; free-tier GPU provider chaining acceptable per user directive (prototype-only, learning/iteration scope); tokenizer hashes + checkpoint discipline protect against provider drift. No new decision; aligns with "GPU compute chaining feasibility" ADR.
+- **Scribe** merged inbox decisions into decisions.md (3 entries: danny-prototype-scope-docs, copilot-directive on provider-chaining, copilot-directive on prototype documentation). Orchestration logs written. Session log: 2026-04-29T03:58:26Z-prototype-docs-and-model-choice.md.
+- All docs staged; ready for commit.

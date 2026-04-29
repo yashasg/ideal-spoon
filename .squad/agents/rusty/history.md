@@ -39,3 +39,16 @@ Pressure-tested user directive (2026-04-28). Approved Stage 1 = DAPT/CPT on Hawa
 - Re-run tokenizer audit on a representative nūpepa sample and on *Baibala Hemolele* — period orthography (inconsistent ʻokina/kahakō) distorts generic Hawaiian audits.
 - If Bible text is non-trivial in the corpus, register-balance diagnostics fall to you + a Hawaiian reader; flag as explicit scope.
 - Tokenizer freeze across stages and base+tokenizer SHA in run manifest still mandatory at prototype scope.
+
+## 2026-04-29T03:58:26Z — Team sync: model-choice rationale captured
+
+**Mode:** Sync (no new decision written)
+
+Scribe requested explanation of base-model rationale for team memory. Confirmed:
+- **Primary:** Llama-3.1-8B (contingent on Hawaiian tokenizer audit for ʻokina/kahakō diacritics).
+- **Fallback:** Qwen2.5-7B (cleanest license, Apache-2.0).
+- **Smoke only:** Qwen2.5-0.5B (catches pipeline bugs).
+- **On-hold:** Gemma (pending release updates).
+- **Not current fit:** Aya (CC-BY-NC contaminates release goal), Mistral (weak multilingual), from-scratch pretraining.
+
+Rationale aligned with existing ADR in decisions.md. Orchestration log: 2026-04-29T03-58-26Z-rusty.md. Session: 2026-04-29T03-58-26Z-prototype-docs-and-model-choice.md.
