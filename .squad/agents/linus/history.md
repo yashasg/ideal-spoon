@@ -580,3 +580,30 @@ Open queries filed for Frank (Hawaiian Data Collector) + Rusty (NLP Researcher) 
 **Escalation:** Coordinate dedupe + frozen-split logic with Livingston or Basher for Stage-0 harness integration.
 
 **Reference:** Orchestration log `2026-04-29T09-59-05Z-fineweb2-checkpoint-eval.md`, session log `2026-04-29T09-59-05Z-fineweb2-checkpoint-reuse-question.md`.
+
+## 2026-04-29T10-08-17Z — FineWeb-2 Eval Split & Dedupe Directive: Awaiting Raw Data
+
+**From Scribe:** User directive captured and logged for your Stage 1 data engineering scope.
+
+**What you'll do once Frank's FineWeb-2 raw pull completes:**
+
+1. **Frozen dev/holdout split over full official test split (887 rows)**
+   - ~710 rows (80%) → checkpoint dev: use during Stage 1 for monitoring PPL, fluency, convergence
+   - ~177 rows (20%) → holdout: reserve for final holdout eval, **never touch for any tuning decision**
+   - Use fixed seed (`seed=42` or team standard) for reproducibility across runs
+
+2. **Dedupe train against all official test rows before Stage 1 training**
+   - Load FineWeb-2 full test set (887 rows)
+   - Hash-match against train set (95,507 rows)
+   - Remove any train rows that match test rows (exact hash on text content)
+   - Prevents train-test leakage into DAPT checkpoint monitoring
+
+**Integration point:** Before Stage 1 harness training loop, after Frank raw pull completes.
+
+**Final reporting:** Separate checkpoint dev metrics from holdout metrics in Stage 1 final report; record row IDs for reproducibility.
+
+**Linked decisions:**
+- "FineWeb-2 Test Split: Checkpoint Eval Reuse Locked" (2026-04-29T09:59:05Z)
+- User directive inbox entry merged into decisions.md (2026-04-29T10-08-17Z)
+
+**Blocking status:** Awaiting Frank's raw FineWeb-2 fetch; your implementation is ready to start once data lands.

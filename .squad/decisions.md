@@ -2269,3 +2269,28 @@ Stage-0 = tiny sanity-check / smoke-test eval slices for prototype loops. Not fo
 - Rusty history: `.squad/agents/rusty/history.md` (2026-04-29T09:59:05Z entry)
 - Linus history: `.squad/agents/linus/history.md` (2026-04-29T09:59:05Z entry)
 
+
+## 2026-04-29T10-07-46Z: User Directive — FineWeb-2 Eval Split & Dedupe
+
+**From:** yashasg (via Copilot)  
+**Logged by:** Scribe (2026-04-29T10-08-17Z)
+
+**Directive:**
+Once Frank completes the FineWeb-2 raw pull, implement the following in Linus data engineering:
+
+1. **Split FineWeb-2 `haw_Latn` test split (887 rows) into dev and holdout**
+   - ~710 rows (80%) for checkpoint dev monitoring during Stage 1
+   - ~177 rows (20%) frozen holdout for final eval
+   - Use fixed seed for reproducibility
+
+2. **Dedupe FineWeb-2 train (95,507 rows) against full test split (887 rows)**
+   - Exact hash match on ingest
+   - Prevents train-test leakage before Stage 1 DAPT training
+
+**Rationale:** Ensure clean train-test boundary, enable non-contaminated checkpoint signaling during tuning.
+
+**Status:** Blocked on Frank's raw FineWeb-2 fetch completion.
+
+**Implementation Owner:** Linus (Data Engineering)
+
+**Reference:** Orchestration log `2026-04-29T10-08-17Z-fineweb2-eval-split-directive.md`, session log `2026-04-29T10-08-17Z-fineweb2-eval-split-directive.md`.
