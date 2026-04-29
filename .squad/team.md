@@ -15,6 +15,7 @@
 | Danny | Lead | `.squad/agents/danny/charter.md` | ✅ Active |
 | Rusty | NLP Researcher | `.squad/agents/rusty/charter.md` | ✅ Active |
 | Linus | Data Engineer | `.squad/agents/linus/charter.md` | ✅ Active |
+| Frank | Hawaiian Data Collector | `.squad/agents/frank/charter.md` | ✅ Active |
 | Basher | Training Engineer | `.squad/agents/basher/charter.md` | ✅ Active |
 | Livingston | Cost Strategist | `.squad/agents/livingston/charter.md` | ✅ Active |
 | Scribe | Session Logger | `.squad/agents/scribe/charter.md` | 📋 Silent |

@@ -16,6 +16,7 @@
 |-----------|---------|----------|
 | Strategy, decisions, roadmap | Danny | — |
 | Hawaiian language modeling | Rusty | — |
-| Corpora, cleaning, licensing | Linus | — |
+| Corpora, cleaning, licensing | Linus | Frank |
+| Hawaiian source discovery, public-domain collection, source adapters | Frank | Linus |
 | Fine-tuning, evaluation, GPUs | Basher | — |
 | Budgets, vendors, tradeoffs | Livingston | — |
