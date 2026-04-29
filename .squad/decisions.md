@@ -1854,3 +1854,74 @@ Each source has its own fetch shape (Wikimedia dump SHA1 manifest, MediaWiki API
 
 #### Supersedes
 Prior decision `001`, `002`, `002b`, `003` entries concerning phase-100 broad planner. Phase-hundreds convention (per-source, per-stage) is now the active standard for all future source/fetch/build work.
+
+---
+
+## Decision: New Hawaiian Source Candidates (FineWeb-2, eBible, Internet Archive PD)
+
+**Author:** Frank (Hawaiian Data Collector)  
+**Date:** 2026-04-29  
+**Status:** Proposed (research only; no code written this pass)  
+**Scope:** Private prototype / learning project. No release implied.
+
+### Context
+
+The current MVP allow-list (`hawwiki`, `hawwiktionary`, `hawwikisource`, plus the FLORES eval anchor) only clears ~2.05M raw whitespace tokens at face value, with `hawwiktionary` 404'd upstream. Nupepa.org's Greenstone CGI (`gsdl2.7/cgi-bin/nupepa`) returns Cloudflare from this environment, and the previously hoped-for `dlc_hawaiian_ver01` Chronicling America batch was a false lead (DC newspapers, not Hawaiian). Stage-1 is short of its 2.5M floor with no realistic path forward unless we add net-new sources.
+
+This pass researched 10+ candidate sources via live probes (datasets-server, advancedsearch.php, OAI-PMH, eBible details pages). No Cloudflare/access-control bypasses; polite UA only.
+
+### Decision
+
+Promote three new source-specific adapter pairs to "expansion candidate" tier in `scripts/10X_collect_*` style. Each candidate has been live-verified for enumerability and at least one Hawaiian-text sample.
+
+#### Top 3 — implement next (in this order)
+
+1. **FineWeb-2 `haw_Latn`** — `104_collect_fineweb2_haw.py` + `204_fetch_fineweb2_haw_raw.py`
+   - 95,507 rows confirmed via `datasets-server.huggingface.co` (partial=False). Each row preserves CC `url`, `dump`, `date`, `language_score` — provenance arrives free.
+   - Wrapper licence: ODC-By. Underlying URLs (e.g. `staradvertiser.com` columns) carry independent third-party rights — **Linus must rule on whether prototype-only ingest of FineWeb-2 rows is acceptable, or whether we need a per-URL allow-list (e.g. drop `*.staradvertiser.com`, keep `*.wikipedia.org`, etc.)**.
+   - Estimated yield ~40–80M raw whitespace tokens. Single biggest unblocker for the Stage-1 floor without touching nūpepa.
+   - Tooling delta: needs `huggingface_hub` added to `requirements.txt` (or a stdlib path via the dataset-server rows API; slower but no new dep).
+
+2. **eBible.org `haw1868` (Baibala Hemolele)** — `105_collect_ebible_haw.py` + `205_fetch_ebible_haw_raw.py`
+   - Public-domain, redistributable. Single-zip artefacts at `https://eBible.org/Scriptures/haw1868_{usfm,usfx,readaloud,html}.zip`.
+   - Replaces the Cloudflare-risky `baibala.org/cgi-bin/bible?…` per-verse plan. Pair with the already-pinned `eng-kjv2006_usfm.zip` and `eng-asv_usfm.zip` for Stage-2 verse alignment.
+   - Trivial adapter (3–4 polite GETs); ~700k haw tokens; bound by data-pipeline.md §125 ≤10% Stage-1 / ≤30% Stage-2 caps.
+
+3. **Internet Archive PD slice of `language:(haw) mediatype:(texts)`** — `106_collect_ia_haw_pd.py` + `206_fetch_ia_haw_pd_raw.py`
+   - 216 items in `language:haw, mediatype:texts`; sample contains pre-1925 PD candidates (Hawaiʻi Judiciary Fifth Circuit court records 1890–1892, `kekumumuaanohoui00pool` 1875) and items with explicit `licenseurl=publicdomain/mark/1.0/`.
+   - Filter at collect time to (`year < 1929`) OR (`licenseurl ∈ {publicdomain, CC0}`). Defer everything else behind explicit Linus per-item review (modern children's books, religious tracts, etc.).
+   - Uses `internetarchive` client already in `requirements.txt`. Pull `*_djvu.txt` only; skip PDFs/scans for the prototype.
+
+#### Tier 2 — research/probe before adapter
+
+4. **cis-lmu/Glot500 `haw_Latn`** — 1,053,668 rows, but LID noise confirmed (Czech text in row 3). Useful only with our own paragraph LID gate. Coordinate with Linus on whether to plumb it into the existing extraction stage.
+5. **bible-nlp/biblenlp-corpus** — verse-aligned Bible across 833 langs incl. `haw`. Useful Stage-2 cross-check against the eBible-derived alignment.
+6. **UH Mānoa eVols / ScholarSpace OAI-PMH** — endpoint live at `https://evols.library.manoa.hawaii.edu/server/oai/request`. Per-item rights and cultural-sensitivity gating required; specifically Ka Leo Hawaiʻi (handle `10524/47856`) is oral-history transcripts of named native speakers — almost certainly hard-escalate, do **not** auto-ingest.
+7. **Ulukau sub-collections off the broken Nupepa CGI** — Kauakūkalahale, Ka Hoʻoilina, Ka ʻAhahui Kīwila Hawaiʻi, Ka Papa Haʻawina Hawaiʻi, Ka Waihona Mele live on `gsdl2.80` / `gsdl2.85` / standalone subdomains. Needs per-collection Cloudflare probe before adapter work; do not assume the whole of Ulukau is dead just because `gsdl2.7/cgi-bin/nupepa` is.
+
+#### Deferred this round (probed and blocked, or out-of-scope)
+
+- Chronicling America title-search API: 308→403 Cloudflare from this environment. Public batches at `data/batches/` may still be reachable but enumeration is broken; revisit only with a different network path.
+- HathiTrust catalog/Babel: Cloudflare-walled. Defer.
+- Papakilo Database: 403 from this environment.
+- Mozilla Common Voice: confirmed **does not list `haw` as a supported locale**. Drop.
+- CC-100 (statmt.org): manifest enumerated; **`haw` not present**. FineWeb-2 supersedes for prototype.
+
+### What this does NOT change
+
+- Right-clearable allow-list discipline is unchanged. Nupepa OCR, OHA/DOE/UH bilingual, JW300, hard-escalate cultural categories all stay deferred.
+- FLORES stays eval-only; no data is ever published.
+- 100/200/300 source-specific script convention from the 2026-04-29 consolidation stands. New sources land as new `10X_collect_<source>.py` + `20X_fetch_<source>_raw.py` pairs, not as additions to a generic collector.
+- Storage stays under `data/` (gitignored). Provenance schema (`ProvenanceRecord` 14 fields, additive-only) unchanged.
+
+### Coordination requests
+
+- **Linus:** rights review on FineWeb-2 wrapper-vs-row posture for prototype use; per-URL allow-list policy decision.
+- **Linus:** confirm whether `huggingface_hub` may be added to `requirements.txt`, or whether the stdlib datasets-server rows API path is preferred.
+- **Rusty:** sanity-check that FineWeb-2 + Glot500 noise wouldn't degrade tokenizer-fragmentation properties; LID gate threshold on the Glot500 slice.
+
+### Validation done this pass
+
+- Live probes of: HF datasets-server (FineWeb-2 haw_Latn, Glot500 haw_Latn), eBible.org details + Scriptures index, Internet Archive advancedsearch.php, UH eVols OAI-PMH, Awaiaulu resource list, Hawaiian Mission Houses Omeka tree, statmt CC-100 manifest, Mozilla Common Voice locale API, Hawaiʻi Star-Advertiser sample row from FineWeb-2 (Kauakūkalahale column).
+- Confirmed-blocked: Chronicling America (Cloudflare 308→403), HathiTrust (Cloudflare interstitial), Papakilo (403), digitalcollections.hawaii.gov (TCP fail this round).
+- No corpus bytes fetched; no scripts written; no `requirements.txt` edits; no commits.

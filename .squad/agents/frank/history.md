@@ -242,3 +242,80 @@ Frank's 100-phase split work was reviewed, validated, and consolidated by Scribe
 - **No corpus fetched, all validations passed, git status clean.**
 
 Future work (source additions, fetch enhancements, build stage updates) should reference this consolidated policy.
+
+## 2026-04-29 — New data source research (recovery from Wikimedia/Nupepa stall)
+
+User asked Frank to research net-new Hawaiian source candidates beyond the four-source MVP allow-list and the blocked Nupepa CGI route. No code written; research only. All probes used a polite User-Agent; no Cloudflare/access-control bypass attempted.
+
+### Confirmed-accessible candidates (probed live)
+
+1. **HuggingFaceFW/fineweb-2 — `haw_Latn` config.**
+   - Verified via `https://datasets-server.huggingface.co/rows?dataset=HuggingFaceFW%2Ffineweb-2&config=haw_Latn`: **95,507 rows** total, `partial=False`. Per-row schema preserves `text, id, dump, url, date, file_path, language, language_score, language_script, top_langs`. Licence on the dataset wrapper: **odc-by**. Underlying texts are CC-WET-derived (e.g., `staradvertiser.com` Kauakūkalahale columns appear with full URLs preserved → third-party rights live, dataset licence covers redistribution of the corpus form, not content reuse).
+   - Adapter shape: `huggingface_hub` snapshot of `data/haw_Latn/*.parquet`, or HF datasets-server paginated rows API for stdlib-only path. Provenance is already in-row (url/dump/date) — Linus gets it for free.
+   - Rough yield (back of envelope, sample lengths 0.5–11.6k chars): **~40–80M raw whitespace tokens**. First real path to clear the 2.5M Stage-1 floor without nūpepa.
+
+2. **cis-lmu/Glot500 — `haw_Latn` config.**
+   - **1,053,668 rows**, `partial=False`. Each row carries a `dataset` field exposing upstream source (sample showed `MC4`). Sample row 3 was Czech text mis-tagged as haw → Glot500 has known LID noise; per-row `language_score`-style filter not present, so any use **requires our own paragraph LID pass before counting tokens**. Treat as a "candidate pool" not a corpus.
+   - Licence: composite, MC4-leaning (ODC-By ish); per-source flow-down. Rusty/Linus review needed.
+
+3. **eBible.org `haw1868` — Baibala Hemolele 1868.**
+   - Listed on eBible as **public-domain, redistributable**. Direct artefact URLs:
+     - `https://eBible.org/Scriptures/haw1868_usfm.zip` (USFM canonical)
+     - `https://eBible.org/Scriptures/haw1868_usfx.zip` (USFX)
+     - `https://eBible.org/Scriptures/haw1868_readaloud.zip` (plain-text canon by chapter)
+     - `https://eBible.org/Scriptures/haw1868_html.zip`
+   - Single-zip artefact replaces the planned `baibala.org/cgi-bin/bible` per-verse scraper, which carries Cloudflare risk we don't need. Pair with `eng-kjv2006_usfm.zip` / `eng-asv_usfm.zip` (already pinned in inventory) for verse alignment.
+   - Yield: standard Protestant canon ≈ 730k Hawaiian whitespace tokens (KJV is ~790k English; haw will be modestly lower per-verse).
+
+4. **bible-nlp/biblenlp-corpus on HF.**
+   - Confirmed `haw` is in the language list (verse-aligned across 833 langs). Useful as a Stage-2 parallel cross-check against eBible-derived alignment (deduplicate on verse refs). Direct `corpus.zip` returned 404 from the resolver — files live under `data/` in HF repo, not a single-zip; needs `huggingface_hub`/git-lfs-style fetch.
+
+5. **Internet Archive `language:(haw) mediatype:(texts)`.**
+   - Verified via advancedsearch.php: **216 items**; all-mediatype `language:(haw)` = **334 items**. Sample includes pre-1925 PD-candidate texts (`kekumumuaanohoui00pool` 1875, `peleandhiiakaam00emergoog` 1978 reprint of older work, Hawaiʻi Judiciary Fifth Circuit court records 1890–1892), plus modern children's books (clear copyright). Some items carry `licenseurl=publicdomain/mark/1.0/` already.
+   - Adapter: `internetarchive` Python client (already in `requirements.txt`). Strategy: enumerate, filter for (`year < 1929` OR `licenseurl ∈ {PD, CC0}`), download `*_djvu.txt` only for those items, defer the rest behind Linus rights review.
+
+6. **UH Mānoa eVols (ScholarSpace) — OAI-PMH endpoint.**
+   - **Confirmed live OAI-PMH**: `https://evols.library.manoa.hawaii.edu/server/oai/request?verb=ListSets` returns a 334 KB DSpace 7 set list. Standard OAI-PMH `ListRecords&metadataPrefix=oai_dc` is enumerable without scraping. Awaiaulu specifically points at handle `10524/47856` (Ka Leo Hawaiʻi 1991-2000 audio + transcripts) as a known Hawaiian-language asset.
+   - Rights are per-item; most UH theses are author-rights or CC; transcripts of native-speaker oral histories are culturally sensitive and likely fall in the **hard-escalate** category — keep audio out, request transcript-only with rights review.
+
+### Probed-and-blocked (not pursuing further this round)
+
+- **Chronicling America title-search API**: `chroniclingamerica.loc.gov` now returns a **308 → www.loc.gov/chroniclingamerica → 403** to our environment (Cloudflare). Public bulk batches at `https://chroniclingamerica.loc.gov/data/batches/` may still be reachable but enumeration of Hawaiian LCCNs from API is blocked from this env. Defer until we have an alternative network or LoC bulk mirror.
+- **HathiTrust catalog/Babel**: Cloudflare interstitial on HTML and `babel.hathitrust.org/cgi/ls`. Defer.
+- **Papakilo Database** (`papakilodatabase.com`): 403 from this env. Defer; may need OHA contact.
+- **digitalcollections.hawaii.gov** (Hawaiʻi State Archives Greenstone): TCP failure on probe; intermittent. Re-probe later.
+- **Mozilla Common Voice**: API returns `{"message":"no user"}` for `haw` locale → **Hawaiian is not a Common Voice supported locale**. Drop.
+- **CC-100 (statmt.org)**: language manifest enumerated; **`haw` is not present** (`ht` Haitian only). Drop CC-100 specifically; FineWeb-2 supersedes it for our purposes anyway.
+
+### Ulukau sub-collections beyond the broken Nupepa CGI
+
+The Ulukau homepage lists collections on **different Greenstone instances** (`gsdl2.80`, `gsdl2.85`, plus standalone subdomains): Kauakūkalahale (modern Hawaiian newspaper column, `ulukau.org/apo/cgi-bin/kauakuka`), Ka Hoʻoilina journal of nūpepa reprints (`hooilina.org`), Ka ʻAhahui Kīwila Hawaiʻi documents (`gsdl2.85 c=ahcchist`), Ka Papa Haʻawina Hawaiʻi curriculum (`gsdl2.80 c=cbumbrella`), Ka Waihona Mele (`ulukau.org/mele/`). These are **distinct CGI surfaces** from the blocked `gsdl2.7/cgi-bin/nupepa` and have not been individually probed for Cloudflare posture. Worth a per-collection probe before assuming all Ulukau is dead.
+
+### Source-evaluation pattern that worked
+
+For each candidate, a 60-second probe answered the four go/no-go questions:
+1. Is there a machine-readable enumeration endpoint (API / OAI-PMH / advanced search JSON / dataset-server rows)?
+2. Does it return a real row count (not Cloudflare HTML, not 403)?
+3. Does at least one row contain Hawaiian text (eyeball-confirmed, not just a `language=haw` tag)?
+4. Is the licence on the *delivery wrapper* stated, even if per-document rights still need Linus review?
+A "yes" on all four promotes to Tier A; "no" on (3) demotes to "candidate pool, needs LID first" (Glot500); "no" on (1) or (2) defers.
+
+### Ranked shortlist + concrete next actions for the top 3
+
+| Rank | Source | Adapter pair | Yield estimate | Blockers |
+|------|--------|-------------|----------------|----------|
+| 1 | FineWeb-2 `haw_Latn` | `104_collect_fineweb2_haw.py` + `204_fetch_fineweb2_haw_raw.py` | ~40–80M raw tokens | Linus rights review on the underlying CC URLs (not the ODC-By wrapper); add `huggingface_hub` to `requirements.txt` |
+| 2 | eBible `haw1868` | `105_collect_ebible_haw.py` + `205_fetch_ebible_haw_raw.py` | ~700k tokens, PD | None significant; trivial adapter (3 single-zip GETs incl. KJV/ASV anchors) |
+| 3 | Internet Archive PD `language:haw` slice | `106_collect_ia_haw_pd.py` + `206_fetch_ia_haw_pd_raw.py` | rough 1–5M tokens, depends on PD count after filter | Per-item rights filter (`year<1929` OR `licenseurl ∈ PD/CC0`); uses already-installed `internetarchive` client |
+
+Tier-2 follow-ups (after top 3 land): Glot500 `haw_Latn` LID-filtered slice; UH eVols OAI-PMH for Hawaiian-language scholarly items; bible-nlp parallel-corpus alignment cross-check; per-collection Ulukau probe.
+
+### Decisions filed
+
+- `.squad/decisions/inbox/frank-new-data-sources.md` — team-relevant decision memo with the ranked shortlist and the three proposed `10X/20X` script numbers.
+
+## 2026-04-29T09:13:49Z — Scribe logs and decision merge complete
+
+Scribe filed orchestration log (`.squad/orchestration-log/2026-04-29T09-13-49Z-frank.md`) and session log (`.squad/log/2026-04-29T09-13-49Z-new-data-sources.md`). Inbox decision merged into `.squad/decisions.md`. All three new data source candidates (FineWeb-2, eBible, Internet Archive PD) now tracked as formal decisions awaiting Linus/Rusty coordination input.
+
+Ready for adapter implementation once rights/LID policy green-light received.
