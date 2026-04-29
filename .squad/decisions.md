@@ -172,3 +172,108 @@ For the Ralph review loop, classify issues by prototype acceptance, not producti
 4. **Do not close skeleton issue when contract is internally inconsistent.** Hold #11 (and therefore #9) until Stage-2 JSONL-first manifest contract is reconciled across docs/scripts (stage2_manifest.jsonl vs stale parquet references, output naming, release_eligible tension).
 
 **Application:** Issue #9 epic and all sub-issues (#10–#14) closed after Linus reconciled Stage-2 contract. #11 validation: py_compile 320/321/330, `320 --dry-run --print-schema`, targeted stale-name grep all passed.
+
+---
+
+## Decision: Frank — Hawaiian Wikisource ProofreadPage quality capture (W1 signal)
+
+**Date:** 2026-04-29T21:34:03Z
+**Owner:** Frank (Hawaiian Data Collector)
+**Status:** Proposed for team awareness — fetch-side change only; eval-side unchanged
+
+### Findings
+
+Hawaiian Wikisource (on multilingual `wikisource.org`) has ProofreadPage extension enabled. The extension exposes per-page quality via `action=query&prop=proofread` returning `{quality: 0..4, quality_text: "Without text" | "Not proofread" | "Problematic" | "Proofread" | "Validated"}`. **`quality_text == "Validated"` (quality 4) is the natural W1 signal.**
+
+**Critical caveat:** `prop=proofread` is **only meaningful on `ns=104` (`Page:`) pages**. For `ns=0` (main) pages, the API returns no `proofread` key. Main-page quality is rendered client-side by aggregating `Page:` subpages. The Hawaiian category `Category:ʻŌlelo Hawaiʻi` today contains **159 main-ns pages and 0 `Page:`-ns pages**. Thus, **no Hawaiian Wikisource page in the existing 102 plan can be tagged Validated by direct API lookup**; proofread fields will populate `null` on every current row. A future transclusion-walk is the only way to get real W1 on existing main-ns pages.
+
+### What Changed (Fetch Side Only)
+
+1. **`scripts/102_collect_hawwikisource.py`** — after `--enumerate`, runs batched `prop=proofread&pageids=...` follow-up (50/chunk, polite rate-limit) and writes `proofread_quality` (int|null) and `proofread_quality_text` (str|null) onto every `page_plan.jsonl` row. `ns=0` uniformly get `null` (truthful). `ns=104` get the real quality.
+2. **`scripts/202_fetch_hawwikisource_raw.py`** — MediaWiki content URL now requests `prop=revisions|proofread` (one combined call, no extra HTTP). Records quality per `ProvenanceRecord.source_specific_ids`. Forward seeded values from 102 under `*_seeded` keys; live fetch-time value remains source of truth.
+3. **`docs/data-pipeline.md`** — documented new fields, mapped `quality_text=="Validated"` to W1, documented ns=0 vs ns=104 limitation.
+
+### Validation
+
+- `py_compile` passed for 102/202
+- Dry-run + small real enumerate (3 rows, ns=0,104) showed schema uniformity, null handling on ns=0
+- Existing `page_plan.jsonl` preserved
+
+### What I Did NOT Do
+
+- Did not modify eval/W1 extraction — Linus's call
+- Did not implement transclusion walks for Page-ns aggregation
+- Did not auto-promote Validated rows
+- Did not change `--namespaces` defaults
+
+---
+
+## Decision: Linus — Validated/proofread Wikisource as W1 candidates only
+
+**Date:** 2026-04-29T21:34:03Z
+**Owner:** Linus (Data Engineer)
+**Status:** Proposed — needs Frank (adapter metadata) and Coordinator (review owner)
+
+### Finding
+
+1. **W1 today is hand-authored probes**, not arbitrary clean text. The five categories (`okina_survival`, `kahako_retention`, `unicode_nfc`, `tokenizer_survival`, `generation_sanity`) are *failure-mode probes*. A validated Wikisource paragraph measures something else (general PD reading), so it does not map 1:1 onto W1's accepted-row contract.
+2. **Adapters do not currently fetch ProofreadPage metadata.** `scripts/102` and `scripts/202` enumerate via `list=categorymembers` and never request `prp_quality_level` / `prop=proofread`. The `ProvenanceRecord` JSONL on `data/raw/hawwikisource/fetch.jsonl` therefore carries no `proofread_status` field, nor does `data/stage1/stage1_manifest.jsonl` (159 hawwikisource rows; zero proofread keys). Frank owns this fetch-shape change.
+3. **Contamination is the bigger risk.** Hawaiian Wikisource already feeds Stage 1 training. Promoting any Wikisource snippet to W1 must simultaneously remove that exact NFC text from `stage1.jsonl.gz` and append its SHA-256 to `data/evals/eval_hashes.jsonl` before the next Stage 1 build, or we break `train ∩ eval_hashes = ∅`.
+
+### Recommendation
+
+**Treat validated/proofread Wikisource snippets as W1 _candidates_, not W1 accepted rows.**
+
+- `proofread_status = 4` ("validated", two reviewers) → eligible as W1 *candidate*, ledgered with `review_status=draft`, `eval_consumable=false`, `prototype_local=true`, `origin=manual_w1`, `split=w1_candidate`.
+- `proofread_status = 3` ("proofread", one reviewer) → eligible **only as preflight contamination-check input**, never as candidate, because single-reviewer text on multilingual Wikisource is not Hawaiian-literate reviewed for our purpose.
+- `proofread_status ≤ 2` → ignore.
+- Promotion to `review_status=accepted` (real W1) still requires Hawaiian-literate reviewer assignment from #7. Proofread flag is *necessary*, not sufficient.
+
+### Implementation Shape (After Frank Lands Metadata)
+
+1. **Frank — adapter (out of scope this pass):** extend 102/202 to request ProofreadPage quality (`action=query&prop=proofread` or `prp_quality_level`). Persist `proofread_status ∈ {0,1,2,3,4}` on `data/raw/hawwikisource/fetch.jsonl` rows and `page_plan.jsonl` lines.
+2. **Linus — surface in Stage 1 manifest:** once `fetch.jsonl` carries `proofread_status`, add it to `data/stage1/stage1_manifest.jsonl` row provenance in `301_build_stage1_dataset.py`. Reporting only; no filtering yet.
+3. **Linus — new helper `scripts/316_seed_w1_from_wikisource.py`:**
+   - Reads `data/raw/hawwikisource/fetch.jsonl` or cleaned wikisource slice from 301
+   - Selects rows with `proofread_status == 4`
+   - Extracts short snippets (1–2 sentences, ≤~200 NFC chars) suitable for W1 categories (primarily `kahako_retention`, `okina_survival`, `unicode_nfc`)
+   - Writes `data/evals/manual_w1/w1-haw-micro-eval.candidates.tsv` (gitignored) with `review_status=draft` and `author=wikisource-validated-{revid}`
+   - Hashes candidate rows via `315_hash_manual_w1_eval.py` `--include-draft-for-local-ledger` with `split=w1_candidate`, `eval_consumable=false`
+4. **Linus — pre-promotion contract** (gating reviewer accept):
+   - Asserts candidate's NFC SHA-256 is **not** in current Stage 1 train pack
+   - On reviewer flip to `accepted`, migrates from `candidates.tsv` to canonical `w1-haw-micro-eval.tsv` and re-hashes under `split=w1`
+
+### Asks
+
+- **Frank:** confirm whether ProofreadPage quality is reachable for our `Category:ʻŌlelo Hawaiʻi` enumeration, or whether we'd need an Index/Page namespace walk.
+- **Coordinator / #7 owner:** confirm whether Hawaiian-literate reviewers may flip wikisource-derived candidates to `accepted`, or whether W1 stays hand-authored only.
+
+---
+
+## User Directive: Non-replacement data policy for Wikisource-derived work
+
+**Date:** 2026-04-29T21:27:53Z
+**By:** yashasg (via Copilot)
+**Status:** Team guidance — captured for future Wikisource fetches
+
+Do not replace existing data when fetching or deriving Wikisource proofread/validated material. If found, treat it as new data unless a later dedupe pass validates equivalence.
+
+---
+
+## User Directive: PowerPoint deferral; Markdown journey doc preferred
+
+**Date:** 2026-04-29T13:51:01-07:00
+**By:** yashasg (via Copilot)
+**Status:** Active guidance
+
+Do not work on PowerPoint yet. Maintain a Markdown file documenting the project journey and decisions (e.g., `docs/prototype-journey-data-factcheck.md`).
+
+---
+
+## User Directive: VS Code IDE context
+
+**Date:** 2026-04-29T13:51:45-07:00
+**By:** yashasg (via Copilot)
+**Status:** Context capture — for workflow and docs framing
+
+The user is using VS Code as their IDE. Capture for future project journey notes and workflow/docs framing.

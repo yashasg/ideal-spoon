@@ -159,3 +159,19 @@
 **Do NOT adopt without cost/limit verification.** Unlimited session time ≠ unlimited credit.
 
 **Reference:** `.squad/decisions.md` → "Vendor Observation: Lightning AI Free Plan (2026-04-29T10-49-36Z)"
+
+## 2026-04-29T14:00:00Z — Prototype Journey Compute Factcheck
+
+**Deliverable:** `docs/prototype-journey-compute-factcheck.md` — a concise reference for Danny and the Coordinator on the three-provider handoff strategy, checkpoint portability contract, why provider hopping works for prototypes but is fragile for release, and the real blocker (tokenizer audit, not infrastructure).
+
+**Scope covered:**
+- Why checkpoint bus (HF Hub) enables provider hopping + the fragility knots (bnb kernel drift, fp16 rounding, FA2 variance).
+- Portability contract: model ID, tokenizer SHA, adapter format, env.lock, dataset manifest SHA, eval-hashes SHA, RNG seed, optimizer/scheduler state.
+- Contamination guard: CPU-runnable, model-dependent on tokenizer ID but not a provider-hopping blocker.
+- Why tracking provider SKU names and CUDA versions in run reports enables forensics.
+- Slide-ready framing for free/low-cost GPU provider chaining.
+- Open questions: tokenizer audit access (gated Llama, human gate), Provider 2 vendor selection (decision pending), contamination guard remains human-owned.
+
+**Key message:** Provider hopping is safe between stages and frees us from committing $500+ upfront to a subscription. The three-provider split buys fault isolation, cost reduction, and reproducibility validation. The real blocker is the tokenizer audit gate and the go/no-go decision, not infrastructure.
+
+**Note:** Document is PowerPoint-ready, includes no tool internals or SQL, and avoids claiming production-grade readiness.

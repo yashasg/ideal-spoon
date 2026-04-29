@@ -130,3 +130,57 @@
 - Reviewed local uncommitted work against issue acceptance criteria without code changes. Prototype-ready closure is artifact/contract readiness, not permission for public release or GPU spend.
 - Recommended READY_TO_CLOSE for #2, #3, #5, #6, #10, #12, #13, #14; BLOCKED_HUMAN_REVIEW for #7 and #8; NEEDS_FOLLOWUP for #11 and #9.
 - Key blocker: Stage-2 scripts use JSONL-first `stage2_manifest.jsonl`, while `docs/data-pipeline.md` still has stale `stage2_manifest.parquet` / `stage2.jsonl.gz` references and `release_eligible` schema tension. Linus should reconcile before #11 and the #9 epic close.
+
+### Docs consistency pass (2026-04-29)
+- Updated docs to align on private-prototype posture: no public weights/adapters/tokenizer/datasets/generations/eval scores/API/demo; generated artifacts remain under ignored `data/`.
+- Architecture framing to remember: JSONL is canonical for Stage 1/2 manifests and eval-hash ledger; Parquet is derived-only. Provider 2 is one paid stable GPU block for Stage 1 + merge + Stage 2; T4/P100 are smoke-only.
+- Open blockers remain explicit: #7 W1 Hawaiian-literate review, #8 real gated Llama tokenizer audit, and human-owned #4 runtime loader contamination guard.
+
+### Cross-doc consistency pass (2026-04-29T19:54:48Z)
+- Completed final round-trip validation with Linus on data-doc accuracy. Updated all five docs (`implementation_plan.md`, `training-pipeline.md`, `eval_pipeline.md`, `data-pipeline.md`, `stage2-alignment-quality.md`) for private-prototype posture consistency.
+- Verified no public-release promises; JSONL canonical / Parquet derived-only framing locked; FineWeb/W1/Stage-2 scaffold status confirmed on track per Frank/Linus/Rusty audits.
+- Schema contracts validated across builder (320) → emitter (330) → docs; policy fields reconciled; JW300 confirmed deferred/excluded; #4 runtime guard confirmed human-owned (squad:yashas).
+- Validation: py_compile + dry-run + rg sweep + git diff all clean. Decision inbox empty; all changes apply existing ADRs.
+- Orchestration logs: `.squad/orchestration-log/2026-04-29T19-54-48Z-danny-docs-pass.md` + `.squad/orchestration-log/2026-04-29T19-54-48Z-linus-docs-pass.md`. Session log: `.squad/log/2026-04-29T19-54-48Z-docs-pass.md`.
+- Status: ✓ Ready for merge. No commits done; user requested docs pass, not commit.
+
+### Prototype-journey-deck documentation (2026-04-29)
+
+**User request:** "Can you document my journey in building this, I want to make a PowerPoint of all decisions I had to make etc."
+
+**Deliverable:** Created `docs/prototype-journey-deck.md` — a PowerPoint-ready markdown artifact structured as slide-by-slide outline with speaker notes.
+
+**Content includes:**
+1. **Slide deck outline (15 slides):** Title → Project context → 11 core decisions → What's done/remains/learned → Appendix
+2. **Decision documentation format:** For each decision:
+   - Headline decision (what you chose)
+   - Options considered (alternatives with pros/cons)
+   - Key trade-off named
+   - Speaker notes with rationale
+3. **11 major decision arcs covered:**
+   - Train from scratch vs. adapt
+   - Data source strategy (Hawaiian-language ethics)
+   - FineWeb-2 as Stage 1 primary
+   - Two-stage training (CPT → merge → SFT)
+   - Eval contamination ledger (JSONL canonical)
+   - Manual Hawaiian-literate review for W1 eval
+   - Tokenizer audit as spend gate
+   - Three-provider GPU strategy
+   - Provider API abstraction
+   - Human-owned runtime contamination guard (#4)
+   - Stage 2 parallel-data skeleton
+4. **Compact decision matrix table:** All decisions side-by-side with options/choice/trade-off
+5. **Timeline at a glance:** 7-week sketch with blockers called out
+6. **Appendix:** Core artifacts, scripts, data directories, config structure — cross-referenceable for slides
+7. **Tone:** Honest learning-project framing (no release, no benchmark claims, no fabricated results)
+
+**Key discipline applied:**
+- Every decision includes at least one "blocked" or "pending" gate (W1 reviewer, tokenizer audit, Provider 2 selection)
+- Trade-offs named explicitly, not hidden
+- Links to supporting docs (README, implementation_plan, data-pipeline, eval_pipeline, decisions.md)
+- PowerPoint-compatible markdown (short bullets, clear hierarchy, speaker notes)
+- No overclaiming (prototype-ready, local, scaffold, gated language throughout)
+
+**Rationale:** You now have a narrative arc you can present to others: "Here's what I learned building this prototype, here are the hard decisions, here's why they matter." The deck is the story; the scripts/configs/docs are the proof. All cross-linked so you can extend it with slides showing actual code/config artifacts if needed.
+
+**No new team decision written** (this is a documentation artifact summarizing existing ADRs and decisions, not a new strategic choice). This note is logged for your future reference.
