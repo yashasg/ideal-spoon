@@ -390,3 +390,89 @@ Completed as part of paired agent session with Frank. Scribe consolidated output
 - Frank: Expand fetch plan (Tatoeba, Wikisource, Wikipedia langlinks adapters).
 - Rusty: Tokenizer audit to replace ±2× bands with ±20% bands.
 - Coordinate Wikisource extracted-text contract (NFC sensitivity, ʻokina canonicalization).
+
+## 2026-04-29 — Wikisource handoff: 003 dual-extractor dispatch
+
+User: *"it looks like we need a separate 002 script for hawaiian wiki
+source, just so that the scripts can maintain some sanity"*.
+
+Source-fetcher implementation belongs to Frank; my scope is the
+downstream contract so 003 can consume both the dump path and the
+Wikisource per-page path without source-specific branching.
+
+**Contract (filed in `.squad/decisions/inbox/linus-wikisource-handoff.md`):**
+Wikisource fetcher reuses 002's `ProvenanceRecord` schema, writes to
+`data/raw/hawwikisource/fetch.jsonl`. Builder dispatches by content
+shape, not by source name:
+
+- `wiki-xml-stream` ← Wikimedia `<mediawiki>` dump (existing path,
+  untouched).
+- `wikisource-pagetext` ← per-page artefacts under
+  `data/raw/hawwikisource/<YYYYMMDD>/`. Four shapes accepted:
+  plain `.txt`, raw wikitext (`.wiki`/`.wikitext`/`text/x-wiki`),
+  MediaWiki API `.json` (`action=parse` or `query&prop=revisions`),
+  bundled NDJSON (`.jsonl[.gz]` / `.ndjson` / `application/x-ndjson`).
+  Per-page `page_id` / `title` ride in `source_specific_ids` for
+  single-page artefacts, inline per line for bundles.
+
+**Code changes (`scripts/003_build_stage1_dataset.py`):**
+- New `extract_wikisource_pages` + `_coerce_page_dict` (handles plain
+  shape, MediaWiki action=parse, action=query revisions, NDJSON).
+- `process_record` now dispatches `is_wiki_xml` vs
+  `is_wikisource_pagetext`; doc-emit factored into `_emit_pages` so
+  both paths share one normalization/scoring/split body. ʻokina
+  canonicalization, NFC, and deterministic splits unchanged.
+- Module docstring updated to describe both extractors.
+
+**`docs/data-pipeline.md`:** added the handoff contract block under
+"Stage 1 immediate next steps" and extended the `extraction_method`
+enum to include `wiki-xml-stream` / `wikisource-pagetext`.
+
+**Validated (no real corpus pulled):**
+- `python3 -m py_compile scripts/003_build_stage1_dataset.py` clean.
+- `--help` and `--show-targets` work.
+- Local fixture exercising both shapes (one `.wikitext` page + one
+  NDJSON bundle of two pages) under
+  `data/raw/hawwikisource/{fetch.jsonl,20260429/...}` produced 3 docs,
+  all `split=train`, `language_id=haw`, `extraction_method=wikisource-pagetext`.
+  Fixture removed.
+- Existing `data/raw/hawwiki/fetch.jsonl` (real Frank manifest) still
+  emits 4,896 hawwiki docs from the dump; the two metadata rows
+  (`sha1sums.txt`, `dumpstatus.json`) remain `unsupported_content_type`
+  skips because they're under `hawwiki`, not `hawwikisource` — token
+  estimate 198,645 train tokens, identical to pre-change behaviour.
+
+**Discipline:** I did **not** implement the fetcher; that's Frank's
+scope. If Frank's storage choice (per-page files vs NDJSON bundle)
+ends up needing fields I haven't keyed on, extend `_coerce_page_dict`
+without touching `_emit_pages`.
+
+**Open follow-ups:**
+- Frank: implement `002b_fetch_hawwikisource_raw.py` and confirm
+  storage shape.
+- Rusty: flag wikitext residue in the tokenizer audit; current
+  `_crude_dewiki` is prototype-grade and does not strip Wikisource-
+  specific `{{header}}` / `<pages index=...>` proofread wrappers
+  beyond the generic template-strip pass.
+
+### Phase-hundreds script numbering (2026-04-30)
+- User corrected the earlier `001/002/002b/003` flat numbering. New
+  convention: **collect = 1xx, fetch = 2xx, build = 3xx**, with
+  intra-phase suffixes assigned in landing order (`101`, `102`, …).
+- Current files after the rename:
+  - `scripts/101_collect_rightslight.py` (Frank, collect).
+  - `scripts/201_fetch_rightslight_raw.py` (Frank, fetch — Wikimedia
+    dump path: `hawwiki`, `hawwiktionary`).
+  - `scripts/202_fetch_hawwikisource_raw.py` (Frank, fetch —
+    Hawaiian Wikisource MediaWiki API path).
+  - `scripts/301_build_stage1_dataset.py` (Linus, build — Stage-1
+    manifest from `fetch.jsonl`).
+- Rule of thumb when adding a new script: pick the next free number
+  in the relevant phase. No more `b`-suffix new adapters; that is
+  what `2xx` slots are for.
+- Rewrote path/prose references across `scripts/*.py`,
+  `docs/data-pipeline.md`, and pending inbox files. Left
+  `.squad/decisions.md`, agent histories, and orchestration logs
+  untouched — they are historical records of what was true at the
+  time.
+- Decision note: `.squad/decisions/inbox/linus-phase-numbering.md`.

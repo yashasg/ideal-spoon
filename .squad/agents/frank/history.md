@@ -199,3 +199,17 @@ Completed as part of paired agent session with Linus. Scribe consolidated output
 2. Land Wikisource bulk-text adapter (coordinate with Linus on extracted-text contract).
 3. Land Wikipedia langlinks adapter (small but useful).
 4. Pilot token counts post-fetch to replace ±2× bands with ±20% bands.
+
+## 2026-04-30 — Wikisource adapter split out of 002 into 002b
+
+User asked for a separate "002 script" for Hawaiian Wikisource so the dump-shaped fetcher and the API-shaped page fetcher don't share one allow-list. Split landed.
+
+- **New script:** `scripts/002b_fetch_hawwikisource_raw.py`. Stdlib only. Dry-run by default. `--execute` required to pull per-page wikitext. Defaults: namespace 0 only, batch 50, total `--limit` 50, 1.0s rate limit between page fetches and between paginated allpages calls. Hard caps `MAX_TOTAL_PAGES=5000`, `MAX_BATCH=500`.
+- **Namespace allow-list:** main (0) by default; `--namespaces` accepts only 0/104/106 (Page/Index). Talk/User/Special/maintenance namespaces are explicitly rejected at parse time.
+- **Provenance:** writes to `data/raw/hawwikisource/<YYYYMMDD>/<sha256>.json`, appends to source-level `data/raw/hawwikisource/fetch.jsonl` with the same `ProvenanceRecord` schema as 002 (matters for Linus's source-level reader). Per-page records carry `page_id`, `revision_id`, `revision_timestamp`, `title`, `namespace` in `source_specific_ids`.
+- **Page content path:** MediaWiki `action=query&prop=revisions&pageids=…&rvslots=main&rvprop=ids|timestamp|content|flags`. We store the raw JSON envelope as-is — extraction (NFC, ʻokina canonicalization) is downstream's job per Linus's contract.
+- **002 trimmed:** `hawwikisource` removed from `ALLOWED_SOURCES`; `--source hawwikisource` now exits 2 with a message pointing at 002b. Docstring/usage examples updated. `--limit` flag kept (no current consumer) marked reserved.
+- **001 repointed:** Wikisource MVP entry now `fetcher_status=supported` with `fetcher_script=scripts/002b_fetch_hawwikisource_raw.py --metadata-only`. Expansion-candidate entry for bulk page text also flips to `supported` with `--execute`. Both still carry the Linus extracted-text-contract blocker.
+- **Validation:** `python3 -m py_compile scripts/00{1,2,2b,3}*.py` clean. `python3 scripts/002b_fetch_hawwikisource_raw.py --help` and `--dry-run --limit 5` print the planned URL only, write nothing. `python3 scripts/002_fetch_rightslight_raw.py --source all --dry-run` now lists `['hawwiki', 'hawwiktionary']` only. `python3 scripts/002_fetch_rightslight_raw.py --source hawwikisource` exits with the redirect message. `python3 scripts/001_collect_rightslight.py` emits the updated plan. No corpus pulled. `git status` clean for `data/`.
+- **Decision filed:** `.squad/decisions/inbox/frank-wikisource-split.md`.
+- **Coordination:** Linus still owns the Wikisource extracted-text contract; nothing about NFC/ʻokina policy changed here. Rusty unchanged.

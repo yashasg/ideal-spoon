@@ -1725,3 +1725,97 @@ The expansion tier is therefore **load-bearing** for the conservative floor, and
   re-run the gate.
 - Basher: the strict-mode exit code on the volume gate is `2`, same as the
   existing quality-gate path; CI can keep a single non-zero check.
+
+---
+
+## Current Phase: Script renumbering + Wikisource integration (2026-04-29)
+
+### 2026-04-29T00:29:07-07:00: User directive — phase-hundreds script numbering
+
+**By:** yashasg (via Copilot)
+
+Pipeline scripts are now numbered by **phase hundreds**, not flat sequence:
+- `1xx` — **collect** (planning / inventory / allow-list emitters)
+- `2xx` — **fetch** (raw-bytes adapters that write `data/raw/<source>/fetch.jsonl` provenance)
+- `3xx` — **build** (Stage-1 dataset / manifest / downstream consumers of `fetch.jsonl`)
+
+Within a phase, suffixes (`101`, `102`, …) are assigned in order scripts land. New adapters slot into the next free number in their phase rather than getting a `b`-suffix.
+
+**Current files (post-rename):**
+- `scripts/101_collect_rightslight.py` — rights-light source planner (Frank)
+- `scripts/201_fetch_rightslight_raw.py` — Wikimedia dump-shaped fetcher: `hawwiki`, `hawwiktionary` (Frank)
+- `scripts/202_fetch_hawwikisource_raw.py` — Hawaiian Wikisource page-text fetcher via MediaWiki API (Frank)
+- `scripts/301_build_stage1_dataset.py` — Stage-1 dataset / manifest builder consuming `fetch.jsonl` (Linus)
+
+**Why:** Earlier `001 / 002 / 002b / 003` flat numbering forced an awkward `b`-suffix when Wikisource needed its own fetcher, and left no obvious slot for the next collect-phase or build-phase script. Phase hundreds make the pipeline shape (collect → fetch → build) legible from `ls scripts/` alone and gives each phase ~99 cheap slots.
+
+**Migration:** Files renamed in-tree. All path references in `scripts/*.py`, `docs/data-pipeline.md`, and `.squad/decisions/inbox/*.md` updated to new names. `.squad/decisions.md`, `.squad/agents/*/history.md`, and `.squad/orchestration-log/*.md` left as-is (historical records). Future entries use the new names.
+
+**Validation:** All four scripts compile (`py_compile`) and execute dry-run modes correctly. Existing hawwiki output unchanged.
+
+### 2026-04-30: Decision — Hawaiian Wikisource fetcher split (Frank)
+
+**Scope:** Frank-owned scripts (`scripts/{101,201,202}_*.py`)
+
+`scripts/201_fetch_rightslight_raw.py` now handles Wikimedia *dump-shaped* sources only (`hawwiki`, `hawwiktionary`). Hawaiian Wikisource lives in a new sibling adapter, `scripts/202_fetch_hawwikisource_raw.py`, which implements paginated MediaWiki API enumeration plus polite, rate-limited per-page wikitext fetches.
+
+`scripts/101_collect_rightslight.py` references for Wikisource now point at `scripts/202_fetch_hawwikisource_raw.py`.
+
+**Why:** The two fetch shapes have nothing in common:
+- **Dump shape (201):** one ~MB-scale `*-pages-articles.xml.bz2` per source, verified against `sha1sums.txt`. Allow-list small and static.
+- **API shape (202):** N HTTP calls, paginated `list=allpages` cursor, per-page revision JSON, namespace allow-list, rate-limit budget.
+
+Mixing them forced 201 to carry an empty `corpus_artifacts: []` for Wikisource and a "metadata-only" branch that silently no-op'd `--execute` — the exact code smell that prompted the split.
+
+**Behavioral contract for 202:**
+- **Dry-run by default.** `--execute` required to pull per-page wikitext.
+- **Defaults:** `--limit 50`, `--batch-size 50`, `--namespaces 0`, `--rate-limit-seconds 1.0`. Hard caps: `MAX_TOTAL_PAGES=5000`, `MAX_BATCH=500`.
+- **Namespace allow-list:** {0, 104, 106}. Other namespaces rejected at parse time.
+- **Storage:** `data/raw/hawwikisource/<YYYYMMDD>/<sha256>.json`, gitignored. Source-level ledger at `data/raw/hawwikisource/fetch.jsonl` using the same `ProvenanceRecord` schema as 201.
+- **Per-page provenance:** `source_specific_ids` carries `artifact_kind`, `namespace`, `page_id`, `title`, `revision_id`, `revision_timestamp`, `content_present`, `api_endpoint`.
+- **Raw bytes:** JSON envelope from API, stored as-is. Extraction (NFC, ʻokina canonicalization) remains downstream per Linus's extracted-text contract.
+
+**Open coordination points:**
+- **Linus:** Wikisource extracted-text contract (NFC, ʻokina, apostrophe disambiguation) still gates any *bulk* run of 202 `--execute`.
+- **Rusty:** Wikisource pages are register-mixed. Worth tokenizer-fragmentation spot-check before committing to 0.5–1.5M token estimate.
+
+### 2026-04-29: Decision — Wikisource fetcher → Stage-1 builder handoff contract (Linus)
+
+**Owner:** Linus (Data Engineer)  
+**Affects:** Frank (source fetcher), Rusty (tokenizer audit)
+
+The Wikisource fetcher uses the **same `ProvenanceRecord` JSONL schema** as 201 and writes to **`data/raw/hawwikisource/fetch.jsonl`**. The Stage-1 builder dispatches on content shape, not source name:
+
+| Content shape | `content_type` / extension | Builder extractor |
+|---|---|---|
+| Wikimedia bulk XML | `application/octet-stream` w/ `pages-articles*.xml[.bz2\|.gz]` | `wiki-xml-stream` |
+| Per-page plain text | `text/plain` / `.txt` | `wikisource-pagetext` |
+| Per-page wikitext | `text/x-wiki` / `.wiki` / `.wikitext` | `wikisource-pagetext` (de-wiki + NFC) |
+| Per-page MediaWiki API JSON | `application/json` / `.json` (`action=parse` or `query&prop=revisions`) | `wikisource-pagetext` |
+| Bundled NDJSON of pages | `application/x-ndjson` / `.jsonl[.gz]` / `.ndjson` | `wikisource-pagetext` |
+
+NDJSON lines must contain at least `{"page_id": ..., "title": ..., "wikitext"|"text": ...}`. Single-page artefacts carry `page_id` / `title` / `revision_id` / `namespace` in `source_specific_ids` on the provenance row. `raw_storage_path` is relative to repo root, same as 201.
+
+ʻokina canonicalization (U+02BB), NFC normalization, and deterministic split assignment are applied uniformly downstream of extraction — Wikisource is **not** a special-case past the extractor boundary.
+
+**Downstream (committed):**
+- `301_build_stage1_dataset.py`: Added `extract_wikisource_pages` + `_coerce_page_dict` helper handling all four shapes above. `process_record` dispatches `wiki-xml-stream` vs `wikisource-pagetext`; doc-emit path factored into `_emit_pages` so both extractors share one normalization/scoring/split path. Existing hawwiki XML extractor and token-volume gate remain untouched.
+- `docs/data-pipeline.md`: documented the handoff under "Stage 1 immediate next steps" and extended the `extraction_method` enum.
+
+**Frank still owns:**
+- Implement actual fetcher (polite enumeration via `allpages`, per-page fetch, retry/backoff, ToS snapshot).
+- Decide single-page-files vs NDJSON-bundle storage layout. Either is supported downstream; pick whichever keeps the manifest smaller without losing per-page provenance.
+- Allow-list parity: `101_collect_rightslight.py` already lists `hawwikisource` as `expansion_candidate` — no policy change.
+
+**Non-goals / guardrails:**
+- This does **not** relax the right-clearable posture. Wikisource is CC BY-SA 4.0 wrapper over PD source texts, same per-page rights as `hawwiki`.
+- The token-volume gate (Conservative 2.5M / Base 4.5M / Upside 7M) is unchanged. Wikisource is one of the load-bearing expansion candidates for closing the gap; it does not change the gate itself.
+- No corpus text is committed; `data/raw/hawwikisource/` is gitignored the same way `data/raw/hawwiki/` is.
+
+**Coordination asks:**
+- **Frank:** confirm storage shape (per-page files vs NDJSON bundle) before pulling at scale; either works downstream.
+- **Rusty:** the de-wiki pass in 301 is still prototype-grade. Wikisource pages contain headers, page numbers, `<pages index=...>` proofread-extension wrappers, and `{{author}}` / `{{header}}` templates that the current `_crude_dewiki` handles only superficially. Flag if the tokenizer audit shows wikitext residue inflating token counts.
+
+---
+
+**Decision finalization status:** All four inbox items merged and deduplicated. Phase-hundreds convention is the current active policy. Previous `001`, `002`, `002b`, `003` numbering is superseded. No unresolved old decisions remain as current policy.
