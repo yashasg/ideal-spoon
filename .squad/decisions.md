@@ -869,3 +869,70 @@ The project should be documented as a prototype and learning project, not as a r
 User request — captured for team memory and to ensure all future doc updates maintain this framing.
 
 ---
+## Advisory: Chinese GPU Providers — Pricing vs. Fit
+
+**Date:** 2026-04-29  
+**Status:** Advisory (no ADR; user-facing recommendation)  
+**Owners:** Livingston (Cost Strategist), Basher (Training Engineer)
+
+### Headline
+
+Chinese marketplace GPU providers (AutoDL, Featurize, OpenBayes) are **30–60% cheaper per GPU-hour** on paper (AutoDL RTX 4090 ~$0.27/hr vs RunPod $0.34–0.44/hr; A100/A800 ~$0.48–$0.69/hr vs RunPod $1.19/hr), but **do not recommend switching this prototype to them**. Absolute savings are small (~$3–$18 across 15–25 GPU-hr prototype), and seams around the stack (registration wall, Great Firewall friction on HF Hub push, language barrier, data governance) exceed the benefit.
+
+Big Chinese enterprise clouds (Alibaba, Tencent, Huawei, Baidu) at list price are **2–4× more expensive** than RunPod and Lambda. Not cheaper.
+
+### Cost Analysis
+
+| Provider | GPU | RMB/hr | USD/hr | vs RunPod A100 $1.19 |
+|---|---|---|---|---|
+| AutoDL | RTX 4090 24GB | ¥1.98 | $0.27 | ~50% of 4090 price |
+| AutoDL | A100 40GB | ¥3.45 | $0.48 | 40% |
+| AutoDL | A800/A100 80GB | ¥4.98 | $0.69 | 58% |
+| Alibaba Cloud (list) | A100 80GB | ¥34.74 | $4.80 | 4× RunPod |
+
+**Prototype math:** 7B QLoRA ~15–25 A100-hr. RunPod: ~$18–30. AutoDL: ~$7–12. **Savings: $10–18** — not enough to overcome friction.
+
+### Fit Assessment
+
+**Hardware:** RTX 4090 / 4090D / A800 / H800 / L20 all run our recipe unchanged (CUDA 12.x, PyTorch, bnb NF4, flash-attn 2, bf16). AutoDL infrastructure is solid (persistent storage, image-level CUDA pinning, checkpoint cadence).
+
+**Red flags:**
+
+1. **HF Hub push unreliable from mainland China.** Mirrors (hf-mirror.com) handle pulls fine; pushes (our checkpoint bus per existing ADR) are flaky. Workarounds (US relay, S3 backup) break the "provider-hop" property of our chaining approach.
+2. **Registration gate:** +86 mobile + Chinese ID (身份证) required; foreign credit cards rejected. Dead end for US individuals without a collaborator.
+3. **GitHub slow:** large clones need mirrors.
+4. **Chinese-only support:** outside AutoDL, consoles are in Chinese; English support is sparse.
+5. **Data governance:** PRC (PIPL/DSL) over training data — acceptable for public-domain corpus, but adds governance friction for a learning project.
+6. **Latency:** 150–200 ms SSH RTT from US West Coast; tolerable for terminal, painful for interactive work.
+
+**Ascend 910B is a hard no:** different kernel ecosystem (CANN/torch_npu, not CUDA), no bnb NF4, no flash-attn 2. Multi-week port for *worse* $/result than a 4090 on AutoDL. Reconsider only if prototype leaves QLoRA for multi-node bf16 full fine-tune (out of charter).
+
+### Recommendation
+
+**Do not move this prototype to Chinese providers.** Headline savings do not justify registration friction, HF push unreliability, and support/governance seams.
+
+**When Chinese providers would make sense:**
+- Team member physically in China with real-name verification, Alipay, +86 phone.
+- Multi-month 4090 iteration (monthly subscription is meaningfully cheaper than US hourly spot).
+- Non-sensitive data + willingness to work around HF push or use non-HF checkpoint flow.
+- For *this* project: none of the above apply.
+
+**Keep existing stack:** Kaggle (free, 30 hr/wk) + RunPod community A100 40GB ($1.19/hr for short bursts) + Lightning Pro ($20/mo for persistent Studio) + existing Azure credits (reserve for release-candidate run if ever needed) = ~$130/mo soft cap, fits README's $10k–$30k practical tier.
+
+**Hard rule:** If the project ever reaches release-candidate status, that run must be on a non-PRC provider with pinned driver + single continuous GPU. Chinese providers are out of scope for that run regardless of price. This aligns with existing data-governance ADR.
+
+### Implications
+
+- **Livingston:** README budget unchanged. China pricing was investigated and rejected on technical-fit grounds, not cost grounds; $10k–$30k practical tier stands.
+- **Basher:** HF Hub push reliability is now part of the provider-fit checklist alongside CUDA pinning and bnb/FA2 wheel availability. Provider-hop contract requires checkpoint-bus reliability.
+- **Linus:** PIPL/DSL note for team awareness. Our public-domain corpus is not affected; broader context if scope expands to community-restricted material in future.
+- **All:** If a trusted Chinese collaborator joins and wants to use AutoDL for Stage 1 experiments, revisit this decision; it is a "no" for the current US-based setup, not an absolute "no."
+
+### Sources
+
+- **Pricing:** AutoDL (autodl.com, Zhihu, CNBlogs market reviews), Featurize (featurize.cn), OpenBayes (openbayes.com/pricing), Alibaba Cloud (aliyunbaike.com, cloudgputracker.com), RMB→USD ~7.2 (late 2025 / early 2026)
+- **Hardware fit:** AutoDL CUDA images, Basher QLoRA recipe testing, NVIDIA Ampere/Hopper specs
+- **Red flags:** HF-mirror.com convention, GFW throttling reports (HuggingFace Discussions), Ascend CANN/torch_npu (Huawei repos, PEFT issues)
+- **Export controls:** US BIS Oct-2022 / Oct-2023 (A800/H800/L20/H20 specs)
+
+---

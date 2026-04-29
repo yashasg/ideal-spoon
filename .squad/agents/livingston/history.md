@@ -55,3 +55,62 @@
 - Doesn't change README's $10k–$30k practical tier or Azure-credit framing; this clarifies the bottom of the stack.
 - Decision adopted: `.squad/decisions.md` (section "Chaining Free GPU Providers for LLM Training") — cost model, provider matrix, and recommendations consolidated with Basher's technical analysis.
 - Session log: `.squad/log/2026-04-29T03-46-05Z-gpu-free-tier-chaining.md`.
+
+### Paid GPU Subscription Research (2026-04-29)
+- User asked: best paid subscription for GPU compute on this prototype.
+- Current pricing snapshot (verified via web, late-2025/early-2026):
+  - **Colab Pro** ~$9.99–$12.67/mo, 100 compute units, T4/L4 priority, sessions up to 24h but no guaranteed background execution; CUs ≈ 50 T4-hr or 8–10 A100-hr; 90-day rollover.
+  - **Colab Pro+** $49.99/mo, 500 CU, **background execution up to 24h**, A100/L4 priority. Roughly 40–50 A100-hr-equivalent if everything goes A100; closer to 250 T4-hr in practice.
+  - **Colab Pay-as-you-go** $9.99 / 100 CU, no subscription commitment.
+  - **Lightning AI**: Free 15 credits/mo (~80 hr T4/L4 spot, 4-hr studio restart), **Pro $50/mo + 40 credits, 24/7 studios, multi-GPU, 2TB storage, A100 from ~$1.29/hr, H100 from ~$1.99/hr on spot**. Best "subscription" feel for serious iteration.
+  - **Paperspace (DigitalOcean) Gradient**: Pro $8/mo + hourly, Growth $39/mo + hourly. Subscription only buys priority/storage; you still pay hourly for any real GPU. A100 ~$3.09/hr, H100 ~$5.95/hr — uncompetitive vs RunPod/Vast/Lambda.
+  - **Modal**: Starter $0/mo with **$30 free compute credits each month**, per-second billing, T4 ~$0.59/hr, A100-40 ~$2.10/hr, H100 ~$3.95/hr. Serverless — great for eval/inference, idle = $0; long training is awkward (preemption, no persistent box).
+  - **RunPod**: no subscription. Community A100 80GB ~$1.39–$1.49/hr, H100 $1.99–$2.99/hr; secure cloud higher. Persistent volumes, Docker, easy checkpoint to S3/HF Hub.
+  - **Vast.ai**: spot/peer marketplace, no subscription. A100 $0.29–$0.67/hr, H100 $1.49–$1.87/hr. Cheapest, least reliable, ToS = trust the host; do not put sensitive data on random hosts.
+  - **Lambda Cloud**: no subscription, on-demand A100 80GB SXM $1.79–$2.79/hr, H100 SXM $2.99–$3.99/hr; reservations cheaper. Reliable, premium, no spot.
+  - **Kaggle**: still free (~30 hr/wk P100/2×T4, 9-hr session, no background). No paid tier; in 2026 you can link Colab Pro to Kaggle for a boost.
+  - **HF Pro $9/mo + ZeroGPU**: inference/Spaces only, NOT a training target.
+- Effective cost for one 7B QLoRA prototype run (~15–25 GPU-hr on A100 80GB): Vast ~$5–17, RunPod ~$21–37, Lambda ~$50–70, Modal ~$32–53, Colab Pro+ "free" within the $50 sub if you ride A100 priority, Paperspace $46–77 on top of subscription. Eval/short scripts: Modal's $30 free is effectively free.
+- Subscription recommendation:
+  - **Best low-cost subscription:** **Colab Pro+ $49.99/mo** for one-window-iteration, *or* **Lightning AI Pro $50/mo** if you want a real persistent IDE/disk. Lightning wins on engineering ergonomics, Colab wins on "just works" notebooks and 24h background.
+  - **Best pay-as-you-go:** **RunPod community cloud** for actual training (predictable, persistent volumes, Dockerable). **Vast.ai** if cost is the only axis and the data is non-sensitive. **Modal** for short eval/inference and CI-style jobs (the $30/mo free credit is meaningful).
+  - **Best serious one-off run:** **Lambda on-demand A100/H100** or **RunPod secure cloud** — pay $50–$200, get a clean environment, no marketplace risk. Not a subscription.
+  - **What to avoid:** Paperspace Gradient (subscription buys very little, hourly is 2–4× the market); SageMaker Studio Lab (4-hr GPU caps); HF ZeroGPU for training; multi-accounting Kaggle/Colab to "stack" free tiers (ToS violation, ban risk).
+- Caveats: spot prices on Vast/RunPod move daily; Colab CU-to-GPU mapping is opaque and Google has changed it before; Lightning credit allowance has changed historically; treat all numbers above as ±25% and re-check the pricing pages before committing.
+
+### Chinese GPU Provider Pricing Research (2026-04-29)
+- User asked whether Chinese GPU providers are cheaper for this prototype (7B/8B QLoRA, A100/4090/A800-class, checkpointed, HF sync).
+- Pricing snapshot (verified via web search, late-2025 / early-2026; RMB→USD at ~7.2):
+  - **AutoDL** (autodl.com) — RTX 4090 24GB ~¥1.98/hr (~$0.27); A100 40GB ~¥3.45/hr (~$0.48); A100/A800 80GB ~¥4.98/hr (~$0.69). Sources: autodl.com, neurowave.tech, sohu.com, idcsp.com.
+  - **Featurize** (featurize.cn) — 4090 ~¥1.87–3/hr (~$0.26–0.42). A100 not consistently listed; market ~¥10/hr (~$1.40). Source: featurize.cn/vm/available.
+  - **OpenBayes** (openbayes.com) — 4090 normal ¥2.3–2.5/hr (~$0.32–0.35); promo as low as ¥1.15/hr. A800 ~¥4.98/hr in market. Sources: openbayes.com/pricing, segmentfault, bilibili.
+  - **Luchen Cloud** (cloud.luchentech.com) — 4090 reportedly ¥1/hr floor; A800 ¥4+/hr.
+  - **Alibaba Cloud PAI/ECS gn7e** (China region, list) — A100 80GB ¥34.74/hr (~$4.80); A10 24GB ~¥12.71/hr (~$1.77); V100 ~¥26.46/hr (~$3.68). Enterprise list price; sustained-use/promos discount up to 30–50%. Source: aliyunbaike.com, hostol.com, cloudgputracker.com.
+  - **Tencent / Huawei / Baidu Cloud** — comparable list-price tier to Alibaba; not competitive for hourly prototype work.
+- Comparison vs prior recommendations (per Basher's advisory):
+  - 4090: RunPod community $0.34–0.44 vs AutoDL $0.27 vs Featurize $0.26 → **~20–40% cheaper on Chinese commodity platforms**, but Vast.ai spot ($0.11–0.31) is in the same range or cheaper.
+  - A100 40GB: RunPod community $1.19, Lambda $1.29 vs AutoDL ~$0.48 → **~50–60% cheaper** on AutoDL nominally.
+  - A100/A800 80GB: RunPod $1.39 vs AutoDL ~$0.69 → ~50% cheaper.
+  - Big enterprise clouds (Alibaba/Tencent/Huawei/Baidu) at list price are **2–4× more expensive** than RunPod/Lambda — not cheaper.
+- Access constraints for a US-based individual (the actual story):
+  - **Phone/ID:** AutoDL, Featurize, OpenBayes, Alibaba require **+86 mobile** for SMS verification at signup; full real-name (实名认证) typically wants a **Chinese ID card (身份证)**. Foreign passports are inconsistently supported; many features (top-up amount, model-hub access) gate behind real-name. Without a collaborator in China, registration is a dead end on most platforms.
+  - **Payment:** RMB billing via **Alipay / WeChat Pay / UnionPay**; Alipay Tour Pass works for foreign cards but has caps and may be rejected for cloud top-ups; international credit cards usually not accepted directly.
+  - **Great Firewall:** **Hugging Face is blocked or throttled** from mainland networks. Mirrors (hf-mirror.com, ModelScope) work for downloads but break `huggingface_hub` push/sync without proxy. **GitHub** is reachable but slow/intermittent; `git clone` often needs a mirror or proxy. Our pipeline assumes HF Hub as the checkpoint bus → significant friction.
+  - **Export controls:** A100/H100 are restricted from China. What you actually rent is **A800 (NVLink 400 vs 600 GB/s), H800 (NVLink 300 vs 900 GB/s, FP16 ~250 vs 700+ TFLOPS), L20, H20**. For single-GPU 7B QLoRA the NVLink cap **does not matter** (we don't multi-GPU at this scope). For an 8×H800 release-scale run it would matter. Specs unchanged: per-card compute and VRAM are roughly equivalent for our prototype workload.
+  - **Region/ICP:** Hosting public services on China-region Alibaba/Tencent requires ICP filing (备案) for a domain, which a foreign individual cannot get without a Chinese entity. Irrelevant for headless training, blocking for any inference endpoint.
+  - **Documentation/support:** AutoDL/Featurize/OpenBayes UIs and docs are **Chinese-only**; English support is sparse. Alibaba Cloud International has English docs but its pricing is not the cheap China-region tier.
+  - **Data sensitivity:** Hawaiian-language cultural corpus (per Linus's provenance work) on a PRC commercial cloud raises governance issues that have no upside for this learning project.
+  - **MS employee context:** putting employer-adjacent or personal-research workloads on PRC commercial cloud is a separate policy minefield; user should not assume it's neutral.
+- Recommendation:
+  - **Do not move this prototype to Chinese providers.** The headline savings (~$0.20–0.70/hr × ~15–25 prototype hours = $3–18) are **dwarfed** by registration impossibility (no +86 phone / Chinese ID), HF Hub friction, language/support barrier, and data-governance optics on a Hawaiian cultural corpus.
+  - **When Chinese providers WOULD be cheaper and worth it:** team member physically in China with real-name verification; sustained months of 4090-class iteration (AutoDL monthly is meaningfully under RunPod); workload that does not need HF Hub; non-sensitive data.
+  - **When they're NOT worth it (this project):** US-based individual, prototype scope, HF Hub-centric checkpointing, sensitive cultural data, current plan already at RunPod community / Lambda / Azure-credits floor.
+  - **Big Chinese enterprise clouds (Alibaba/Tencent/Huawei/Baidu) are NOT cheaper** than RunPod/Lambda at list price — that "China is cheaper" intuition only holds for the AutoDL/Featurize/OpenBayes-tier marketplaces.
+- Decision note: advisory only; written to `.squad/decisions/inbox/livingston-china-gpu-pricing.md` for team awareness. Does not change the README budget or vendor recommendations.
+
+### Scribe orchestration: China GPU research (2026-04-29T04:40:54Z)
+
+- Livingston China GPU pricing research (2026-04-29T04:40:54Z) documented in orchestration log.
+- Decision advisory merged into `.squad/decisions.md` alongside Basher's technical fit analysis.
+- Inbox files deleted post-merge.
+- Cross-agent: Basher affirmed HF Hub push reliability is now part of provider-fit checklist (alongside CUDA pinning). This hardens our checkpoint-contract ADR.

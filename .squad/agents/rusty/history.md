@@ -52,3 +52,18 @@ Scribe requested explanation of base-model rationale for team memory. Confirmed:
 - **Not current fit:** Aya (CC-BY-NC contaminates release goal), Mistral (weak multilingual), from-scratch pretraining.
 
 Rationale aligned with existing ADR in decisions.md. Orchestration log: 2026-04-29T03-58-26Z-rusty.md. Session: 2026-04-29T03-58-26Z-prototype-docs-and-model-choice.md.
+
+## 2026-04-29 — Quantization-vs-bottlenecks framing + eval-loop diagnostics (advisory)
+
+User asked how we're assessing "quantization loss probably smaller than other bottlenecks for Hawaiian," and how we eval / diagnose. Captured as explanation, not a new ADR.
+
+- Framed quantization-loss prior as: published QLoRA NF4 deltas (~0.1–0.4 PPL, ~0–1 chrF on English) + structural argument that Hawaiian-specific bottlenecks (tokenizer fragmentation on ʻokina/kahakō, corpus size/register skew, NFC/orthography normalization, eval leakage) are order-of-magnitude larger + planned cheap empirical check on the 0.5B smoke (fp16 vs 4-bit NF4) before any 7B spend.
+- Diagnostic discipline to apply on every regression: slice by orthography (recompute chrF with diacritics normalized on both sides — if gap collapses, it's diacritic handling, not translation), source/register, direction, tokenization (re-audit on outputs), forgetting (Stage 1 PPL after Stage 2), leakage (recompute after n-gram strip), OCR noise (nūpepa-specific patterns), overfitting (train vs dev gap per source), eval-suite drift (harness SHA).
+- Headline rule: a single global metric is near-useless for a low-resource Hawaiian model; slices tell you what to fix.
+- Open question for the team: should per-source slicing + as-is/normalized chrF dual-report be promoted from diagnostic to formal gate? Currently advisory.
+
+## 2026-04-29 — Eval pipeline doc landed
+
+Wrote `docs/eval_pipeline.md` capturing the durable eval methodology: assessment basis (quantization loss bounded; tokenizer/Unicode/corpus-skew/OCR/forgetting/leakage/weak-eval are the candidate dominant bottlenecks), cadence (pre-training baseline, Stage 0 smoke, per-checkpoint cheap eval, stage gates, post-run analysis), metrics (tokens/word, byte-fallback, ʻokina survival, kahakō retention, Hawaiian held-out PPL, English PPL regression, chrF/chrF++ by direction with as-is/normalized dual report, leakage, hallucination, generalization, human spot eval), Kaggle/free-tier checkpoint-aligned cadence (cheap fixed eval ~30–60 min; full eval at gates only), diagnostic slicing axes (source/register, direction, length, diacritic density, OCR confidence, tokenizer behavior, split, provider handoff), attribution matrix (symptom → likely cause → next experiment), QLoRA falsification plan on 0.5B/1B (QLoRA vs fp16 LoRA vs full FT where feasible, rank sweep, matched seed/data/tokenizer/eval), run-report schema (checkpoint, base/tokenizer/corpus/eval SHAs, stage, train loss, Hawaiian PPL, English PPL delta, orthography, chrF by direction, slices, notes), and explicit non-goals (not release certification, not fluency claim, not human-review replacement, not benchmarking).
+
+Linked from README "Evaluation" section and `docs/training-pipeline.md` References section. No new ADR; the doc operationalizes existing decisions and the prior advisory framing — no decision-inbox file written.

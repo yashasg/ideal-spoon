@@ -76,3 +76,39 @@ Scribe requested explanation of training/compute rationale for team memory. Conf
 - **Checkpoint discipline:** RNG state + optimizer state must round-trip for proper resumption.
 
 Rationale aligns with ADR "GPU compute chaining feasibility" (2026-04-29, Basher + Livingston joint). User directive (2026-04-29T03:53:18Z) confirms free-tier chaining acceptable for prototype iteration. Orchestration log: 2026-04-29T03-58-26Z-basher.md. Session: 2026-04-29T03-58-26Z-prototype-docs-and-model-choice.md.
+
+### Eval diagnostics methodology (2026-04-29)
+- For "is QLoRA loss bigger than X?" questions, answer with a smoke-model ablation matrix (precision × rank × data slice × tokenizer × rehearsal), one knob at a time, fixed seed/data/tokenizer/base-SHA. Rank deltas; do not argue in the abstract.
+- Eval cadence layers: (1) pre-FT baseline on raw base, (2) smoke per recipe change, (3) cheap per-checkpoint eval (PPL + ʻokina retention) every 30 min during long runs, (4) full gate eval at end-of-stage, (5) post-run error analysis.
+- Attribution matrix has distinguishing diagnostic signals per hypothesis (quant / rank / LR / data / tokenizer / forgetting / provider drift / contamination). Curve *shape* from cheap-eval log usually picks the first row to investigate.
+- Free-tier rule: cheap eval rides on the checkpoint cadence (30 min); full eval only at epoch/stage end. Eval logs go to the same HF private repo as checkpoints so session crashes don't lose the curve.
+
+### Paid GPU subscription fit (2026-04-29)
+- For 7B/8B QLoRA two-stage prototype: **hourly A100 40GB on RunPod community ($1.19/hr) or Lambda ($1.29/hr) beats every subscription on $/result.** A full Stage 1 + Stage 2 attempt ≈ 40–60 GPU-hr ≈ $50–$75, no monthly commit.
+- Only subscription worth paying for at this scope is **Lightning AI Pro ($20/mo annual)** — value is the persistent Studio (bitsandbytes/flash-attn/CUDA wheels survive across sessions), not the 40 credits. A100 access requires Teams ($140/user/mo) and isn't worth it; pay RunPod hourly instead.
+- Colab Pro+ ($50/mo, ~70 A100-hr) loses to RunPod hourly because (a) ephemeral disk forces bnb/FA2 reinstall every cold start, (b) A100 availability is queue-dependent, (c) 90-day unit expiry punishes intermittent users.
+- Colab Pro $10/mo and Paperspace A100 ($3.09/hr) are false economy. Skip.
+- H100 is wasted on 7B QLoRA — A100 wins on $/training-token; FP8 buys nothing through bnb 4-bit.
+- GPU-class fit: T4/P100 = no bf16, no FA2 (Turing/Pascal SM<80) → free-tier only. L4/A10 24GB = sweet spot for Stage 2 + dev. A100 40GB = the only place A100 pays for itself, used for Stage 1 grind and release-candidate run.
+- Vast.ai is cheapest on paper but driver heterogeneity routinely breaks bnb/FA2 installs; only viable with verified-CUDA host filtering.
+- Provider gotcha: subscription notebooks (Colab/Lightning) hide the driver, so you can't pin CUDA — fine for prototype, real risk for the release-candidate loss curve.
+- Preferred prototype setup: Lightning Pro $20/mo (Studio) + RunPod A100 hourly bursts (~$60/mo) + existing Azure $50 credit reserved for release-candidate. ~$130/mo soft cap.
+- Artifact: `.squad/decisions/inbox/basher-gpu-subscription-fit.md`.
+
+### Chinese GPU provider fit (2026-04-29)
+- AutoDL/Featurize/Gpushare/MatPool/Dbcloud headline pricing is real: 4090 ~¥1.98/hr (~$0.27), A800-80G ~¥4.98/hr (~$0.69), H800 ~¥8.88/hr — roughly 30–60% under RunPod community for same GPU class. **Saves ~$30–$50 across our whole prototype, not enough to overcome friction.**
+- 4090 / 4090D / A800 / H800 / L20 all run our recipe unchanged: CUDA 12.x, bnb NF4, flash-attn 2, bf16. 4090D is the China-export SKU and is ~5–10% slower than 4090 — irrelevant for QLoRA.
+- **Real red flag is HF Hub push from inside the GFW.** Pulls work via `HF_ENDPOINT=https://hf-mirror.com`; pushes (our checkpoint-contract bus) are flaky. That breaks the provider-hop property of our chaining ADR. Workarounds (US-side relay, S3-compatible CN object store) all dirty the contract.
+- Other gotchas: foreign cards rejected on consumer platforms (Alipay/WeChat + Chinese real-name only), GitHub clone is slow (use `--depth 1`, Tsinghua PyPI mirror), 150–200 ms SSH RTT from US, Chinese-only consoles outside AutoDL, PRC data law (PIPL/DSL) over training data.
+- **Ascend 910B is a hard no for this prototype.** Different kernel ecosystem (CANN + torch_npu), no bitsandbytes NF4, no flash-attn 2; analog kernels (`npu_fusion_attention`, MindIE quant) are not what our recipe is calibrated against. Multi-week port for *worse* $/result than a 4090 on AutoDL. Reconsider only if scope leaves QLoRA.
+- Alibaba/Tencent/Huawei Cloud (PAI/TI/ModelArts) are hyperscaler-priced without AutoDL's cheap-headline savings, and abstract the driver (same pinning concern as Colab/Lightning). No reason to choose them over RunPod/Lambda.
+- **Recommendation: keep existing Kaggle + RunPod community + Lightning Pro + Azure-credit stack.** Chinese providers rejected on technical-fit grounds (HF push reliability, payment wall, English support), not pure cost grounds. Release-candidate run remains pinned to a non-PRC provider regardless.
+- Durable rule: *cheap GPU $/hr only matters if your checkpoint bus survives the network it's on.* HF Hub push reliability is now part of the provider-fit checklist, alongside CUDA pinning and bnb/FA2 wheel availability.
+- Artifact: `.squad/decisions/inbox/basher-china-gpu-fit.md`.
+
+### Scribe orchestration: China GPU research (2026-04-29T04:40:54Z)
+
+- Basher China GPU technical fit research (2026-04-29T04:40:54Z) documented in orchestration log.
+- Decision advisory merged into `.squad/decisions.md` alongside Livingston's cost analysis.
+- Inbox files deleted post-merge.
+- Cross-agent: Livingston affirmed cost seams (registration, GFW friction) dwarf headline savings. HF Hub push reliability is now jointly acknowledged as a key provider-fit dimension affecting our checkpoint-contract ADR.
