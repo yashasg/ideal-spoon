@@ -68,6 +68,39 @@ Wrote `docs/eval_pipeline.md` capturing the durable eval methodology: assessment
 
 Linked from README "Evaluation" section and `docs/training-pipeline.md` References section. No new ADR; the doc operationalizes existing decisions and the prior advisory framing — no decision-inbox file written.
 
+## 2026-04-29 — Model-choice rationale (full capture, prior sync was thin)
+
+User flagged that the earlier 03:58:26Z sync recorded the *picks* but not the *reasoning* — backfilling here so Danny's implementation plan and team memory have it.
+
+**Working plan (unchanged from ADR, restated for clarity):**
+- **Primary:** Llama-3.1-8B — contingent on tokenizer audit (ʻokina U+02BB + kahakō, NFC, byte-fallback rate, tokens/word). Best Polynesian-adjacent pretraining signal among open 7B–9B bases; multilingual prior reduces the amount of Stage-1 data needed to move the needle.
+- **Fallback:** Qwen2.5-7B — Apache-2.0 (cleanest license posture for "publish weights+tokenizer openly"), strong multilingual coverage, used if Llama tokenizer audit fails or license posture becomes the deciding factor.
+- **Smoke only:** Qwen2.5-0.5B — pipeline validator (data → tokenizer → QLoRA → eval) on RTX 2080 / Kaggle. Runs both Stage 1 and Stage 2 end-to-end. Not a release candidate.
+- **Held option:** Gemma-2-9B — kept in reserve. License flow-down + no-competing-foundation-model clauses make it less attractive as the released base, but it's a real fallback if both Llama and Qwen audits regress.
+- **Excluded as released base:** Aya / Aya-Expanse — CC-BY-NC contaminates the openly-licensed-release goal; usable only as private reference / silver-data generator.
+- **Excluded:** Mistral-7B — clean Apache-2.0 but weak multilingual fit and no Polynesian signal; tokenizer expected to fragment Hawaiian harder than Llama/Qwen/Gemma.
+- **Rejected:** From-scratch pretraining — incompatible with prototype budget and Hawaiian corpus size; no plausible path to a usable model under the available compute and data.
+
+**Why this plan beats the alternatives for *this* prototype:**
+1. **Multilingual prior matters more than English-only quality** at this scale. A base that has *seen* Polynesian/Austronesian-adjacent text during pretraining transfers faster on a small Hawaiian corpus than a stronger English-only base.
+2. **7B–8B is the right capacity band.** Big enough to carry continued pretraining + bidirectional translation SFT without collapse; small enough to run QLoRA on a single A100 40GB / L4 / A10 within the Azure credit envelope. Jumping to 13B+ adds compute cost without a corresponding gain on a corpus this small.
+3. **Tokenizer audit is the gate, not benchmark scores.** For Hawaiian, fragmentation on ʻokina/kahakō dominates downstream quality far more than a few points of MMLU. The audit is the deciding factor; English benchmark leaderboards are not.
+4. **License posture is part of the decision, not a footnote.** "Openly licensed release" is a project goal, so CC-BY-NC bases are out as the released artifact, and Llama/Gemma flow-down clauses are tracked explicitly. Qwen's Apache-2.0 is the cleanest fallback precisely because the license risk is zero.
+5. **Smoke-then-main keeps cloud spend honest.** Qwen2.5-0.5B catches pipeline bugs locally before any 7B-class A100 hour is spent; this is the cheap insurance that lets us commit the credits to a single focused 7B run.
+
+**Important caveats — do not overclaim:**
+- **Final selection is blocked on the tokenizer audit.** Until we measure tokens-per-word, byte-fallback rate, and ʻokina/kahakō survival on a representative Hawaiian sample (nūpepa + Baibala + contemporary), the "Llama primary, Qwen fallback" ordering is a working hypothesis, not a verdict.
+- **None of these models is "objectively best" for Hawaiian.** They are the best *available open* candidates under our license + compute + data constraints. A different team with different constraints could rationally pick differently.
+- **QLoRA is a falsifiable default, not dogma.** It's the recipe that fits the budget; if the 0.5B/1B QLoRA-vs-fp16-LoRA ablation shows meaningful quality loss for Hawaiian specifically, we revisit.
+
+**Response to user skepticism on QLoRA quantization loss (carried over from the eval-pipeline framing):**
+- Quantization loss is real — usually ~0.1–0.4 PPL and ~0–1 chrF in published QLoRA NF4 results on English. We are not waving that away.
+- But the *relevant* comparison for a low-resource Hawaiian prototype is quantization loss vs. the other candidate dominant bottlenecks: tokenizer fragmentation on ʻokina/kahakō, corpus size and register skew, NFC/orthography normalization mistakes, eval leakage and weak metrics, catastrophic forgetting between stages. Those are structurally larger.
+- We falsify this prior cheaply: on the 0.5B/1B smoke, run fp16 LoRA vs 4-bit NF4 QLoRA with matched seed/data/tokenizer/eval. If the gap is non-trivial on Hawaiian held-out PPL or chrF in either direction, we re-plan for the 7B run (e.g., bf16 LoRA on a larger card or accept a smaller base). If the gap is in the published-noise band, QLoRA stands.
+- Net: skepticism is reasonable, but it gets resolved with an ablation, not an argument.
+
+No new ADR written — this elaborates the existing `Base-model recommendation` and `Two-stage training plan` ADRs in `.squad/decisions.md`. Inbox advisory written to `.squad/decisions/inbox/rusty-model-choice-rationale.md` for Scribe to fold the elaboration into `decisions.md` if useful, and for Danny to cite from `docs/implementation_plan.md`.
+
 ## 2026-04-29 — Three-provider eval sequencing (advisory)
 
 User proposed: Provider 1 (free tier) for prelim evals + data validation, Provider 2 (60 hr compute) for Stage 1 + Stage 2 training + evals, Provider 3 for final eval. Advisory captured (no new ADR; existing free-compute-sequencing ADR + eval_pipeline.md already cover the methodology):
