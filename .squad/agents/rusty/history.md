@@ -149,3 +149,40 @@ User asked what to gather and how much for the prototype. Captured as advice; no
 - **Final numbers are eval-baseline-anchored.** Once base-model PPL baseline + tokenizer audit land on Provider 1, re-cost the corpus targets against the measured fragmentation rate. The ranges above are priors, not contracts.
 
 No new decision file written — this is operational sizing advice within the existing data-pipeline ceiling and two-stage ADR.
+
+## 2026-04-29 — Stage 1 corpus-size sufficiency (advisory, no new ADR)
+
+User asked whether the publishable / right-clearable Stage 1 budget — hawwiki + Hawaiian Wikisource + small reviewed long tail at ~2.5M / 4.5M / 7M cleaned tokens — is enough to skip the rights-review-heavy nūpepa for the prototype.
+
+**Headline (modeling view):**
+- 2.5–7M cleaned Hawaiian tokens is **sufficient for a meaningful Stage 1 smoke / prototype** on a multilingual 7B–8B base via QLoRA. It is **not** sufficient to expect strong DAPT adaptation, especially across registers.
+- For DAPT/CPT on a base that already has Polynesian-adjacent prior, the published rule-of-thumb floor is roughly 100M+ tokens to expect robust adaptation; meaningful but partial gains are observable from ~10M; below ~10M the run is best framed as a *pipeline + tokenizer + adapter validation*, not a quality claim.
+- 7M tokens × ~3 epochs ≈ 20M training tokens is a reasonable QLoRA Stage-1 budget without overfitting catastrophe, *if* dedup and eval-leakage guards hold. 2.5M is firmly smoke-only territory (≤2 epochs to avoid memorization).
+
+**Risks if Stage 1 is mostly hawwiki + Wikisource (+ small long tail):**
+1. **Register skew.** Wikipedia + Wikisource is encyclopedic + literary/PD-archaic. No news, no contemporary prose, almost no conversational. Stage 2 translation eval on contemporary or news-register text will look worse than the model "really" is, and vice versa. Per-source / per-register slicing in eval becomes mandatory, not advisory.
+2. **Memorization risk.** hawwiki is small and globally available; a 7B base may already have seen most of it. Causal-LM loss will drop fast and look great while the model is partly recognizing, not learning. Mandatory: train↔eval n-gram overlap check, and a held-out *contemporary* slice that is not on the open web.
+3. **Tokenizer-audit signal is narrow.** Wiki text is cleaner than nūpepa; ʻokina/kahakō coverage in hawwiki is inconsistent (many articles drop diacritics). Audits done only on hawwiki + Wikisource will *underestimate* fragmentation on real-world Hawaiian and *overestimate* the base tokenizer's competence. Audit must include a small representative non-wiki sample even if it isn't trained on.
+4. **Eval uncertainty.** With a corpus this small and this register-narrow, single-number Hawaiian PPL is near-meaningless. Slices (source, register, diacritic density, length) and dual chrF (as-is + diacritic-normalized) are required to read the run at all.
+5. **Catastrophic forgetting still applies.** Even at 2.5–7M tokens, a long-enough Stage 1 can degrade English. Keep the 1–5% English retention mix and monitor English PPL regression.
+6. **Audit/provenance posture is *cleaner*, not weaker.** The upside: hawwiki (CC-BY-SA) + Wikisource (PD/CC) + reviewed long tail is the cleanest releasable-license posture available. That matters for the publication-guard story even though we are prototype-only.
+
+**Minimum recommended path (avoids rights-review-heavy nūpepa):**
+- **Train:** Stage 1 QLoRA on the 7M-token tier (use the full 7M; 2.5M tier is for the 0.5B smoke only). 2–3 epochs max; freeze tokenizer; record base+tokenizer SHA. Keep 1–5% English mix. Run the pre-existing Stage 0 smoke on Qwen2.5-0.5B end-to-end first.
+- **Measure:**
+  - Tokens/word, byte-fallback rate, ʻokina U+02BB survival, kahakō retention — pre and post.
+  - Hawaiian held-out PPL on a *non-wiki* held-out slice (this is the load-bearing number; build it even if small).
+  - English PPL regression vs base (forgetting check).
+  - Train↔eval n-gram overlap (memorization check); recompute PPL after stripping overlapping n-grams.
+  - Per-source / per-register PPL slices (encyclopedic vs PD-archaic vs long-tail).
+  - Stage-2 chrF (both directions, dual as-is/normalized) on a small fixed dev set, even if Stage 2 is only a smoke — this is what tells us whether Stage 1 actually moved the needle.
+- **Trigger to add more data (i.e., bite the nūpepa rights-review bullet, or add Awaiaulu/OHA/DOE long tail more aggressively):**
+  - Non-wiki held-out PPL fails to improve materially over base, **or**
+  - Stage-2 chrF gain is dominated by encyclopedic-register slice and collapses on news/contemporary slice, **or**
+  - Memorization check shows large PPL drop after n-gram strip (i.e., the apparent gain was recognition), **or**
+  - Tokenizer audit on the non-wiki sample shows fragmentation we can't fix with adapter-only training (would push toward embedding/lm_head unfreeze + more diverse pretraining text).
+  - Any one of these → Stage 1 is corpus-bound, and the next move is more Hawaiian text (nūpepa being the only realistic large pool), not more compute or a bigger base.
+
+**Net:** Stage 1 on the right-clearable tier is the right *first* run. Frame it as pipeline + tokenizer + adapter validation with honest slices, not as "we trained a Hawaiian model." Plan the trigger conditions now so the decision to add nūpepa later is data-driven, not vibes-driven.
+
+No new ADR / no decision-inbox file: this operationalizes the existing two-stage ADR and the eval-pipeline doc; no durable team-wide decision is being changed.

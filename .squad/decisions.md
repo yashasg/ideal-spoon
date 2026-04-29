@@ -1242,3 +1242,104 @@ Working assumption for sizing: **20–80 GB raw + ~10 GB derived**.
 
 ---
 
+
+---
+
+## ADR: Stage 1 MVP scope — rights-light candidates only, six-point gate before rights-heavy ingest
+
+**Date:** 2026-04-29  
+**Status:** Approved  
+**Owner:** Linus (Data Engineer)  
+**Affects:** `docs/data-pipeline.md` §Stage 1 source tiers, `data-sources/hawaiian-data-sources.json`
+
+### Question Answered
+
+> Can the 2.5M–7M token "publishable / right-clearable" Stage 1 candidates be enough to start, so we avoid rights-review-heavy work for now?
+
+**Answer:** Yes, for a *prototype* Stage 1 (DAPT/CPT smoke test + tokenizer audit + plumbing validation). No for a *quality* Stage 1 that justifies real GPU spend on a 7B–9B base. The six-point gate below explicitly gates the transition to phase 2.
+
+### Stage 1 MVP — sources IN
+
+All sources currently tagged `open_license_candidate` or `public_domain_candidate` in `data-sources/hawaiian-data-sources.json`:
+
+| Source | Rights tag | Why it's in |
+|---|---|---|
+| Hawaiian Wikipedia XML dump (`hawwiki`) | `open_license_candidate` (CC BY-SA 4.0 + GFDL) | Cleanest license posture. Already the §Stage 1 "first adapter" target. |
+| Hawaiian Wikipedia dump status manifest | `open_license_candidate` | Pin SHA1s for reproducibility. |
+| Hawaiian Wiktionary dump | `open_license_candidate` | Same license posture as hawwiki; tiny but free. |
+| Hawaiian Wikisource | `open_license_candidate` | Public-domain Hawaiian texts, cleaner than nūpepa OCR. |
+| archive.org — Baibala Hemolele pre-1925 scans | `public_domain_candidate` | Pre-1925 → PD in US. Capped at ≤10% of Stage 1 tokens per existing ADR; tag `register=religious-archaic`. |
+| Small reviewed long tail | per-doc `inherits_from_source` | Only items that pass **per-doc** human rights review. No bulk OHA / DOE / UH crawls in the MVP. |
+
+Stage-2-only or eval-only entries (interlanguage links, Tatoeba, FLORES-200 devtest) are not part of the Stage 1 MVP and are unaffected by this decision.
+
+### "Rights-light" still requires (non-negotiable)
+
+This is **not** a license-skipping shortcut. Per existing pipeline rules:
+
+1. **Per-document `license_observed`** captured in the manifest — even for CC BY-SA 4.0 / public-domain rows.
+2. **Per-document `source_url` + `fetch_date` + payload SHA-256** — same as any other source.
+3. **ToS snapshot at fetch time** — Wikimedia ToS URL captured per `provenance_fields_to_capture` already in the inventory.
+4. **`license_inferred = null` invariant unchanged.** CC BY-SA is *observed*, not inferred, because the dump declares it.
+5. **No raw blobs in git, no public publication of artifacts** — prior ADRs on storage location and prototype scope still bind.
+
+What "rights-light" buys us: *avoiding bulk human rights review of rights-review-heavy collections*, not avoiding manifest discipline.
+
+### Stage 1 MVP — sources DEFERRED
+
+All `rights_review_required` and `unknown_review_required` entries in the inventory:
+
+- Ulukau nūpepa crawl + Wayback CDX nūpepa snapshots
+- archive.org Ulukau / Hawaiian newspaper / book mirrors
+- OPUS haw subsets, NLLB Seed/MD haw slices (these are Stage 2 anyway)
+- Baibala Hemolele official site (modern editions; pre-1925 scans are fine)
+- OHA / DOE Kaiapuni / UH bulk crawls and their Wayback snapshots
+- Awaiaulu public translations
+- Hawaiian-language video transcripts
+
+These remain in the inventory as *known* sources. They are not fetched in the MVP.
+
+### Honest size expectation
+
+Numbers on Hawaiian open-license corpora are small. Order-of-magnitude only:
+
+- `hawwiki` + Wiktionary: low single-digit million tokens after cleanup.
+- Wikisource (haw): hundreds of thousands to ~1M tokens, optimistically.
+- Pre-1925 Baibala scans (capped ≤10%): contributes a few hundred thousand tokens at most under the cap.
+- Reviewed long tail: depends entirely on how much human time we spend.
+
+The user's "2.5M–7M tokens" framing is consistent with this. That is enough for pipeline validation and a tokenizer audit. It is **not** enough on its own to expect strong DAPT signal on a 7B–9B model. Treat MVP corpus as *plumbing-grade*, not *training-grade*.
+
+### Go / No-Go gate before touching rights-review-heavy sources
+
+Do **not** start the Ulukau nūpepa adapter or any bulk `rights_review_required` ingest until **all** of these are true:
+
+1. **MVP corpus exists end-to-end.** `stage1_manifest.parquet`, `stage1.jsonl.gz`, and packed tensors have been produced from hawwiki + Wiktionary + Wikisource + pre-1925 Baibala scans. CI lineage gate refuses public export.
+
+2. **Tokenizer audit completed on the MVP corpus** (Rusty owns; Linus supplies corpus + stats). ʻokina survival, kahakō unitarity, tokens-per-word, byte-fallback rate measured on the candidate bases.
+
+3. **MVP token count and register mix reported.** If MVP alone is demonstrably sufficient for the prototype's stated goal, we may stop here and skip rights-heavy work entirely.
+
+4. **Cultural-review owner named** for the categories the pipeline already hard-escalates (mele / oli / pule, moʻolelo from named tradition-bearers, moʻokūʻauhau). This is required before nūpepa bulk because nūpepa contains these registers.
+
+5. **Per-source rights review process written down**: who reviews, what evidence is recorded in the manifest, how takedown requests are honored, where ToS snapshots live. Not a paragraph in a Slack message — an entry in this decisions log.
+
+6. **Storage and access controls confirmed** for any `prototype_only=true` material (already covered by the local-first storage decision; just verify the gitignore and disk-encryption invariants hold before pulling at scale).
+
+If any of 1–6 is missing, the answer is no-go on rights-heavy ingest.
+
+### What this changes vs. existing docs
+
+- No change to `docs/data-pipeline.md` text required. The existing Tier A/B framing and §"Stage 1 immediate next steps" already sequence hawwiki-first → nūpepa-second. This decision *names the gate* between those two steps explicitly and *defines the MVP set* by rights tag rather than by source name.
+- No change to `data-sources/hawaiian-data-sources.json` required; the `rights_status_hint` field already encodes the split.
+- If accepted, the MVP set above becomes the binding "Stage 1 phase 1" scope; rights-heavy ingest is "Stage 1 phase 2" and gated.
+
+### Open items for the team
+
+- **Cultural-review owner** — still unfilled. This is the long-pole item for unblocking nūpepa bulk regardless of rights cleanup.
+- **Reviewed long-tail budget** — how many human-hours per week are we willing to spend doing per-doc rights review on OHA/DOE/UH PDFs? If the answer is ~zero, the long tail is effectively excluded from the MVP and we should say so plainly.
+- **Tokenizer-audit pass criteria** — Rusty to define what "good enough" looks like on the MVP corpus before we commit to phase 2 scope.
+
+### Approved
+
+This decision operationalizes the existing "Two-stage training plan" and "Prototype-vs-release split" ADRs. It defines the MVP boundary explicitly by rights tag and introduces a formal gate for advancing to phase 2. Both Rusty (on sufficiency) and Linus (on scope) have weighed in.

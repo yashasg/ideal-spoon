@@ -151,3 +151,37 @@ Locked split:
 
 Pre-emptive `.gitignore` addition for `data/` flagged as an action item but
 deferred until proposal is accepted to avoid preempting the team review.
+
+## 2026-04-29 — Rights-light Stage 1 MVP scope + go/no-go gate
+
+User asked whether 2.5M–7M tokens of clear / right-clearable Stage 1
+candidates (hawwiki + Wikisource + small reviewed long tail) is enough to
+start, and whether we can avoid rights-review-heavy work for now.
+
+Answer: yes for a prototype/plumbing Stage 1, no for a quality Stage 1 on a
+7B–9B base. Wrote `.squad/decisions/inbox/linus-rights-light-stage1-mvp.md`
+defining:
+
+- **MVP IN:** every source tagged `open_license_candidate` or
+  `public_domain_candidate` in `data-sources/hawaiian-data-sources.json` —
+  hawwiki dump + dump status manifest, Hawaiian Wiktionary, Hawaiian
+  Wikisource, pre-1925 Baibala scans (≤10% cap, religious-archaic register),
+  plus a small per-doc-reviewed long tail.
+- **MVP DEFERRED:** all `rights_review_required` /
+  `unknown_review_required` entries — Ulukau nūpepa, Wayback CDX nūpepa,
+  archive.org nūpepa mirrors, OPUS/NLLB haw slices (Stage 2 anyway),
+  Baibala official site, OHA/DOE/UH bulk crawls, Awaiaulu, video
+  transcripts.
+- **"Rights-light" ≠ license-skipping:** per-doc `license_observed`,
+  `source_url`, `fetch_date`, payload SHA-256, ToS snapshot all still
+  required; `license_inferred=null` invariant unchanged.
+- **Go/no-go gate before any rights-heavy ingest:** (1) MVP corpus exists
+  end-to-end with manifest + packed tensors + CI lineage guard; (2)
+  tokenizer audit done on MVP; (3) MVP token/register report published;
+  (4) cultural-review owner named (long pole); (5) per-source rights
+  review process written into decisions log; (6) storage + gitignore +
+  encryption invariants verified.
+
+No edits to `docs/data-pipeline.md` — existing Tier A/B framing already
+sequences hawwiki-first; this proposal names the gate explicitly and
+defines MVP scope by rights tag rather than by source name.
