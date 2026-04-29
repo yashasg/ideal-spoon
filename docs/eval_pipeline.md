@@ -62,6 +62,10 @@ Metrics fall into four buckets. Every metric is reported with the eval-suite SHA
 
 These metrics are computed on both the eval set's references *and* the model's generations. Divergence between the two is the diagnostic.
 
+**W1 manual micro-eval (independent of FineWeb-2).** A small hand-authored, human-reviewed Hawaiian probe set (~50–100 items) is maintained as a *separate* cheap-eval source so the orthography metrics above are not solely measured against an LID-classified web crawl. Schema, field semantics, and authoring rules live in [`data-sources/manual-eval/`](../data-sources/manual-eval/README.md); populated rows are off-git at `data/evals/manual_w1/w1-haw-micro-eval.tsv` (under the canonical `evals` division per `data-pipeline.md` "Dataset division taxonomy") and are hashed into the eval-hashes ledger with `origin=manual_w1, stage=eval-only, division=evals`. It is **never used as training data**, runs alongside the FineWeb-2 dev slice at the cheap-eval cadence (§4), and is sliced by `category` (`okina_survival`, `kahako_retention`, `unicode_nfc`, `generation_sanity`) and `diacritic_density` per §5.
+
+**FineWeb-2 `haw_Latn` eval splits.** The official FineWeb-2 test split (887 rows) is deterministically split 70/30 into dev (582 rows → `data/evals/fineweb2_haw/dev.jsonl`) and holdout (305 rows → `data/final/fineweb2_haw/holdout.jsonl`) via `scripts/310_split_dedupe_fineweb2_haw.py`. All 887 rows are hashed into `data/evals/fineweb2_haw/eval_hashes.jsonl` (simple JSONL format); the train split is deduplicated against this hash set to enforce the invariant `train ∩ eval_hashes = ∅`. Dev is used for cheap per-checkpoint eval; holdout is protected for major-milestone gates only.
+
 ### 3.2 Language modeling (Stage 1 primary, Stage 2 monitor)
 
 | Metric | What it catches |
