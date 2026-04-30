@@ -86,18 +86,41 @@ The skeleton itself imports nothing heavy at module load time, so
 python3 -m py_compile code/llm_hawaii/*.py
 ```
 
-works on a fresh machine. To actually train, you'll want (in a venv):
+works on a fresh machine. On a GPU/compute machine, use the training setup
+script so the heavy ML stack stays separate from the data-collection venv:
 
 ```
-pip install torch transformers peft bitsandbytes trl accelerate datasets
+python3 scripts/setup_training.py
 ```
 
-These are deliberately **not pinned in the root `requirements.txt`**.
-Root `requirements.txt` is for the data-collection pipeline; ML deps
-belong in a separate environment until they're hardened.
+If the provider needs a specific PyTorch CUDA wheel index, pass it explicitly:
+
+```
+python3 scripts/setup_training.py --torch-index-url https://download.pytorch.org/whl/cu121
+```
+
+These dependencies are deliberately **not pinned in the root `requirements.txt`**.
+Root `requirements.txt` is for the data-collection pipeline; ML deps live in
+`requirements-compute.txt` until they're hardened.
 
 If a heavy dep is missing when you try to run, the module will raise a
 clear `RuntimeError` with the install line — no silent fallbacks.
+
+## Stage 0 eval runner
+
+After compute dependencies are installed and Hugging Face access is configured,
+run the current base-model baseline wrapper:
+
+```
+./scripts/run_stage0_eval.sh
+```
+
+It defaults to `meta-llama/Llama-3.1-8B` and
+`data/evals/fineweb2_haw/dev.jsonl`. The full JSON report is written under
+ignored `data/eval_runs/stage0/`, while a small hash-only summary is written
+under tracked `docs/eval-runs/stage0/` for GitHub. The wrapper accepts
+`CHECKPOINT=...`, `EVAL_FILE=...`, `PROMPT=...`, `OUTPUT_DIR=...`, and
+`SUMMARY_DIR=...` overrides.
 
 ## What this skeleton intentionally does NOT do
 

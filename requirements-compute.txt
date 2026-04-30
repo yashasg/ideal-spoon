@@ -1,0 +1,28 @@
+# Compute/GPU dependencies for prototype training and eval.
+#
+# Keep this separate from root requirements.txt: the root file stays focused on
+# data collection, while this file is for machines that will load/evaluate/train
+# Hugging Face causal LMs.
+#
+# Torch is installed separately by scripts/setup_training.py so the caller can
+# choose the correct CUDA wheel index for the compute provider.
+
+-r requirements.txt
+
+# --- Hugging Face model loading / training ---
+accelerate>=0.30
+datasets>=2.19
+huggingface_hub[cli]>=0.23
+peft>=0.11
+safetensors>=0.4
+transformers>=4.43
+trl>=0.9
+
+# --- QLoRA / quantized training ---
+bitsandbytes>=0.43
+
+# --- Tokenizer compatibility across Llama/Qwen-style bases ---
+protobuf>=4.25
+sentencepiece>=0.2
+tiktoken>=0.7
+tokenizers>=0.19
