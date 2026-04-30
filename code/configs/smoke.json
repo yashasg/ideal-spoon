@@ -3,7 +3,7 @@
   "tokenizer_name": null,
   "unicode_normalization": "NFC",
 
-  "train_path": "examples/train.jsonl.example",
+  "train_path": "../examples/train.jsonl.example",
   "eval_path": null,
   "text_field": "text",
   "max_seq_len": 256,

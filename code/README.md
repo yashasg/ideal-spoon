@@ -78,6 +78,72 @@ without bouncing back here.
 6. **`evaluate.py`** — held-out PPL is the first thing to wire up; add
    generation samples + the `metrics.py` checks once PPL reports.
 
+## Stage 1 training — next run
+
+> ⚠️ **Prototype / learning code.** Raw training data stays off-git (under
+> `data/`, which is gitignored). Do not stage or commit data files.
+
+### Step 1 — Preflight (no GPU spend, no model download)
+
+Run from the **repo root** (paths are config-relative, not CWD-relative):
+
+```bash
+cd /path/to/ideal-spoon        # repo root
+python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json --preflight
+```
+
+Expected output: a JSON report with `"issues": []`. If issues appear, fix
+them before touching the GPU.
+
+### Step 2 — Print resolved config (sanity-check)
+
+```bash
+python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json --print-config
+```
+
+Confirm `train_path` / `eval_path` are absolute paths that point to the local
+`data/` tree, not to `code/` or the working directory.
+
+### Step 3 — Train
+
+Requires HF model access (`huggingface-cli login`) and a GPU. Run from the
+**repo root** or from `code/` — it does not matter:
+
+```bash
+python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json
+```
+
+Checkpoints are saved under `runs/llama31-8b-stage1-fw2/`. A
+`run_report.json` (no raw text; hashes + config + git SHA + timing) is
+written there automatically after training completes.
+
+### Resume after interruption
+
+```bash
+python3 -m llm_hawaii.train \
+    --config code/configs/stage1_fineweb2_haw.json \
+    --resume-from-checkpoint runs/llama31-8b-stage1-fw2/checkpoint-200
+```
+
+### Eval immediately after training
+
+```bash
+python3 -m llm_hawaii.train \
+    --config code/configs/stage1_fineweb2_haw.json \
+    --eval-after-train
+```
+
+### Data paths contract
+
+All paths in `.json` configs are **config-relative** (resolved against the
+config file's directory, not `$PWD`). The smoke config uses
+`../examples/train.jsonl.example`; the Stage 1 configs use
+`../../data/stage1/...`. This means the same `--config` flag works
+regardless of whether you run from `repo_root/` or `code/`.
+
+Output dirs (e.g., `runs/`) are resolved relative to `$PWD` as written in
+the config — keep them as relative paths so they land where you expect.
+
 ## Install notes
 
 The skeleton itself imports nothing heavy at module load time, so

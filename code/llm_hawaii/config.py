@@ -105,6 +105,42 @@ class TrainConfig:
             json.dump(dataclasses.asdict(self), f, indent=2, sort_keys=True)
 
 
+def resolve_data_paths(cfg: TrainConfig, config_path: "str | Path") -> TrainConfig:
+    """Return a copy of cfg with train_path/eval_path resolved to absolute paths.
+
+    Relative paths are resolved relative to the config file's parent directory,
+    not the process working directory.  This means a config at
+    ``code/configs/foo.json`` with ``"train_path": "../../data/train.jsonl"``
+    always resolves to ``<repo>/data/train.jsonl`` regardless of where you run
+    ``python -m llm_hawaii.train``.
+
+    Absolute paths are used as-is.
+
+    Document your path intent in the config's ``notes`` dict so a reader
+    doesn't have to mentally trace the resolution.
+    """
+    import dataclasses as _dc
+
+    config_dir = Path(config_path).resolve().parent
+    updates: dict = {}
+    for field_name in ("train_path", "eval_path"):
+        raw = getattr(cfg, field_name)
+        if raw is not None:
+            p = Path(raw)
+            if not p.is_absolute():
+                updates[field_name] = str((config_dir / p).resolve())
+    if updates:
+        return _dc.replace(cfg, **updates)
+    return cfg
+
+
 def load_config(path: str | Path) -> TrainConfig:
-    """Convenience wrapper used by the CLIs."""
-    return TrainConfig.from_json(path)
+    """Convenience wrapper used by the CLIs.
+
+    Resolves relative ``train_path`` / ``eval_path`` against the config file's
+    directory so the caller gets fully-resolved absolute paths regardless of
+    working directory.
+    """
+    path = Path(path).resolve()
+    cfg = TrainConfig.from_json(path)
+    return resolve_data_paths(cfg, path)

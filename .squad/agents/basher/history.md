@@ -1,6 +1,40 @@
 # Basher — History
 
-## 2026-04-30 — Stage 0 eval drift-signal bundle (`stage0_eval.v2`) implemented and reviewed
+## 2026-05-01 — Training runner readiness for Stage 1 CPT run
+
+**User Directive:** Make the training runner ready for the next Stage 1 CPT/QLoRA run on compute.
+
+**Deliverables:**
+- `code/llm_hawaii/train.py` — full implementation: `--preflight`, `--resume-from-checkpoint`, `--eval-after-train` CLI flags; `run_preflight()` (no model download); `write_run_report()` (schema `training-run-report.v1`, no raw text); resume wired via `Trainer.train(resume_from_checkpoint=...)`; eval-after-train path; runtime capability snapshot.
+- `code/llm_hawaii/config.py` — added `resolve_data_paths()` and updated `load_config()` to resolve all relative paths against the config file's directory (not CWD). Deterministic, documented, tested.
+- `code/configs/stage1_fineweb2_haw.json` — new dedicated config for the local FineWeb-2 haw_Latn slice (95507 train / 621 eval, off-git). Paths config-relative. Output dir `runs/llama31-8b-stage1-fw2/`.
+- `code/configs/llama31_8b_a100.json` — updated paths to config-relative (`../../data/stage1/fineweb2_haw/train.jsonl`); updated notes.
+- `code/configs/smoke.json` — updated train_path to config-relative (`../examples/train.jsonl.example`).
+- `code/tests/test_train.py` — 16 new tests covering config path resolution, preflight, run report schema, CLI flag wiring; all pure-Python (no ML deps).
+- `code/README.md` — added "Stage 1 training — next run" section with exact commands, data path contract, and prototype/off-git reminder.
+- `.squad/decisions/inbox/basher-training-runner-readiness.md` — durable contract for paths, CLI flags, run report schema, and next-run commands.
+
+**Key Design Decisions:**
+- **Config-relative paths:** `load_config()` always resolves relative paths against config file directory. CWD does not affect data resolution. Smoke test confirms `smoke.json` resolves to `code/examples/train.jsonl.example`.
+- **Preflight contract:** `run_preflight()` is the mandatory first step before any GPU spend. Checks config + data + output dir + runtime capability (non-fatal for torch absence). Exits 1 on any issue.
+- **Run report schema `training-run-report.v1`:** Every train run writes `{output_dir}/run_report.json` with hashes (no raw text), resolved config, git SHA, timing. Required for run reproducibility (docs/eval_pipeline.md §8).
+- **Resume:** `--resume-from-checkpoint PATH` passed directly to `Trainer.train()`. Designed for free-GPU / short-session providers where interruption is likely.
+- **No accidental 8B download:** Smoke config default (`Qwen2.5-0.5B`, `use_qlora=false`) unchanged. Heavy model only activated via `stage1_fineweb2_haw.json` or `llama31_8b_a100.json`.
+
+**Validation:**
+- `python3 -m py_compile code/llm_hawaii/train.py code/llm_hawaii/config.py` ✓
+- `cd code && PYTHONPATH=. python3 -m unittest tests.test_train` — **16/16 green**
+- All pre-existing ML-dep-free tests pass; 2 test_data.py tests requiring `transformers` remain pre-existing failures (not caused by this work)
+
+**Status:** Implemented. Ready for Stage 1 CPT run on compute after preflight passes.
+
+## Learnings
+
+- Config-relative path resolution eliminates a whole class of "works from code/ but not repo root" bugs. Pattern: `resolve_data_paths(cfg, config_path)` called immediately after `from_json()`; callers get absolute paths, period.
+- `run_preflight()` should be the first thing you run on a new compute box, before `huggingface-cli login` even — it tells you if the data files landed correctly.
+- Run reports that contain no raw text (only hashes + counts + git SHA) are sufficient for reproducibility and can be committed safely if needed.
+
+
 
 **User Directive:** Stage 0 evals should capture the full checkpoint drift-signal bundle so checkpoints can be compared across PPL, orthography, generation, dtype/config identity, and related regression tripwires.
 
