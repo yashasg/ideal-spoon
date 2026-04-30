@@ -1,5 +1,37 @@
 # Basher — History
 
+## Learnings
+
+- **Shared-provider pip check:** Kaggle and other managed notebook environments pre-install packages that may already conflict before any project deps are added. `pip check` on `--no-venv` paths should default to non-fatal; expose `--strict-pip-check` / `STRICT_PIP_CHECK` to opt-in to hard failure.
+- **Strictness default pattern:** `pip_check_strict = args.strict_pip_check or (not args.no_venv)` — this naturally makes venv installs strict and shared-env installs lenient without requiring two separate flags.
+- **Key files:** `scripts/setup_training.py`, `docs/kaggle-t4x2-setup.md`, `requirements-compute.txt`, `requirements.txt`.
+
+---
+
+## 2026-05-01 — Kaggle pip check non-fatal fix
+
+**User Directive:** `setup_training.py --no-venv --skip-torch` fails at `pip check` due to pre-existing conflicts in Kaggle's shared base image.
+
+**Deliverables:**
+- `scripts/setup_training.py` — extracted inline `pip check` call into `pip_check(python, *, strict, dry_run)` helper; added `--strict-pip-check` CLI flag + `STRICT_PIP_CHECK` env var; default strict = `not args.no_venv` (i.e. strict for venv, non-fatal for `--no-venv`); non-strict path prints provider-image warning with `--strict-pip-check` hint.
+- `docs/kaggle-t4x2-setup.md` — added troubleshooting note in section 4 explaining that `pip check` warnings on `--no-venv` are non-fatal, may be from provider image, and how to force strict mode.
+- `.squad/decisions/inbox/basher-pip-check-nonfatal.md` — decision drop.
+
+**Key Design Decisions:**
+- `pip_check_strict = args.strict_pip_check or (not args.no_venv)` — no new negating flag needed; venv is always strict unless explicitly overridden; shared-env is always lenient unless explicitly escalated.
+- Prior fixes preserved: `venv_is_healthy()`, `ensure_venv()` auto-recreate, absolute Kaggle `cd` paths.
+- W1 micro-eval guidance not added (standing directive honoured).
+
+**Validation:**
+- ✅ `python3 -m py_compile scripts/setup_training.py`
+- ✅ `--dry-run` venv path: pip check printed correctly
+- ✅ `--no-venv --skip-torch --dry-run`: pip check printed correctly
+- ✅ Direct unit test of `pip_check()`: strict mode raises SystemExit; non-strict prints warning
+
+**Status:** Implemented.
+
+---
+
 ## 2026-05-01 — Kaggle venv robustness + docs idempotency
 
 **User Directive:** Diagnose `[Errno 2] No such file or directory: 'ideal-spoon'` and `No module named pip` failures on Kaggle.

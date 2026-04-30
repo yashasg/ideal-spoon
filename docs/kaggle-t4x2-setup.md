@@ -18,7 +18,7 @@ The T4 x2 setting gives two discrete 16GB T4 GPUs. The current training command 
 ```bash
 cd /kaggle/working
 git clone --depth 1 https://github.com/yashasg/ideal-spoon.git
-cd ideal-spoon
+cd /kaggle/working/ideal-spoon   # absolute path — safe to re-run if already inside the repo
 ```
 
 If `git clone` fails but outbound download works:
@@ -28,7 +28,7 @@ cd /kaggle/working
 curl -L https://github.com/yashasg/ideal-spoon/archive/refs/heads/main.zip -o ideal-spoon-main.zip
 python3 -m zipfile -e ideal-spoon-main.zip .
 mv ideal-spoon-main ideal-spoon
-cd ideal-spoon
+cd /kaggle/working/ideal-spoon   # absolute path — safe to re-run
 ```
 
 If the repo is private, do not paste tokens into notebook cells. Use Kaggle Secrets for GitHub and Hugging Face credentials.
@@ -54,12 +54,16 @@ test -s data/evals/fineweb2_haw/dev.jsonl
 
 ## 4. Install deps and authenticate
 
-Kaggle already provides PyTorch, so skip reinstalling torch:
+Kaggle already provides PyTorch, so skip reinstalling torch. **Use `--no-venv --skip-torch`** — this is the recommended path for Kaggle notebooks (installs directly into Kaggle's Python env, no virtualenv needed):
 
 ```bash
 python3 scripts/setup_training.py --no-venv --skip-torch
 huggingface-cli login
 ```
+
+> **Note on `setup_compute.sh`:** The shell wrapper (`scripts/setup_compute.sh`) delegates directly to `setup_training.py`. It creates a `.venv-training` virtualenv by default, which is not useful on Kaggle where PyTorch is pre-installed. Always pass `--no-venv --skip-torch` on Kaggle. If you previously ran `setup_compute.sh` without these flags and the session still has a broken `.venv-training`, the script will now automatically detect a corrupt venv (missing pip) and recreate it rather than failing.
+
+> **If `pip check` reports conflicts:** When using `--no-venv`, Kaggle's shared base image may already contain unresolved package conflicts unrelated to this project. The setup script treats `pip check` as a **warning** (not a hard error) on `--no-venv` paths. A message like `>> warning: pip check exited 1` means the install itself likely succeeded — the conflicts are from the provider image. You can safely proceed to the preflight step. If you want to verify only project-installed packages are clean, inspect the conflict list manually; if all flagged packages are Kaggle base-image packages, the install is fine. To force a hard failure on any conflict, re-run with `--strict-pip-check`.
 
 You need Hugging Face access to `meta-llama/Llama-3.1-8B`.
 
