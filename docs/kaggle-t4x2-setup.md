@@ -84,7 +84,9 @@ Outputs land under:
 runs/llama31-8b-stage1-multisource-kaggle-t4x2/
 ```
 
-The Kaggle config saves/evals every 100 steps and keeps the latest 3 checkpoints.
+The Kaggle config saves/evals every 100 steps and keeps up to 300 checkpoints, disk permitting, so a separate checkpoint watcher is usually unnecessary.
+
+Current VRAM tuning uses `max_seq_len=2048`, `per_device_train_batch_size=2`, and `gradient_accumulation_steps=8`. That keeps the effective update budget at ~32K tokens (`2048 × 2 × 8`) while using the observed spare T4x2 memory better than batch size 1.
 
 ## 6. Preserve outputs
 
@@ -103,4 +105,4 @@ PYTHONPATH=code python3 -m llm_hawaii.train \
   --resume-from-checkpoint runs/llama31-8b-stage1-multisource-kaggle-t4x2/checkpoint-NNN
 ```
 
-If Kaggle OOMs, first try `max_seq_len=1024` and `gradient_accumulation_steps=32`. If it still OOMs, reduce LoRA rank to 16 / alpha to 32. Use `max_seq_len=512` only as a plumbing test.
+If Kaggle OOMs, first set `per_device_train_batch_size=1` and `gradient_accumulation_steps=16`. If it still OOMs, try `max_seq_len=1024` and `gradient_accumulation_steps=32`. If it still OOMs after that, reduce LoRA rank to 16 / alpha to 32. Use `max_seq_len=512` only as a plumbing test.

@@ -16,8 +16,8 @@
 
   "learning_rate": 0.0002,
   "num_train_epochs": 1.0,
-  "per_device_train_batch_size": 1,
-  "gradient_accumulation_steps": 16,
+  "per_device_train_batch_size": 2,
+  "gradient_accumulation_steps": 8,
   "warmup_ratio": 0.03,
   "weight_decay": 0.0,
   "lr_scheduler_type": "cosine",
@@ -30,7 +30,7 @@
   "logging_steps": 10,
   "save_steps": 100,
   "eval_steps": 100,
-  "save_total_limit": 3,
+  "save_total_limit": 300,
 
   "stage": "stage1-cpt",
   "hardware_profile": "kaggle-t4x2-fp16-qlora",
@@ -40,10 +40,10 @@
     "hardware": "T4x2: two discrete T4 GPUs, 16GB each. device_map='auto' makes the 8B model span both (~32GB total addressable). This config is tuned to exploit that full 32GB budget.",
     "device_placement": "device_map='auto' is single-process model sharding across both GPUs — NOT data-parallel DDP. Only one process runs; model layers are spread to fit in the combined ~32GB. QLoRA+bitsandbytes 4-bit cannot use DDP (bnb.nn.Linear4bit breaks DDP gradient gathering). Do NOT use accelerate launch or torchrun with this config.",
     "dtype": "T4 is Turing-class (sm_75): fp16=true, bf16=false. bfloat16 is not supported on T4. If running on A100/L40S, use the A100/general Stage 1 config instead.",
-    "memory": "max_seq_len=2048 exploits the full ~32GB addressable across both T4s. gradient_accumulation_steps=16 with seq_len=2048 keeps the same ~32K tokens per gradient update as the prior (seq_len=1024, steps=32) conservative config, but with better context coverage and fewer accumulation micro-steps per update.",
-    "checkpointing": "save_steps/eval_steps=100 so interrupted Kaggle sessions lose less work. Sync runs/ to persistent storage or a private HF repo before the notebook ends.",
+    "memory": "max_seq_len=2048 plus per_device_train_batch_size=2 uses the observed T4x2 headroom without changing the effective update size. gradient_accumulation_steps=8 keeps ~32K tokens per gradient update (2048 seq_len × batch 2 × 8 accum = 32768), matching the prior batch=1/accum=16 and original seq_len=1024/accum=32 budgets while doing fewer accumulation micro-steps.",
+    "checkpointing": "save_steps/eval_steps=100 and save_total_limit=300 so interrupted Kaggle sessions lose less work without a separate checkpoint watcher. Disk can fill quickly; sync runs/ to persistent storage or a private HF repo before the notebook ends.",
     "path_note": "Paths are config-relative for train/eval data. After cloning on Kaggle, copy or mount the off-git data/ tree under /kaggle/working/ideal-spoon/data before preflight. Required files: data/stage1/stage1.jsonl.gz and data/evals/fineweb2_haw/dev.jsonl.",
     "resume": "If interrupted from repo root: PYTHONPATH=code python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw_kaggle_t4x2.json --resume-from-checkpoint runs/llama31-8b-stage1-multisource-kaggle-t4x2/checkpoint-NNN",
-    "oom_fallback": "If Kaggle OOMs: (1) reduce max_seq_len back to 1024 and gradient_accumulation_steps back to 32 (original conservative baseline); (2) if still OOM, reduce lora_rank to 16/lora_alpha to 32; (3) for a quick plumbing test only, try max_seq_len=512. Record the config diff in the run report."
+    "oom_fallback": "If Kaggle OOMs: (1) set per_device_train_batch_size back to 1 and gradient_accumulation_steps back to 16; (2) if still OOM, reduce max_seq_len to 1024 and gradient_accumulation_steps to 32 (original conservative baseline); (3) if still OOM, reduce lora_rank to 16/lora_alpha to 32; (4) for a quick plumbing test only, try max_seq_len=512. Record the config diff in the run report."
   }
 }
