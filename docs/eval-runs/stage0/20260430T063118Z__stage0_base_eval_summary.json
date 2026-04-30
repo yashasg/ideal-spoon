@@ -1,0 +1,40 @@
+{
+  "stage": "stage0",
+  "checkpoint": "meta-llama/Llama-3.1-8B",
+  "eval_file": "data/evals/fineweb2_haw/dev.jsonl",
+  "eval_file_sha256": "6e2595be89b9c9e5657477f2a008e92955dbedb838c61065f1225d10e8bb60db",
+  "full_artifact": "data/eval_runs/stage0/20260430T063118Z__stage0_base_eval.json",
+  "full_artifact_sha256": "8818e0fefbfcdc23a4c9d8303f6fa233a7b1238d13e7b5d620b8aaa9762765f2",
+  "source_git_commit": "d731c6fe59b738a2f762d86a58a6cd811fd41f98",
+  "command": [
+    "python",
+    "-m",
+    "llm_hawaii.evaluate",
+    "--checkpoint",
+    "meta-llama/Llama-3.1-8B",
+    "--eval-file",
+    "data/evals/fineweb2_haw/dev.jsonl",
+    "--prompt",
+    "E kākau i hoʻokahi paukū pōkole ma ka ʻōlelo Hawaiʻi e pili ana i ka ʻohana."
+  ],
+  "prompt_count": 1,
+  "generation_count": 1,
+  "generation_sha256": {
+    "sample_0": "7695cc6326191014340b42d4d71813f864a8d6e7c7407ec29e20b36c67408462"
+  },
+  "metrics": {
+    "hawaiian_ppl": 7.915167545081799,
+    "orthography_metrics": {
+      "sample_0": {
+        "is_nfc": true,
+        "okina": 15,
+        "wrong_okina": 0,
+        "kahako": 9,
+        "diacritic_density": 24,
+        "diacritic_density_bin": "high",
+        "combining_macron": 0,
+        "len": 169
+      }
+    }
+  }
+}

@@ -119,8 +119,64 @@ It defaults to `meta-llama/Llama-3.1-8B` and
 `data/evals/fineweb2_haw/dev.jsonl`. The full JSON report is written under
 ignored `data/eval_runs/stage0/`, while a small hash-only summary is written
 under tracked `docs/eval-runs/stage0/` for GitHub. The wrapper accepts
-`CHECKPOINT=...`, `EVAL_FILE=...`, `PROMPT=...`, `OUTPUT_DIR=...`, and
-`SUMMARY_DIR=...` overrides.
+`CHECKPOINT=...`, `EVAL_FILE=...`, `PROMPT=...`, `USE_SUITE=...`,
+`OUTPUT_DIR=...`, and `SUMMARY_DIR=...` overrides.
+
+### Stage 0 drift signal bundle (schema `stage0_eval.v2`)
+
+Both the full report and the tracked hash-only summary capture a richer
+bundle than just `hawaiian_ppl`, so future checkpoints can be compared
+fairly without leaking raw text into git:
+
+- **Run identity** (`identity`, `decoding`, `ppl_config`): checkpoint,
+  base model, peft-adapter flag, model class, model dtype, model device,
+  device map, quantization config, tokenizer name/class/vocab size, torch
+  + transformers versions, decoding flags (`do_sample`, `max_new_tokens`,
+  `greedy=True`), and PPL `max_length`. Plus `eval_file_sha256` and
+  `source_git_commit` from the wrapper. Two checkpoints can only be
+  compared honestly if these match.
+- **Eval set slice metadata** (`eval_set`): record count, scored record
+  count, total tokens / chars, length-bin counts (`short`/`medium`/`long`
+  by token count), `diacritic_density_bin_counts`, and per-`source` /
+  per-`register` counts when those fields are present on JSONL records.
+  Raw record text is never written.
+- **Hawaiian held-out PPL** (`metrics.hawaiian_ppl`): unchanged, stays
+  the headline trend signal.
+- **Fixed prompt suite** (`prompt_suite`): `suite_id = stage0.v1`,
+  `suite_sha256`, and per-item `prompt_sha256` + `diacritic_density_bin`
+  for a 7-prompt set spanning low/medium/high Hawaiian diacritic density
+  plus an English control. Generations themselves go to the full report;
+  the summary keeps only `generation_sha256` per sample.
+- **Per-sample orthography** (`metrics.orthography_metrics`) +
+  **aggregate** (`metrics.orthography_aggregate`): per-generation NFC,
+  ʻokina, wrong-okina, kahakō, combining-macron counts; plus aggregated
+  totals across the suite and `kahako_collapse_on_high_diacritic` count.
+- **Tripwires** (`tripwires`): `wrong_okina_nonzero`, `nfc_failures`,
+  `combining_macron_nonzero`, `kahako_collapse_on_high_diacritic`,
+  `generation_count`, `prompt_suite_sha256`, `prompt_suite_id`. Any
+  non-zero/true tripwire on a Stage 1 checkpoint is a regression flag.
+- **Probes not yet wired**: `metrics.english_ppl`,
+  `metrics.manual_w1`, and `metrics.hawaiian_ppl_by_source` are emitted
+  with `status: "not_configured"` and a reason string instead of being
+  silently absent. The Stage 1 gate's English-forgetting check
+  (`docs/training-pipeline.md` §2.4) reads this field — when it lands,
+  flip the status. Do not pretend they ran.
+
+The fixed prompt suite is frozen by `PROMPT_SUITE_ID` /
+`prompt_suite_sha256`. Editing prompts in place breaks
+checkpoint-to-checkpoint comparability — append new prompts and bump the
+suite id instead.
+
+**Suite-design freeze invariant.** Any new `haw_high_*` (or otherwise
+high-diacritic-bin) prompt added to the suite must *explicitly* ask the
+model to use kahakō (and ʻokina) in its output. The
+`kahako_collapse_on_high_diacritic` tripwire fires when a high-bin
+prompt produces a generation with zero kahakō; if the prompt itself
+doesn't request kahakō, a zero-kahakō completion is no longer a
+regression signal and the tripwire silently loses meaning. Same rule
+applies if the bin thresholds in `metrics.diacritic_density_bin` are
+ever retuned: re-audit every high-bin prompt for an explicit kahakō
+ask before shipping the change.
 
 ### Pulling Stage 0 results back from the compute box
 

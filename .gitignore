@@ -5,7 +5,7 @@
 .squad/decisions/inbox/
 .squad/sessions/
 .squad-workstream
-docs/.obsidian
+docs/.obsidian/
 
 # Python
 .venv/

@@ -223,6 +223,12 @@ Every eval-emitting run writes a row to the run report. Incomplete rows are not 
 
 The run report is the artifact other agents read. A model checkpoint without one is not promoted to a gate decision.
 
+### 8.1 Stage 0 drift bundle (`stage0_eval.v2`)
+
+`code/llm_hawaii/evaluate.py` and `scripts/run_stage0_eval.sh` together emit a Stage-0-specific subset of §8 plus the drift fields needed to compare two checkpoints fairly without leaking raw text into git. See `code/README.md` → "Stage 0 drift signal bundle" for the full field list. Tripwire fields written to the tracked summary include `wrong_okina_nonzero`, `nfc_failures`, `combining_macron_nonzero`, `kahako_collapse_on_high_diacritic`, `generation_count`, and `prompt_suite_sha256`. Fields whose harness is not wired yet (English PPL, W1 manual, per-source PPL slice, and `hawaiian_ppl` when no `--eval-file` is supplied) are emitted with `status: "not_configured"` rather than omitted.
+
+**Suite-design freeze invariant.** Any future high-diacritic / high-`diacritic_density_bin` prompt appended to the Stage 0 suite must *explicitly* instruct the model to use kahakō (and ʻokina). The `kahako_collapse_on_high_diacritic` tripwire derives its meaning from "the prompt asked for kahakō and the generation produced zero" — a high-bin prompt that doesn't request kahakō makes the tripwire fire spuriously or, worse, makes a zero-kahakō completion look acceptable. The same audit is required if the diacritic-density bin thresholds in `metrics.diacritic_density_bin` are ever retuned.
+
 ---
 
 ## 9. Non-goals
