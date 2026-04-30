@@ -86,3 +86,27 @@
 - `code/configs/llama31_8b_a100.json` remains blocked pending Rusty's tokenizer audit `go` decision and frozen tokenizer/model SHA in manifest.
 
 **Next steps:** Stage 1 build ready for training entry once eval ledger/tokenizer gate are satisfied.
+
+## Learnings
+
+### 2026-04-29 — Removed standalone tokenizer audit script (user request)
+
+User decision: drop `scripts/040_tokenizer_audit.py`; a tokenizer-audit test will be added later. Stage-0 tokenizer-audit gate for Llama-3.1-8B remains an open #8 spend gate.
+
+Changes:
+- Deleted `scripts/040_tokenizer_audit.py`.
+- Removed `TODO(audit-tokenizer)` blocks from `code/llm_hawaii/model.py` and `code/tests/test_model.py`.
+- Reworded references in:
+  - `docs/training-pipeline.md` §1.1
+  - `docs/eval_pipeline.md` §3.1
+  - `docs/data-pipeline.md` (Stage 1 next steps)
+  - `docs/implementation_plan.md` §3
+  - `docs/prototype-journey-compute-factcheck.md` (Tokenizer Audit section)
+  - `docs/prototype-journey-deck.md` (Slide 9, status table, "How to Reference", scripts inventory)
+  - `docs/prototype-journey-data-factcheck.md` (#8 row)
+  - `data-sources/manual-eval/README.md`
+  - `.squad/decisions.md` (Issue #8 entry — gate kept; script reference replaced with "planned tokenizer-audit test")
+
+Preserved: thresholds, gate semantics, "do not fabricate" stance, #8 still blocking serious 7B/8B spend. Did not commit. Left `.squad/agents/rusty/history.md` and `.squad/orchestration-log/...rusty.md` untouched as historical records.
+
+`py_compile` clean on the two edited Python files. Final grep confirms zero active references to `scripts/040_tokenizer_audit.py` or `TODO(audit-tokenizer)` in `*.py`/docs.

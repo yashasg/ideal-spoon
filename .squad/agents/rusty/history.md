@@ -37,3 +37,11 @@ Generated a local ignored draft at `data/evals/manual_w1/w1-haw-micro-eval.tsv` 
 Docs/templates now expose the W1 categories, hash material (`NFC(prompt) + LF + NFC(reference)`), JSONL ledger fields, and `diacritic_density_bin` slices. `metrics.py` now has reusable diacritic count/bin helpers for the future harness.
 
 Validation: `python3 -m py_compile scripts/315_hash_manual_w1_eval.py code/llm_hawaii/metrics.py`; `--help`; `--print-schema`; `--init-draft --execute --force`; default `--dry-run`; `--dry-run --include-draft-for-local-ledger`; `--execute --include-draft-for-local-ledger`. `git check-ignore -v` confirms the local TSV, manifest, and ledger are covered by `/data/`.
+
+---
+
+## 2026-04-30T01:42:25Z — Team Update: Basher script removal + gate policy frozen
+
+**From:** Scribe (Session logger)
+
+**Update:** `scripts/040_tokenizer_audit.py` deleted per user directive. Tokenizer audit gate (#8) remains open as policy; audit will return as a **test** (implementation pending). Your gate thresholds and fingerprint requirements are frozen in canonical decisions.md; no changes to audit path or acceptance criteria.

@@ -1,6 +1,28 @@
 # Decisions
 
-> Updated 2026-04-29T22:58:20Z: Added Frank quality-4 scan (zero-volume result) and Linus eval-safety contract for future quality-4 candidates. Recent batch below.
+> Updated 2026-04-30T01:42:25Z: Added Basher tokenizer audit script removal (user directive; gate remains). Prior: Frank quality-4 scan and Linus eval-safety contract. Recent batch below.
+
+---
+
+## Decision: Basher — Standalone tokenizer audit script removed; gate remains
+
+**Date:** 2026-04-29  
+**Owner:** Basher (Training Engineer)  
+**Status:** Recorded — direction set by user
+
+### Direction
+
+- The standalone tokenizer audit script `scripts/040_tokenizer_audit.py` has been removed at user request.
+- A tokenizer audit will be added back as a **test** (not a standalone script). Implementation pending.
+- The Stage-0 tokenizer-audit gate for Llama-3.1-8B (Issue #8) remains an open spend gate. Thresholds, fingerprint requirements, and "do not fabricate" stance recorded in this decisions.md (Rusty entry) still apply; only the implementation surface changed.
+- Repo docs that previously instructed users to run `python3 scripts/040_tokenizer_audit.py ...` have been reworded to describe the gate and its planned test, without claiming the audit is complete.
+- `code/configs/llama31_8b_a100.json` remains blocked pending a real `go` report and frozen tokenizer/model SHA in the Stage-1 manifest.
+
+### Notes for other agents
+
+- Rusty: the audit gate is still yours; expect to provide thresholds and the test harness when the tokenizer-audit test is authored.
+- Linus: representative sample sourcing (nūpepa / Baibala / manual eval slices, NFC + U+02BB canonicalized) is unchanged.
+- Coordinator: no orchestration change; #8 stays open.
 
 ---
 
@@ -181,7 +203,7 @@ For the prototype, the canonical eval-hash contamination ledger is JSONL at `dat
 **Owner:** Rusty (NLP Researcher)
 **Status:** Team approved
 
-Use `scripts/040_tokenizer_audit.py` as the lightweight, local-only tokenizer audit path before any serious Llama-3.1-8B Stage-1 spend. Reports are written under ignored `data/tokenizer_audit/` and must record: model id, resolved model repo SHA when available, tokenizer fingerprint SHA-256, input sample paths/sources, overall metrics, high-diacritic slice metrics, and a `recommendation.decision` of `go` or `no_go`.
+Use a local-only tokenizer audit (a tokenizer-audit test is planned; no standalone audit script lives in the repo today) as the lightweight, no-spend audit path before any serious Llama-3.1-8B Stage-1 spend. Reports are written under ignored `data/tokenizer_audit/` and must record: model id, resolved model repo SHA when available, tokenizer fingerprint SHA-256, input sample paths/sources, overall metrics, high-diacritic slice metrics, and a `recommendation.decision` of `go` or `no_go`.
 
 **Default no-spend gate policy:**
 - Minimum sample coverage: at least 1,500 words and 10 high-diacritic samples
@@ -190,7 +212,7 @@ Use `scripts/040_tokenizer_audit.py` as the lightweight, local-only tokenizer au
 - Any miss is `no_go` for serious 8B Stage-1 spend until a fallback tokenizer is audited or a vocab/embedding policy is chosen
 
 **Notes for other agents:**
-- The script intentionally fails with actionable install/login instructions if `transformers` is missing or gated Hugging Face Llama access is unavailable. Do not fabricate audit results.
+- The audit must fail loudly with actionable install/login instructions if `transformers` is missing or gated Hugging Face Llama access is unavailable. Do not fabricate audit results.
 - Basher: treat `code/configs/llama31_8b_a100.json` as blocked until a real report says `go` and its tokenizer/model SHA fields are frozen in the Stage-1 manifest.
 - Linus: sample rows should come from local ignored data and cover nūpepa, Baibala, and contemporary/manual eval slices where possible.
 
