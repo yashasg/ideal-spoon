@@ -86,7 +86,9 @@ runs/llama31-8b-stage1-multisource-kaggle-t4x2/
 
 The Kaggle config saves/evals every 100 steps and keeps up to 300 checkpoints, disk permitting, so a separate checkpoint watcher is usually unnecessary.
 
-Current VRAM tuning uses `max_seq_len=2048`, `per_device_train_batch_size=2`, and `gradient_accumulation_steps=8`. That keeps the effective update budget at ~32K tokens (`2048 × 2 × 8`) while using the observed spare T4x2 memory better than batch size 1.
+Current VRAM tuning uses `max_seq_len=2048`, `per_device_train_batch_size=1`, and `gradient_accumulation_steps=16`, giving 16 × 2048 = 32 768 tokens per gradient update. **`per_device_train_batch_size=2` was tested as an experimental optimisation but OOMed on the real backward pass** (tried to allocate ~1.96 GiB with only ~1.60 GiB free on GPU 1); batch=1 is the stable default.
+
+> **`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`** may reduce allocator fragmentation and is worth trying if you see fragmentation-related OOMs. It is not sufficient to hold `batch=2` with this model — the observed allocation error is a capacity issue, not a fragmentation issue. The primary fix is `batch=1`.
 
 ## 6. Preserve outputs
 
