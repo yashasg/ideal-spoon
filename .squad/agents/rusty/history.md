@@ -173,3 +173,34 @@ Produced the NLP-side cleanup plan for the tokenizer audit harness in response t
 **Orchestration log:** `.squad/orchestration-log/2026-04-30T04-20-10Z-rusty-tokenizer-cleanup.md`  
 **Session log:** `.squad/log/2026-04-30T04-20-10Z-tokenizer-cleanup-plan.md`
 
+
+## 2026-04-30T04:44:24Z — Linus implemented tokenizer-family-aware harness cleanup (phases 1–6 complete)
+
+**From:** Scribe (orchestration logger)
+
+**Summary:** Linus completed implementation of the tokenizer-family-aware harness cleanup. All phases 1–6 deployed; 33 unit tests passing, 1 smoke skipped (transformers env limitation). Your design for family detection, proxy applicability fixing, and roundtrip gate is now live in `code/llm_hawaii/tokenizer_audit_helpers.py` and tested in `code/tests/test_tokenizer_audit.py`.
+
+**Implemented per your spec:**
+- ✅ `detect_tokenizer_family()`: byte_level_bpe, sentencepiece_byte_fallback, unknown (4-tier heuristic per your design)
+- ✅ `byte_fallback_or_proxy_rate` → `status=not_applicable` for byte-level BPE (threshold 0.01 preserved; excluded from blocking_reasons)
+- ✅ `roundtrip_lossless` check: structural integrity gate (exact after NFC normalization; required when text+tokenizer present)
+- ✅ `high_diacritic` evaluator: paragraph filter + min 10 samples/1,500 words gate per your definition
+- ✅ `diacritic_chars` evaluator: ʻ ā ē ī ō ū (+ uppercase), pass ≤2 tokens each
+- ✅ `checks[*].status` explicit (evaluated, not_applicable, not_evaluated, insufficient_samples)
+- ✅ `blocking_reasons` fixed: never includes `passed=null` or `not_evaluated` items
+
+**Test coverage:** 33 unit (metadata, family detection, proxy semantics, roundtrip, high-diacritic, diacritic-chars), 1 smoke (Llama, skipped)
+
+**Next milestone (Phase 7):** Re-run Llama-3.1-8B audit against helpers. Expected outcomes per your prior decision:
+- `tokenizer_family = "byte_level_bpe"` ✅
+- `byte_fallback_or_proxy_rate = 0.193` with `status=not_applicable` (excluded) ✅
+- `roundtrip_lossless = true` (requires verification on actual Llama tokens)
+- `overall_tokens_per_word ≈ 2.47` ✅
+- High-diacritic + diacritic-chars sections populated (not_evaluated → evaluated or insufficient_samples)
+- `recommendation = "go"` IFF all sections clear; else correct blocking reasons (coverage/fragmentation), not phantom proxy failure
+
+**Ready for:** Your round-trip inspection on 5 ʻokina+kahakō sentences to verify `decode(all_ids)==NFC(text)` and each flagged piece is lossless (per your earlier decision). When ready, re-run will finalize gate assessment.
+
+**Schema:** Remains v1 (backward-compatible). v2 + `run_kind` deferred per existing decisions.md.
+
+**Orchestration log:** `.squad/orchestration-log/2026-04-30T04:44:24Z-linus-tokenizer-audit-cleanup-implementation.md`

@@ -273,3 +273,52 @@ Recommended treating `proofread_status=4` ("Validated") Wikisource as W1 _candid
 
 **Next steps:** Rusty confirms family table; Coordinator gates; Linus implements.
 
+
+## 2026-04-30T04:44:24Z — Tokenizer audit cleanup implementation (phases 1–6 complete)
+
+**From:** Scribe (orchestration logger)
+
+**Summary:** Linus implemented tokenizer audit harness cleanup (phases 1–6 of 7-phase plan from prior decision). Module split, family detection, proxy applicability fixing, roundtrip checks, high-diacritic and diacritic-chars evaluators all deployed locally. All 33 unit tests passing; 1 smoke skipped because `transformers` unavailable in env.
+
+**Deliverables:**
+- **New:** `code/llm_hawaii/tokenizer_audit_helpers.py` (all reusable audit logic)
+- **Refactored:** `code/tests/test_tokenizer_audit.py` (33 unit tests, 1 smoke)
+- **Schema:** Remains `tokenizer_audit_report.v1` (backward-compatible, additive changes only)
+- **Report changes (all additive):**
+  - `model.tokenizer_family` populated via `detect_tokenizer_family` algorithm (byte_level_bpe, sentencepiece_byte_fallback, unknown, null)
+  - `checks[*].status` explicit (evaluated, not_applicable, not_evaluated, insufficient_samples)
+  - `checks[*].reason` optional explanatory text
+  - `byte_fallback_or_proxy_rate` → `status=not_applicable` for byte-level BPE (threshold unchanged 0.01, excluded from blocking_reasons)
+  - `roundtrip_lossless` check appended (exact after NFC normalization, required when both text+tokenizer present)
+  - `high_diacritic` section populated (Hawaiian diacritic-heavy spans, ʻokina+kahakō vowels, min 10 samples/1500 words to reach evaluated status)
+  - `diacritic_chars` section populated (ʻ ā ē ī ō ū + uppercase, standalone encoding, pass if ≤2 tokens)
+  - `recommendation.blocking_reasons` fixed (never includes `passed=null` or `not_evaluated` items)
+
+**Thresholds (all frozen):** min_words=1500, min_high_diacritic_samples=10, overall_tokens/word≤2.50, explicit_byte_fallback=0, proxy≤0.01 (not_applicable for BLBPE), high_diac_tokens/word≤3.25, diacritic_char_max_tokens=2
+
+**Family detection algorithm:**
+1. Vocab has `<0xNN>` → `sentencepiece_byte_fallback`
+2. Explicit hint in source → that hint
+3. Class ∈ {TokenizersBackend, GPT2Tokenizer*, LlamaTokenizerFast, Qwen2Tokenizer*} → `byte_level_bpe`
+4. Vocab has ≥200/256 GPT-2 byte_to_unicode chars → `byte_level_bpe`
+5. Else → `unknown`
+
+**Test coverage (33 unit + 1 smoke):**
+- Metadata: 9 (tokenizer_family populated)
+- Family detection: 6 (Llama, SPM-BF, unknown, generic fast, explicit, integration)
+- Proxy + blocking semantics: 4 (not_applicable BLBPE, blocking unknown, not-evaluated never blocks, explicit byte fallback always blocks)
+- Roundtrip: 4 (passes, whitespace exact, lossy blocks, omitted when text/tokenizer missing)
+- High-diacritic: 4 (paragraph filter, BLBPE proxy not_applicable, threshold gating, insufficient_samples)
+- Diacritic chars: 5 (lossless pass, decode-fail, token-count gate, blocking-reason, tokenizer_unavailable)
+
+**Validation:** `PYTHONPATH=code python3 -m py_compile code/llm_hawaii/tokenizer_audit_helpers.py code/tests/test_tokenizer_audit.py` ✅; `PYTHONPATH=code python3 -m unittest discover -s code/tests -p test_tokenizer_audit.py -v` ✅ (33 unit passed, 1 smoke skipped)
+
+**Out of scope (deferred):** Schema v2, `run_kind`, `generated_at`, `samples_summary`, debug JSONL dump, Llama-3 re-run (transformers unavailable), SHA computation
+
+**Phase 7 (next):** Re-run Llama-3.1-8B audit when transformers available; write fresh official report; verify byte_level_bpe family, roundtrip_lossless=true, all sections populated
+
+**Decision merged to canonical decisions.md:** `.squad/decisions.md` (2026-04-30T04:44:24Z entry)
+
+**Orchestration log:** `.squad/orchestration-log/2026-04-30T04:44:24Z-linus-tokenizer-audit-cleanup-implementation.md`
+
+**Session log:** `.squad/log/2026-04-30T04:44:24Z-tokenizer-audit-cleanup-implementation.md`

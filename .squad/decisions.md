@@ -1649,3 +1649,86 @@ These remain queued in harness-cleanup decision (2026-04-30T03:43Z) and will lan
 - **Basher:** Ack schema stays v1 this pass (additive); manifest pin work waits
 - **Coordinator:** Route §2 decision back through Rusty before Linus implements
 
+---
+
+## Decision: Linus — Tokenizer audit cleanup implementation (status: ✅ Implemented)
+
+**Date:** 2026-04-30T04:44:24Z  
+**Status:** Implemented — all 33 unit tests passing locally, 1 smoke skipped (transformers unavailable).
+
+### Summary
+
+Linus completed tokenizer audit harness cleanup (phases 1–6 of 7-phase plan). Module split into reusable helpers, family detection algorithm implemented, proxy applicability fixed for byte-level BPE, roundtrip lossless check added, high-diacritic and diacritic-chars evaluators deployed.
+
+### Files
+
+- **New:** `code/llm_hawaii/tokenizer_audit_helpers.py` — all reusable logic.
+- **Refactor:** `code/tests/test_tokenizer_audit.py` — imports from helpers; smoke test guarded with `@skipUnless(transformers)` and skips gracefully if Llama-3 tokenizer/eval slice unavailable.
+- **Preserved:** `code/llm_hawaii/data.py`, `data/tokenizer_audit/official/20260430T041606Z__meta-llama_Llama-3.1-8B.json` (existing official report untouched, per task constraint).
+
+### Schema (conservative; v1 preserved)
+
+- `schema_version` remains `tokenizer_audit_report.v1`. Full v2 refactor (drop `dry_run`, add `run_kind`, `generated_at`, `samples_summary`) is **out of scope** for this pass; all changes are additive and backward-compatible with v1 readers.
+- **New fields:**
+  - `model.tokenizer_family`: populated by `detect_tokenizer_family`. Values: `byte_level_bpe`, `sentencepiece_byte_fallback`, `unknown`, or `null` when no tokenizer provided.
+  - `checks[*].status`: explicit field (`evaluated` | `not_applicable` | `not_evaluated` | `insufficient_samples`).
+  - `checks[*].reason`: optional explanatory text.
+- **Fixed semantics:**
+  - `recommendation.blocking_reasons` now contains only checks where `passed is False` — `not_applicable` and `not_evaluated` checks are **never** added (fixes prior bug where `passed=None` could block).
+  - `byte_fallback_or_proxy_rate`: marked `not_applicable` for `byte_level_bpe` (numeric value preserved for forensics; threshold unchanged at 0.01).
+  - `roundtrip_lossless`: new blocking check appended whenever both `text` and `tokenizer` provided; comparison exact after NFC normalization (whitespace changes are real failures).
+  - `high_diacritic`: populated from Hawaiian diacritic-heavy spans (ʻokina + kahakō vowels). Returns `status ∈ {evaluated, insufficient_samples, not_evaluated}` plus metrics. Minimum gates (≥10 high-diacritic samples, ≥1,500 words) active via checks.
+  - `diacritic_chars`: populated for `ʻ ā ē ī ō ū` (and uppercase). Each item carries `decode_ok` and `passed = decode_ok AND token_count <= thresholds["standalone_diacritic_char_max_tokens"]` (default 2). Blocking check appended iff any char fails.
+
+### Threshold defaults (all frozen, no changes)
+
+```
+min_words:                                          1500
+min_high_diacritic_samples:                         10
+overall_tokens_per_word_max:                       2.50
+explicit_byte_fallback_rate_max:                   0.0   (blocking, all families)
+byte_fallback_or_proxy_rate_max:                   0.01  (not_applicable for byte_level_bpe, blocking for others)
+high_diacritic_tokens_per_word_max:                3.25
+high_diacritic_byte_fallback_or_proxy_rate_max:    0.01  (not_applicable for byte_level_bpe, blocking for others)
+standalone_diacritic_char_max_tokens:              2
+```
+
+### Family detection algorithm
+
+1. Vocab contains any `<0xNN>` token → `sentencepiece_byte_fallback`.
+2. Explicit `tokenizer_family` hint in source → that hint.
+3. Tokenizer class ∈ {`TokenizersBackend`, `GPT2Tokenizer*`, `LlamaTokenizerFast`, `Qwen2Tokenizer*`} → `byte_level_bpe`.
+4. Vocab contains ≥200/256 GPT-2 byte_to_unicode chars → `byte_level_bpe`.
+5. Otherwise → `unknown` (proxy rule conservatively kept applicable).
+
+**Key:** Generic `PreTrainedTokenizerFast` alone is insufficient to classify byte-level BPE; without GPT-2 byte chars or explicit hint, remains `unknown`.
+
+### SHA / Identity
+
+No SHA256 computation in helpers (per Rusty constraint and prior Linus contract). `hf_commit_sha` resolution unchanged: tokenizer attr → `init_kwargs` → `huggingface_hub.try_to_load_from_cache` snapshot path. Tests monkeypatch `helpers._hf_commit_sha_from_cached_snapshot` to exercise cache path without real cache.
+
+### Test coverage (33 unit tests, 1 smoke skipped)
+
+- **Metadata (9):** All prior coverage migrated; now verifying `tokenizer_family` populated.
+- **Family detection (6):** Llama, SPM-BF, unknown, generic fast unknown, explicit hint, metadata integration.
+- **Proxy applicability + blocking-reason semantics (4):** not_applicable for BLBPE, blocking for unknown, not-evaluated never blocks, explicit byte fallback always blocks.
+- **Roundtrip (4):** Passes, exact whitespace required, blocks on lossy, omitted when text/tokenizer missing.
+- **High-diacritic (4):** Paragraph filter, BLBPE not-applicable proxy, threshold gating into blocking_reasons, insufficient_samples.
+- **Diacritic chars (5):** Lossless pass, decode-fail, token-count gate, blocking-reason wiring, tokenizer_unavailable.
+
+### Out of scope (deferred)
+
+- Schema v2 + `run_kind`, `generated_at`, `samples_summary` refactor (defer until v2 schema owner lands).
+- Off-report debug JSONL dump (defer).
+- Re-running Llama-3 audit (no `transformers` in this env; gated model; phase 7 TBD).
+
+### Next steps (Phase 7)
+
+- Re-run against Llama-3.1-8B tokenizer when `transformers` available.
+- Write fresh official report to `data/tokenizer_audit/official/{timestamp}__meta-llama_Llama-3.1-8B.json`.
+- Verify `tokenizer_family=byte_level_bpe`, `roundtrip_lossless=true`, all sections populated.
+- Compare new report vs. `20260430T041606Z` baseline for gate decision update.
+
+**Orchestration log:** `.squad/orchestration-log/2026-04-30T04:44:24Z-linus-tokenizer-audit-cleanup-implementation.md`  
+**Session log:** `.squad/log/2026-04-30T04:44:24Z-tokenizer-audit-cleanup-implementation.md`
+
