@@ -3390,3 +3390,61 @@ From `/kaggle/working/ideal-spoon`:
 PYTHONPATH=code python -m llm_hawaii.train \
   --config code/configs/stage1_fineweb2_haw_kaggle_t4x2.json
 ```
+# Decision: Revert T4x2 config to batch=1/accum=16 after backward-pass OOM
+
+**Owner:** Basher (Training Engineer)
+**Date:** 2026-05-01
+**Status:** IMPLEMENTED
+
+## Context
+
+After `per_device_train_batch_size=2` / `gradient_accumulation_steps=8` was promoted to the Kaggle T4x2 config in the "maximize T4x2" session, the user restarted the run and hit:
+
+```
+torch.OutOfMemoryError: CUDA out of memory.
+Tried to allocate 1.96 GiB.
+GPU 1 total 14.56 GiB, 1.60 GiB free, 12.13 GiB allocated by PyTorch.
+```
+
+## Root Cause
+
+Batch=2 was survivable during the forward pass (activations distributed across both T4s via `device_map="auto"`), but the real backward pass materialises gradient accumulation buffers for both sequences on GPU 1 simultaneously. GPU 1 carries the tail model layers and bears the heaviest backward-pass allocation — this pushed peak demand ~360 MiB above the available headroom.
+
+## Decision
+
+Revert to the stable T4x2 baseline:
+- `per_device_train_batch_size = 1`
+- `gradient_accumulation_steps = 16`
+- `max_seq_len = 2048` (unchanged)
+- `save_total_limit = 300` (unchanged)
+
+Effective token budget per optimizer step is unchanged: 1 × 2048 × 16 = 32 768 tokens.
+
+## `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
+
+Setting `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in the notebook environment may reduce allocator fragmentation for varying sequence lengths and is worth adding as a belt-and-suspenders measure. However, it cannot resolve a capacity deficit — the observed OOM is a capacity issue, not a fragmentation issue. The primary fix is `batch=1`.
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `code/configs/stage1_fineweb2_haw_kaggle_t4x2.json` | `per_device_train_batch_size` 2→1, `gradient_accumulation_steps` 8→16, `memory` note updated |
+| `docs/kaggle-t4x2-setup.md` | Section 5 VRAM note updated; batch=2 flagged experimental/OOMed; `expandable_segments` note added |
+
+## Do Not Retry batch=2 Without
+
+- Per-GPU memory profiling (`torch.cuda.memory_stats()`) at the backward-pass peak
+- Or gradient offload / CPU offload enabled
+- Or sequence length reduced below 2048
+
+## Retry Commands (see docs/kaggle-t4x2-setup.md §5 for full setup)
+
+```bash
+# After pulling the updated config:
+PYTHONPATH=code python3 -m llm_hawaii.train \
+  --config code/configs/stage1_fineweb2_haw_kaggle_t4x2.json \
+  --preflight
+
+PYTHONPATH=code python3 -m llm_hawaii.train \
+  --config code/configs/stage1_fineweb2_haw_kaggle_t4x2.json
+```

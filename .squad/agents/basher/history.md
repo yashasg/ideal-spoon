@@ -80,6 +80,29 @@
 
 ---
 
+## 2026-05-01 — Revert batch=2 after real-backward OOM on T4x2
+
+**User Report:** `torch.OutOfMemoryError` on GPU 1 (1.60 GiB free, tried to allocate 1.96 GiB) after `per_device_train_batch_size=2` was promoted to the config in a prior session.
+
+**Root Cause:** Batch=2 held under the forward pass (activation memory spread across both T4s) but OOMed on the real backward when gradient accumulation buffers for both sequences materialised simultaneously on GPU 1.
+
+**Deliverables:**
+- `code/configs/stage1_fineweb2_haw_kaggle_t4x2.json` — `per_device_train_batch_size` 2→**1**, `gradient_accumulation_steps` 8→**16**; `memory` note updated to record OOM and document `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` as fragmentation hint (insufficient for batch=2 capacity issue).
+- `docs/kaggle-t4x2-setup.md` — section 5 updated: batch=2 flagged as experimental/OOMed, `expandable_segments` note added, batch=1/accum=16 stated as stable default.
+- `.squad/decisions/inbox/basher-kaggle-batch2-oom.md` — team decision drop.
+
+**Key Learning:**
+- Forward-pass OOM is a common signal; backward-pass OOM from accumulated gradient buffers is the harder case. With `device_map="auto"` single-process sharding, GPU 1 carries the tail layers and receives the heaviest backward-pass pressure. Batch=1 gives ~9 GiB headroom on GPU 1; batch=2 reduces that below the backward allocation demand.
+- `expandable_segments:True` helps fragmentation (avoids re-allocation on varying sequence lengths) but cannot conjure capacity. Always separate the two root causes.
+
+**Validation:**
+- ✅ JSON parse: `python3 -c "import json, pathlib; json.loads(pathlib.Path('code/configs/stage1_fineweb2_haw_kaggle_t4x2.json').read_text())"`
+- ✅ `git diff --stat` targeted check on config and docs only.
+
+**Status:** Implemented. T4x2 config stable at batch=1/accum=16/seq=2048.
+
+---
+
 ## 2026-04-30 — QLoRA bitsandbytes compute dtype fix
 
 **User Directive:** Fix QLoRA bitsandbytes compute dtype wiring to follow TrainConfig bf16/fp16 flags.
