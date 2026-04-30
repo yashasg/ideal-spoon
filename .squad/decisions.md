@@ -1,8 +1,159 @@
 # Decisions
 
-> Updated 2026-04-30T07:21:57Z: Added Basher stage0_eval.v2 drift-signal bundle (7-item fixed prompt suite, identity/eval-set/orthography/tripwire signals, placeholders for not-yet-wired probes), Rusty prompt-suite review + drift-coverage checklist, Linus summary-shape review. Post-review cleanups applied. Prior: Linus/Rusty tokenizer audit harness cleanup. Batch below.
+> Updated 2026-04-30T08:29:53Z: Merged inbox directives and decisions. W1 Stage 0 JSONL-only approved by Rusty; user model preferences captured; Linus W1 JSONL-only implementation complete. Batch below.
 
 ---
+
+## User Directive: W1 Stage 0 input is JSONL-only (2026-04-30T08:11:37Z)
+
+**By:** yashasg (via Copilot)
+
+**What:** W1 Stage 0 input should be JSONL-only; do not use TSV for W1 eval consumption.
+
+**Why:** User request — captured for team memory
+
+**Status:** Implemented by Linus; reviewed and APPROVED by Rusty.
+
+---
+
+## User Directive: Model preferences for team (2026-04-30T08:24:43Z - 2026-04-30T08:25:49Z)
+
+**By:** yashasg (via Copilot)
+
+**What:** 
+- Scribe and Ralph should use `claude-haiku-4.5`
+- Engineering agents (Linus, Basher, Livingston) should use `claude-sonnet-4.6`
+
+**Why:** User model preferences — captured for team memory
+
+**Status:** For future agent spawning
+
+---
+
+## Decision: Linus — W1 Stage 0 JSONL-only implementation
+
+**Date:** 2026-04-30T08:29:53Z
+
+**Owner:** Linus (Data Engineer)
+
+**Status:** APPROVED by Rusty (background gate review)
+
+### Summary
+
+Stage 0 W1 path now reads JSONL only. TSV is authoring-source only (off-git); TSV → JSONL conversion happens via `scripts/315_hash_manual_w1_eval.py --execute --jsonl-only`.
+
+### What changed
+
+- **CLI:** `--manual-w1-jsonl <path>` (replaces `--manual-w1-tsv`)
+- **Env:** `MANUAL_W1_JSONL=...` in `scripts/run_stage0_eval.sh` (replaces `MANUAL_W1_TSV`)
+- **Default:** `data/evals/manual_w1/w1-haw-micro-eval.jsonl`
+- **Report fields:** `jsonl_sha256`, `jsonl_size_bytes`, `schema_version_seen="manual-w1-jsonl-v1"`
+- **No TSV fallback** in `evaluate.py` (TSV constants removed)
+
+### Accepted-row orthographic gate (strict, loud, file-level invalid)
+
+Any of these on a `review_status=accepted` row flips file to `status="invalid"` (exit 2):
+- `nfc_normalized` not exactly `true`
+- `prompt`, `reference`, or `text` is not NFC
+- combining macron U+0304 in any field
+- wrong ʻokina codepoint (U+2018 / U+2019 / U+0027 / U+02BC)
+- empty `item_id`
+
+Drafts/reviewed rows stay loose.
+
+### Per-row JSONL fields
+
+- `item_id` (required on accepted) or `id` (alias)
+- `category` (optional, defaults `"unknown"`)
+- `prompt` (string), `reference` (string, optional; falls back to `text`)
+- `text` (optional, fallback for reference hash material)
+- `review_status`: `draft | reviewed | accepted` (only `accepted` is eval-consumable)
+- `nfc_normalized`: bool or `"true"`/`"false"` string
+- `diacritic_density` (int) and/or `diacritic_density_bin` (`none|low|medium|high`)
+- `sha256_normalized` (64-char hex, optional; otherwise computed)
+
+### Hash + suite stability
+
+- `w1_suite_sha256`: sha256 over sorted `(item_id, sha256_normalized)` pairs
+- Stable under row reorder; flips when accepted set changes
+- Hash formula: `sha256(NFC(prompt) + LF + NFC(reference))`
+
+### Exit codes
+
+- Exit 2 iff `manual_w1.status == "invalid"`
+- Exit 0 otherwise
+- Report JSON written before exit; tracked summary writes regardless
+
+### Validation
+
+- ✅ `python3 -m py_compile code/llm_hawaii/evaluate.py scripts/315_hash_manual_w1_eval.py scripts/_convert_ulukau_human_fetch.py`
+- ✅ `sh -n scripts/run_stage0_eval.sh`
+- ✅ `cd code && PYTHONPATH=. python3 -m unittest tests.test_evaluate tests.test_metrics` — **50/50 green**
+- ✅ `git --no-pager diff --check`
+
+### Trusted source for W1 rows
+
+- **Source:** `data/raw/ulukau_nupepa/human_fetch.txt` (on-disk, off-git, gitignored under `data/raw/`)
+- **Sections:** `# English` / `# Hawaiian` — use Hawaiian only for W1
+- **Converter:** `scripts/_convert_ulukau_human_fetch.py` is parser/normalizer context, not source of truth
+- **Populated TSV/JSONL:** Off-git under `data/evals/manual_w1/`
+
+---
+
+## Review: Rusty — W1 Stage 0 JSONL-only revision (Linus) [APPROVED]
+
+**Date:** 2026-04-30T08:29:53Z
+
+**Reviewer:** Rusty (NLP Researcher)
+
+**Subject under review:** W1 Stage 0 JSONL-only implementation (Linus)
+
+### Verdict — **APPROVE**
+
+JSONL-only Stage 0 W1 path delivered, no TSV fallback, strict accepted-row gates preserved, tests/docs aligned. Validation re-runs clean: **50/50 tests green**, py_compile clean, sh -n clean, git diff --check clean.
+
+### Spot checks
+
+1. **JSONL-only wiring — PASS**
+   - `evaluate.py:58`: `DEFAULT_MANUAL_W1_JSONL = "data/evals/manual_w1/w1-haw-micro-eval.jsonl"`
+   - `evaluate.py:1003-1019`: `--manual-w1-jsonl` only, no `--manual-w1-tsv`
+   - Legacy TSV symbols gone; pinned by unit tests
+
+2. **Report fields — PASS**
+   - `jsonl_sha256`, `jsonl_size_bytes` (rename from `tsv_sha256` / `tsv_size_bytes`)
+   - `schema_version_seen = "manual-w1-jsonl-v1"` on valid states
+
+3. **Accepted-row gate — PASS**
+   - NFC normalization required, ʻokina orthography strict
+   - Combining macron forbidden, item_id required
+   - Drafts/reviewed rows loose
+
+4. **Hash stability — PASS**
+   - `w1_suite_sha256` stable under row reorder, flips on accepted-set changes
+   - `accepted_item_hashes` sorted
+
+5. **Exit propagation — PASS**
+   - Exit 2 on invalid, 0 otherwise
+   - Tracked summary writes unconditionally
+
+6. **Docs/tests — PASS**
+   - `code/README.md:164-209` describes JSONL-only
+   - `docs/eval_pipeline.md` §3.1, §8.1 match
+   - All unit tests pass
+
+### Validation rerun (clean)
+
+- ✅ py_compile
+- ✅ sh -n scripts/run_stage0_eval.sh
+- ✅ 50/50 tests green
+- ✅ git diff --check
+
+### Outcome
+
+✅ **Lift the W1 JSONL-only revision.** Linus locked out of next revision cycle per standard rule; no re-spawn needed.
+
+---
+
 
 ## User Directive: Stage 0 eval drift-signal bundle (2026-04-30T07:04:47Z)
 

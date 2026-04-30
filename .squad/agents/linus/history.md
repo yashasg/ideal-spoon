@@ -1,5 +1,19 @@
 # Linus — History
 
+## 2026-04-30T08:29:53Z — W1 Stage 0 JSONL-only implementation [APPROVED]
+
+**User directive:** W1 Stage 0 input is JSONL-only; do not use TSV for W1 eval consumption.
+
+**Implementation:** Removed TSV fallback from `evaluate.py`, added `--manual-w1-jsonl` CLI flag, updated `scripts/run_stage0_eval.sh` to use `MANUAL_W1_JSONL` env. Implemented strict accepted-row orthographic gate: NFC normalization, ʻokina orthography (U+02BB only), no combining macron U+0304, non-empty item_id. Emits JSONL-specific report fields: `jsonl_sha256`, `jsonl_size_bytes`, `schema_version_seen="manual-w1-jsonl-v1"`. Preserved accepted-row hashes and `w1_suite_sha256` computation. Updated docs/tests.
+
+**Validation:** ✅ py_compile clean, ✅ sh -n clean, ✅ 50/50 tests green, ✅ git diff --check clean.
+
+**Review:** Rusty (NLP Researcher) — APPROVED background gate. Confirmed JSONL-only consumption, strict accepted-row gates, stable hashes, invalid exit propagation, docs/tests alignment.
+
+**Outcome:** ✅ W1 Stage 0 now reads JSONL only; TSV is authoring-source only for `scripts/315_hash_manual_w1_eval.py --execute --jsonl-only`. Locked out of next revision cycle per standard rule.
+
+---
+
 ## 2026-04-30 — Stage 0 summary-shape review and post-review coordination
 
 **Action:** Reviewed `stage0_eval.v2` tracked summary shape for consumability by a future cross-checkpoint aggregator.
@@ -521,3 +535,86 @@ exit-2 posture, the failing report could land in the tracked summary
 dir as a "successful" Stage 0 run and pollute checkpoint-to-checkpoint
 diffs going forward. The shell script still writes the summary so the
 artifact stays inspectable; it just refuses to claim green.
+
+## 2026-04-30 — W1 Stage 0 input is JSONL-only
+
+**Action:** Implemented the user directive
+(`.squad/decisions/inbox/copilot-directive-20260430T081137Z.md`): Stage 0
+W1 eval input is now JSONL-only. The TSV stays as the local authoring
+format consumed by `scripts/315_hash_manual_w1_eval.py`; the harness no
+longer reads it. Final contract logged at
+`.squad/decisions/inbox/linus-w1-jsonl-only.md`.
+
+**Changes (mine):**
+
+1. `code/llm_hawaii/evaluate.py` — `manual_w1_status()` rewritten to
+   parse JSONL. New default constant `DEFAULT_MANUAL_W1_JSONL`; old
+   `DEFAULT_MANUAL_W1_TSV` / `MANUAL_W1_HEADER` /
+   `MANUAL_W1_TSV_SCHEMA_VERSION` removed (clean break per directive,
+   no TSV fallback in evaluate.py). New emitted fields `jsonl_sha256` /
+   `jsonl_size_bytes` replace `tsv_*`. `schema_version_seen` is now
+   `"manual-w1-jsonl-v1"` (matches the script-emitted JSONL row
+   `schema_version`). Accepted-row hash uses each row's
+   `sha256_normalized` when present and well-formed (64 hex chars), else
+   computes the canonical `sha256(NFC(prompt) + LF + NFC(reference))` —
+   byte-for-byte identical to `scripts/315_hash_manual_w1_eval.py`.
+   Orthographic gate also covers `text` field on accepted rows. CLI:
+   `--manual-w1-jsonl` replaces `--manual-w1-tsv`.
+2. `scripts/run_stage0_eval.sh` — `MANUAL_W1_JSONL` env replaces
+   `MANUAL_W1_TSV`; `--manual-w1-jsonl` arg threaded through `build_cmd`
+   and the `set --` argv builder. Tracked-summary projection inherits
+   the rename via `manual_w1` pass-through (no allowlist; safe by
+   construction because the dict only carries hash/count/error-line
+   fields). `set -eu` preserved; non-zero `EVAL_RC` still propagated.
+3. `code/tests/test_evaluate.py` — full rewrite for JSONL fixtures.
+   50/50 green. New coverage: `id` alias, string-bool `nfc_normalized`,
+   row-supplied `sha256_normalized` vs harness-computed, gating on
+   `text` field, JSONL parse errors → invalid + non-zero exit, empty
+   file → `draft_only`, `--manual-w1-tsv` is gone.
+4. Docs — `code/README.md`, `docs/eval_pipeline.md` §8.1, and
+   `data-sources/manual-eval/README.md` updated. The TSV is now
+   described as the authoring/source format; the JSONL is the
+   eval-consumable artifact. The `human_fetch.txt` → W1 row workflow is
+   documented (manual paste into TSV → `--jsonl-only` regenerate) since
+   the converter remains a tokenizer-audit utility.
+
+**What I deliberately did NOT do:**
+
+- Did not commit anything (per instructions).
+- Did not modify `scripts/315_hash_manual_w1_eval.py` — it already
+  emits `manual-w1-jsonl-v1` JSONL with the right field set, and its
+  TSV-input role is intentional (authors edit TSV, the script emits the
+  eval JSONL).
+- Did not auto-convert `data/raw/ulukau_nupepa/human_fetch.txt` into a
+  W1 row — that requires Hawaiian-literate human review and the raw
+  W1 row would need to live off-git. Documented the manual command
+  path instead.
+
+**Validation (clean):**
+
+- `python3 -m py_compile code/llm_hawaii/evaluate.py scripts/315_hash_manual_w1_eval.py scripts/_convert_ulukau_human_fetch.py`
+- `sh -n scripts/run_stage0_eval.sh`
+- `cd code && PYTHONPATH=. python3 -m unittest tests.test_evaluate tests.test_metrics` — 50/50 green.
+- `git --no-pager diff --check` — clean.
+- Smoke test on the actual local JSONL: parses to `draft_only` with
+  `schema_version_seen=manual-w1-jsonl-v1`, `jsonl_sha256` populated,
+  no raw text in the dict.
+
+## Learnings
+
+- A single eval-consumable file format (JSONL) per probe avoids
+  silent-drift between authoring and consumption surfaces. The earlier
+  dual-path setup (evaluate.py read TSV, ledger script wrote JSONL)
+  meant `w1_suite_sha256` would shift on TSV whitespace edits even when
+  no accepted row changed. JSONL-only fixes that: suite hash now
+  reflects *accepted-set* churn only.
+- When renaming a CLI/env surface, removing the old symbol from the
+  Python module beats keeping a deprecated alias when there are no
+  external consumers — the test
+  `assertFalse(hasattr(ev, "DEFAULT_MANUAL_W1_TSV"))` is the cheapest
+  way to guarantee the old name doesn't sneak back in via copy-paste.
+- Lenient `nfc_normalized` parsing (accept native bool *or* the strings
+  `"true"`/`"false"`) is worth it because the script-emitted JSONL uses
+  a native bool but a hand-edited JSONL would naturally stringify it;
+  rejecting hand-edits at the type level is friction with no safety
+  payoff (the orthographic gate catches the actual NFC violations).

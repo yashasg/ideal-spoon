@@ -1,5 +1,27 @@
 # Rusty — History
 
+## 2026-04-30T08:29:53Z — W1 Stage 0 JSONL-only review [APPROVED]
+
+**Subject:** W1 Stage 0 JSONL-only implementation (Linus).
+
+**Reviewer role:** Background gate (approves or requires revision).
+
+**Review scope:** Verified JSONL-only wiring, strict accepted-row orthographic gates, hash stability, exit-code propagation, docs/test alignment, validation re-run.
+
+**Spot checks:**
+- ✅ JSONL-only wiring: `evaluate.py:58` defines `DEFAULT_MANUAL_W1_JSONL`; `evaluate.py:1003-1019` exposes `--manual-w1-jsonl` only (no `--manual-w1-tsv`); legacy TSV symbols removed.
+- ✅ Report fields: `jsonl_sha256`, `jsonl_size_bytes`, `schema_version_seen="manual-w1-jsonl-v1"` (JSONL-specific).
+- ✅ Accepted-row gate: NFC required, ʻokina orthography strict (U+02BB only), combining macron forbidden, item_id required; drafts/reviewed rows loose.
+- ✅ Hash stability: `w1_suite_sha256` over sorted `(item_id, sha256_normalized)` pairs; stable under row reorder, flips on accepted-set changes.
+- ✅ Exit propagation: exit 2 on invalid, 0 otherwise; report writes before exit.
+- ✅ Docs/tests: `code/README.md`, `docs/eval_pipeline.md` describe JSONL-only; all 50/50 tests pass.
+
+**Validation re-run:** ✅ py_compile clean, ✅ sh -n clean, ✅ 50/50 tests green, ✅ git diff --check clean.
+
+**Verdict:** ✅ APPROVED. W1 JSONL-only revision is production-ready.
+
+---
+
 ## 2026-04-30 — W1 Stage 0 contract (pre-rerun)
 
 **Trigger:** yashasg, "let's figure this out before we run Stage 0 again."
@@ -423,3 +445,61 @@ Lesson: when writing contracts that prefer JSONL but allow TSV fallback, spell o
   per row, drop the mirrored hash helper, retire the TSV path) remains
   the natural follow-up; explicitly reserved-only today, not
   prematurely implemented.
+
+### 2026-04-30 — W1 JSONL-only revision review (Linus)
+
+**Outcome:** APPROVE. Verdict at
+`.squad/decisions/inbox/rusty-w1-jsonl-only-review.md`.
+
+- Stage 0 W1 input is JSONL-only end-to-end:
+  `evaluate.DEFAULT_MANUAL_W1_JSONL = "data/evals/manual_w1/w1-haw-micro-eval.jsonl"`,
+  `--manual-w1-jsonl` / `MANUAL_W1_JSONL` wiring, `--no-manual-w1` /
+  `USE_MANUAL_W1=0` disables. No `DEFAULT_MANUAL_W1_TSV` /
+  `--manual-w1-tsv` / `MANUAL_W1_HEADER` / `MANUAL_W1_TSV_SCHEMA_VERSION`
+  symbols remain in `evaluate.py`; their absence is pinned by
+  `test_evaluate.py:482-487`.
+- Report fields are JSONL-specific: `jsonl_sha256`, `jsonl_size_bytes`,
+  `schema_version_seen = "manual-w1-jsonl-v1"` on
+  `evaluated` / `draft_only`; `None` on `not_configured` / `missing` /
+  `invalid`. `scoring_status` stays `not_wired`. No raw prompt /
+  reference / notes / author / text leaks on any branch.
+- Accepted JSONL rows correctly support `item_id` with `id` alias,
+  `category`, `prompt`, `reference` (falling back to `text` for hash
+  material), `review_status`, `nfc_normalized` (bool or `"true"`/`"false"`),
+  `diacritic_density` + `diacritic_density_bin`, and optional
+  `sha256_normalized` (used verbatim when 64-hex, else canonical
+  `sha256(NFC(prompt) + LF + NFC(reference))` fallback that mirrors
+  `scripts/315_hash_manual_w1_eval.py:compute_hash` byte-for-byte).
+- Accepted-row strict gate: NFC failure on `prompt` / `reference` /
+  `text`, U+0304 combining macron, wrong-ʻokina codepoint
+  (U+2018/U+2019/U+0027/U+02BC), `nfc_normalized != "true"`, or empty
+  `item_id` flips `manual_w1.status = "invalid"`,
+  `eval_consumable_count = 0`, `accepted_item_hashes = []`,
+  `w1_suite_sha256 = null`, `schema_version_seen = null`, with
+  `first_errors` capped at 10 line+field-only strings and
+  `error_count` carrying the true total. Drafts/reviewed rows stay
+  loose via the `if rs != "accepted": continue` guard.
+- `w1_suite_sha256` is stable under row reorder (sorted
+  `(item_id, sha256_normalized)` pairs) and flips on accepted-set
+  churn; both behaviors pinned by tests.
+- `evaluate._cli_exit_code` returns 2 iff `manual_w1.status == "invalid"`,
+  always after writing the report JSON. `scripts/run_stage0_eval.sh`
+  captures rc with `&& EVAL_RC=0 || EVAL_RC=$?`, writes the tracked
+  summary projection unconditionally (verbatim `manual_w1` pass-through),
+  then propagates the non-zero exit. `set -eu` preserved.
+- Docs (`code/README.md`, `docs/eval_pipeline.md`,
+  `data-sources/manual-eval/README.md`) consistently describe Stage 0
+  as JSONL-only and call out the TSV solely as the local authoring
+  source consumed by
+  `python3 scripts/315_hash_manual_w1_eval.py --execute --jsonl-only`.
+- `data/raw/ulukau_nupepa/human_fetch.txt` remains the named trusted
+  source directive; `_convert_ulukau_human_fetch.py` self-describes as
+  parser/normalizer (not the source) and writes only under ignored
+  `data/tokenizer_audit/`. The W1 TSV/JSONL paths are gitignored, so
+  raw local data cannot leak into tracked summaries.
+- Validation: `py_compile`, `sh -n`, `unittest tests.test_evaluate
+  tests.test_metrics` all clean — **50/50 tests green**.
+  `git --no-pager diff --check` clean.
+
+Linus is locked out of the next revision cycle on this scope (verdict is
+APPROVE; no rejection-driven re-spawn needed).
