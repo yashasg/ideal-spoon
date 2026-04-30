@@ -110,3 +110,15 @@ Changes:
 Preserved: thresholds, gate semantics, "do not fabricate" stance, #8 still blocking serious 7B/8B spend. Did not commit. Left `.squad/agents/rusty/history.md` and `.squad/orchestration-log/...rusty.md` untouched as historical records.
 
 `py_compile` clean on the two edited Python files. Final grep confirms zero active references to `scripts/040_tokenizer_audit.py` or `TODO(audit-tokenizer)` in `*.py`/docs.
+
+### 2026-04-30 — Proposed tokenizer-audit output contract (Stage-0 gate)
+
+User asked what the tokenizer audit's output should look like (never discussed). Wrote `.squad/decisions/inbox/basher-tokenizer-audit-output-contract.md` defining the file layout and JSON schema for the planned `code/tests/test_tokenizer_audit.py`. Key shape:
+
+- One run dir per audit: `data/tokenizer_audit/<run_id>/` with `report.json`, `report.md`, `samples.jsonl`, `inputs.manifest.json`. All ignored, local-only.
+- `report.json` is the single source of truth read by the gate. Reuses field paths already named in docs/decisions: `model.tokenizer_sha256` (+ `tokenizer_fingerprint_sha256` alias), `overall.{tokens_per_word, explicit_byte_fallback_rate, byte_fallback_or_proxy_rate}`, `high_diacritic.*`, plus `checks[]` and `recommendation.{decision, reasons, blocks, next_actions}`.
+- Decision rule: `go` iff every `checks[*].passed == true`; otherwise `no_go` with failing ids enumerated. Thresholds copied into the report (so old reports stay interpretable). No partial-credit.
+- Hard-fail (missing `transformers`, gated Llama, no Hawaiian samples) writes a `no_go` report with `recommendation.reasons = ["environment.*"]` and null metrics — never fabricated numbers. Preserves Rusty's "do not fabricate" stance.
+- Gate semantics unchanged: `go` is the only path to freeze tokenizer/model SHA into `code/configs/llama31_8b_a100.json` Stage-1 manifest. Audit slices stay `audit_only`; no eval-hash ledger writes from this path.
+
+No code, no docs, no eval ledger changes touched. Flagged a follow-up doc edit (training-pipeline §1.1, eval_pipeline §3.1) for after the contract is adopted.

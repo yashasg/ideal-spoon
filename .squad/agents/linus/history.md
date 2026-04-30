@@ -175,3 +175,28 @@ Recommended treating `proofread_status=4` ("Validated") Wikisource as W1 _candid
 - HAW slice: 527 chars, ~103 words, ʻokina × 22, kahakō × 21, diacritic density ≈ 0.082 — useful as a high-diacritic probe row for the planned tokenizer-audit test (Rusty, Issue #8 gate).
 - Policy: tagged `audit_use=tokenizer_audit_candidate`, `audit_only=true`, `stage1/eval/training/w1_eligible=false`. License status `unverified_landing_copy`. User's "likely native speaker" belief recorded as note, not verification.
 - Did NOT touch raw source, Stage 1, eval hashes, or W1. Did not commit. Pre-existing dirty files in `scripts/` left alone.
+
+### 2026-04-30 — Ulukau Kaʻehuikimanōopuʻuloa pages → tokenizer-audit candidate (additive)
+
+- Converted manual page-paste of *He moʻolelo kaʻao no Kaʻehuikimanōopuʻuloa*
+  at `data/raw/ulukau_nupepa/human_fetch_book_pages.txt` into a new audit-only
+  artifact. **Additive** — prior `human_fetch.*` landing-copy artifact
+  untouched (hashes verified).
+- Outputs (all under ignored `data/`):
+  - `data/tokenizer_audit/ulukau_nupepa/kaehuikimanoopuuloa/kaehuikimanoopuuloa.jsonl` (1 row, `lang=haw`).
+  - `data/tokenizer_audit/ulukau_nupepa/kaehuikimanoopuuloa/kaehuikimanoopuuloa.haw.txt` (Hawaiian-only).
+  - `data/tokenizer_audit/ulukau_nupepa/kaehuikimanoopuuloa/manifest.json`.
+  - `data/tokenizer_audit/ulukau_nupepa/kaehuikimanoopuuloa/README.md`.
+- Helper: `scripts/_convert_kaehuikimanoopuuloa.py` (local one-shot, idempotent; not committed).
+- Normalization: NFC; ʻokina U+02BB rule applied (source already clean; 0 substitutions);
+  per-line whitespace collapse; multi-blank-line page-paste runs collapsed to single blank;
+  paragraph boundaries preserved; no content deletion; curly quotes preserved as dialogue.
+- Counts: 14,753 chars · 3,224 rough words · 21 paragraphs · ʻokina × 756 · kahakō × 614 ·
+  diacritic density ≈ **0.1254** (vs ≈ 0.082 for the landing-copy HAW slice — strong
+  high-diacritic probe row for the planned tokenizer-audit test, Issue #8 gate).
+- Policy: `audit_use=tokenizer_audit_candidate`, `audit_only=true`,
+  `stage1/eval/training/w1_eligible=false`. License: `unverified` (published
+  work; rights NOT cleared). User's "likely native speaker" framing recorded
+  as note, not verification.
+- Did NOT touch raw source (SHA verified pre/post), Stage 1, eval hashes, W1,
+  or prior tokenizer_audit artifacts. Did not commit.

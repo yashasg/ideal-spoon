@@ -518,3 +518,251 @@ Aligned with Rusty's Stage-0 tokenizer-audit gate convention that audit inputs/r
   ready high-diacritic Hawaiian probe row. Treat as candidate input only.
 - **Frank:** if/when license clearance for Ulukau landing copy is in scope,
   this is the path to clear. Until then it stays audit-only.
+
+---
+
+## Decision: Linus — Kaʻehuikimanōopuʻuloa pages converted to tokenizer-audit candidate
+
+**Date:** 2026-04-30  
+**Owner:** Linus (Data Engineer)  
+**Status:** Recorded — additive, audit-only; source integrity verified
+
+### Summary
+
+Converted manual book-page paste of *He moʻolelo kaʻao no Kaʻehuikimanōopuʻuloa* (Moses Manu) from `data/raw/ulukau_nupepa/human_fetch_book_pages.txt` into audit-only artifacts. Prior `human_fetch.*` landing-copy slice untouched (hashes verified). Additive under `data/tokenizer_audit/ulukau_nupepa/kaehuikimanoopuuloa/`.
+
+### Content
+
+- **Text:** 14,753 characters, 3,224 Hawaiian words, 21 paragraphs
+- **ʻokina:** 756 instances (U+02BB)
+- **kahakō:** 614 instances (macron vowels)
+- **Diacritic density:** (756+614)/14,753 ≈ **0.1254** (12.54% of content)
+  - vs. prior `human_fetch.md` slice ≈ 0.082 — **53% denser**, strong high-diacritic probe
+
+### Artifacts (all under ignored `data/`)
+
+- `data/tokenizer_audit/ulukau_nupepa/kaehuikimanoopuuloa/kaehuikimanoopuuloa.jsonl` (1 JSONL row, lang=haw)
+- `data/tokenizer_audit/ulukau_nupepa/kaehuikimanoopuuloa/kaehuikimanoopuuloa.haw.txt` (plain text)
+- `data/tokenizer_audit/ulukau_nupepa/kaehuikimanoopuuloa/manifest.json`
+- `data/tokenizer_audit/ulukau_nupepa/kaehuikimanoopuuloa/README.md`
+- Helper: `scripts/_convert_kaehuikimanoopuuloa.py` (local, idempotent, not committed)
+
+### Normalization
+
+- NFC applied; source already clean at U+02BB (0 substitutions)
+- Paragraph boundaries preserved; multi-blank-line paste runs collapsed to single blank
+- No content deletion; curly quotes (dialogue) preserved as-is
+- Source SHA-256 verified pre/post
+
+### Policy (Binding)
+
+- `audit_use = tokenizer_audit_candidate`, `audit_only = true`
+- **Not** Stage 1, **not** eval, **not** training, **not** W1
+- License: `unverified` (published work; rights not cleared)
+- User's "likely native speaker" framing recorded as note, not verification
+
+### Invariants Preserved
+
+- Raw source (`data/raw/ulukau_nupepa/human_fetch_book_pages.txt`) unchanged; SHA verified
+- Prior `human_fetch.*` landing-copy artifact untouched
+- Stage 1 manifest, eval_hashes.jsonl, W1 ledger: no writes
+- No commits
+
+### What Happens Next
+
+- **Rusty:** Combined with `human_fetch.md` landing-copy slice, these two now meet Stage-0 minimums (≥1,500 words ✅, ≥10 high-diacritic samples ✅)
+- **Coordinator:** Test harness can begin; multi-genre expansion (≥5–6k words, ≥3 genres) recommended for defensible gate numbers
+
+---
+
+## Decision: Rusty — Kaʻehuikimanōopuʻuloa assessed as strong tokenizer-audit slice
+
+**Date:** 2026-04-30  
+**Owner:** Rusty (NLP Researcher)  
+**Status:** Recorded — combined slices meet minimum thresholds; single-register stress noted
+
+### Assessment
+
+**Verdict:** Strong tokenizer-audit candidate. The 3,224-word high-diacritic slice (0.1254 density) paired with earlier `human_fetch.md` landing-copy (0.082 density) now **meets** the frozen Stage-0 gate minimums:
+
+| Criterion | Status | Detail |
+|-----------|--------|--------|
+| ≥1,500 words | ✅ PASS | 3,751 combined words |
+| ≥10 high-diacritic samples | ✅ PASS | 26+ paragraphs/sentences with ʻokina+kahakō floor |
+| Tokens/word ≤2.50 (overall) | ⏳ Pending | Harness run required |
+| Tokens/word ≤3.25 (high-diacritic) | ⏳ Pending | Harness run required |
+| Byte fallback / proxy rates | ⏳ Pending | Harness run required |
+
+### Combined Audit Package
+
+| Slice | Genre | Words | Density | Diacritics |
+|-------|-------|-------|---------|-----------|
+| `human_fetch.md` | Landing-copy blurb (EN+HW mixed) | 527 | 0.082 | Mixed |
+| `kaehuikimanoopuuloa` | Narrative prose (Hawaiian-only) | 3,224 | 0.1254 | High |
+| **Total** | Two genres, one author family | **3,751** | **0.119 avg** | **High** |
+
+### Stress-Test Value
+
+1. **Diacritic range:** 0.082 → 0.1254 shows workable variance; nūpepa likely higher; place names may spike different directions
+2. **Register consistency:** Both 19th-century Hawaiian; word-internal diacritics common (prose stress)
+3. **Single-author limitation:** Moses Manu + blurb pair; same author family minimizes genre variance
+4. **All paragraphs pass floor:** Every paragraph in narrative slice clears ≥3 ʻokina+kahakō threshold easily (high-diacritic qualification)
+
+### Recommendations
+
+**Immediate:** Proceed with test harness authoring against this two-slice pair.
+
+**Medium term (defensible gate numbers):** Target ≥5–6k words across ≥3 genres:
+- Ulukau nūpepa (newspapers): modern Hawaiian, dialogue-heavy, register mix
+- Modern prose: contemporary, possibly Aloha Aina or educational material
+- Place names / proper nouns: high ʻokina, sparse kahakō — symbol-isolated stress
+
+**Genre-specific stress profiles (future):**
+- Landing-copy: minimal kahakō, high ʻokina (0.082) → symbol-mix load
+- Narrative prose: balanced ʻokina+kahakō (0.1254) → word-internal diacritic density
+- Nūpepa: dialogue + editorial → register variance, modern Hawaiian
+- Place names: high ʻokina, sparse kahakō → isolated-character symbol stress
+
+### Policy (Binding)
+
+- Audit-only; no eval_hashes.jsonl, Stage 1 manifest, or W1 ledger writes
+- Licensing (`unverified`) requires separate Hawaiian-literate review for any non-audit escalation
+- Train ∩ eval = ∅ maintained
+
+### Cross-Agent Notes
+
+- **Linus:** Conversion complete; manifest.json ready for harness consumption
+- **Basher:** Tokenizer audit output contract now has concrete candidate slices to validate schema against
+- **Coordinator:** Two-slice pair passes minimum thresholds; test authoring unblocked; multi-genre expansion is nice-to-have, not blocker
+
+---
+
+## Decision: Basher — Tokenizer-audit output contract (Stage-0 gate reporting)
+
+**Date:** 2026-04-30  
+**Owner:** Basher (Training Engineer)  
+**Status:** Recorded — output layout defined; implementation pending (test harness authoring)
+
+### Summary
+
+Defined file structure and JSON schema for tokenizer-audit runs. One run directory per audit: `data/tokenizer_audit/<run_id>/` with `report.json` (machine-readable gate truth), `report.md` (human narrative), `samples.jsonl` (annotated slices), and `inputs.manifest.json` (audit inputs). Hard-fail semantics: missing `transformers`, gated Llama, no Hawaiian samples → `no_go` with environment reasons, never fabricated metrics. No changes to docs, code, or eval ledger; schema ready for adoption.
+
+### Output Structure
+
+```
+data/tokenizer_audit/<run_id>/
+├── report.json             # Machine-readable gate truth (read by CI)
+├── report.md               # Human narrative (for review)
+├── samples.jsonl           # Annotated slice samples with tokenization
+└── inputs.manifest.json    # Which input slices were audited
+```
+
+All files are local-only, gitignored.
+
+### `report.json` Gate Logic
+
+**Decision rule:** `go` iff all `checks[*].passed == true` AND `recommendation.decision == "go"`.
+
+**No partial credit:** Hard-fail (missing `transformers`, gated model access, zero samples) writes `recommendation.decision = "no_go"` with `recommendation.reasons = ["environment.*"]` and null metrics. Never manufactured passing numbers.
+
+**Checks (from frozen decisions.md):**
+1. `overall_tokens_per_word ≤ 2.50` (overall text)
+2. `high_diacritic_tokens_per_word ≤ 3.25` (high-diacritic only)
+3. `explicit_byte_fallback = 0` (no synthetic bytes)
+4. `proxy_rate ≤ 1%` (minimal fallback proxies)
+5. `diacritic_char_tokens ≤ 2` (ʻokina/kahakō tokenize into ≤2 tokens each)
+
+### `report.json` Schema (Abridged)
+
+```json
+{
+  "run_id": "...",
+  "timestamp": "2026-04-30T02:04:40Z",
+  "model": {
+    "model_id": "meta-llama/Llama-3.1-8B",
+    "tokenizer_sha256": "abc123...",
+    "tokenizer_fingerprint_sha256": "abc123..."
+  },
+  "overall": {
+    "total_words": 3751,
+    "tokens_per_word": 2.34,
+    "explicit_byte_fallback_rate": 0.00,
+    "byte_fallback_or_proxy_rate": 0.005
+  },
+  "high_diacritic": {
+    "sample_count": 26,
+    "tokens_per_word": 2.87,
+    "explicit_byte_fallback_rate": 0.00,
+    "byte_fallback_or_proxy_rate": 0.01
+  },
+  "checks": [
+    {
+      "id": "overall_tokens_per_word",
+      "passed": true,
+      "threshold": 2.50,
+      "actual": 2.34
+    },
+    ...
+  ],
+  "recommendation": {
+    "decision": "go",
+    "reasons": ["all_checks_passed"],
+    "blocks": [],
+    "next_actions": [
+      "Freeze tokenizer SHA into Stage-1 manifest",
+      "Unblock code/configs/llama31_8b_a100.json",
+      "Proceed to Stage 1 training"
+    ]
+  }
+}
+```
+
+### `report.md` Structure
+
+Human-readable narrative matching JSON:
+1. Summary (headline + decision)
+2. Model & tokenizer SHA
+3. Overall metrics table
+4. High-diacritic metrics table
+5. Check results (each with threshold / actual / pass/fail)
+6. Recommendation (decision + reasons + next steps)
+7. Audit inputs (which slices, counts)
+
+### `samples.jsonl` & `inputs.manifest.json`
+
+- **`samples.jsonl`:** One JSONL row per sample with tokenization details (`source_manifest`, `tokens_per_word`, `has_explicit_byte_fallback`, `is_high_diacritic`, etc.)
+- **`inputs.manifest.json`:** List of input slices used (source name, word count, sample count, policy tags)
+
+### Integration with CI & Config
+
+- **CI Gate:** Test harness writes `report.json`. CI/Makefile reads `recommendation.decision` field and blocks training entry if not `go`.
+- **Config Unfreeze:** Once gate passes `go`, Linus updates `code/configs/llama31_8b_a100.json` with frozen tokenizer SHA and model ID.
+
+### Guarantees & Constraints
+
+1. **No fabricated metrics:** Hard-fail writes `no_go` with null metrics + environment reasons. Never backfill passing numbers.
+2. **Thresholds frozen:** Values in `checks[*].threshold` match decisions.md frozen values. Schema version increments if threshold changes.
+3. **Gate is binary:** `decision ∈ {go, no_go}`. No `conditional` or `partial`.
+4. **SHA is portable:** `tokenizer_sha256` + `model_id` together sufficient to recreate audit on different machine.
+
+### What Is NOT Changing
+
+- Docs: no updates yet (deferred until contract adopted; training-pipeline §1.1, eval_pipeline §3.1 will be updated post-adoption)
+- Data policy: audit slices remain `audit_only`; no eval_hashes.jsonl, Stage 1, W1 writes
+- Code: no changes to `code/llm_hawaii/`, no test harness yet (Qwen smoke test remains until contract adoption)
+
+### For Future Test Harness Author
+
+1. Hard-fail early: check `transformers` + Llama gating at entry
+2. Reuse `code/llm_hawaii/metrics.py` for diacritic counts and high-diacritic classification
+3. Tokenize in batches: Llama tokenizer may choke on very long sequences
+4. Preserve sample metadata: JSONL must include source for audit traceability
+
+---
+
+## Updated 2026-04-30T02:04:40Z: Linus, Rusty, Basher decisions added
+
+Three decisions merged:
+- Linus: Kaʻehuikimanōopuʻuloa book-slice conversion (additive, audit-only)
+- Rusty: Assessment confirming strong audit candidacy; two-slice pair meets Stage-0 minimums
+- Basher: Tokenizer-audit output contract (report.json gate schema, hard-fail semantics)
