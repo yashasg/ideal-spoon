@@ -14,9 +14,9 @@ Lazy-imports torch / transformers / peft / bitsandbytes so this module parses
 on a laptop with nothing installed. Functions raise a clear RuntimeError with
 an install hint if a dep is actually missing at use.
 """
-
 from __future__ import annotations
 
+import warnings
 from typing import Any, Tuple
 
 
@@ -148,21 +148,25 @@ def check_runtime_capability(use_qlora: bool, want_bf16: bool) -> dict:
         # bf16 needs Ampere (sm_80) or newer; this is a generic check,
         # not an A100-specific assertion.
         info["bf16_supported"] = major >= 8
+    if use_qlora and not info["cuda_available"]:
+        warnings.warn(
+            "QLoRA requested but no CUDA device found. QLoRA requires a GPU; "
+            "consider setting use_qlora=False for CPU/MPS experimentation."
+        )
+    if use_qlora and info["device_count"] == 0:
+        warnings.warn(
+            "QLoRA requested but no CUDA devices detected. QLoRA training will not work without a GPU."
+        )
+    if want_bf16 and not info["bf16_supported"]:
+        warnings.warn(
+            "bfloat16 requested but not supported by detected GPU. "
+            "Consider using a GPU with compute capability sm_80+ (e.g. A100) or switching to fp16."
+        )
 
-    # TODO(learner): turn the observations above into soft warnings, e.g.
-    #   - want_bf16 and not bf16_supported -> warn, suggest fp16
-    #   - use_qlora and not cuda_available -> warn, QLoRA needs a GPU
-    #   - device_count == 0 and use_qlora -> warn loudly
-    # Keep these as warnings; never hardcode a specific GPU SKU.
     return info
 
 
 # ---------------- TODOs for the learner ----------------
-#
-# TODO(audit-tokenizer): Before committing to a base, run a tokenizer
-#   audit on Hawaiian text — tokens/word, byte-fallback rate, ʻokina
-#   survival. See docs/eval_pipeline.md §3.1. The base-model ADR is
-#   gated on this.
 #
 # TODO(merge-stage1): For the two-stage plan, after Stage 1 you need to
 #   merge the LoRA into an fp16 base (`peft_model.merge_and_unload()`)

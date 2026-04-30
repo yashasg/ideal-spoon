@@ -35,6 +35,7 @@ A 50–100 item, human-reviewed probe set that tests:
 | `data-sources/manual-eval/w1-haw-micro-eval.template.tsv` | yes | Header + field semantics, no rows. |
 | `data-sources/manual-eval/README.md` | yes | This file. |
 | `data/evals/manual_w1/w1-haw-micro-eval.tsv` | no (gitignored) | Populated, NFC-normalized, human-reviewed rows. Lives under the canonical `evals` division. |
+| `data/evals/manual_w1/w1-haw-micro-eval.jsonl` | no (gitignored) | Local JSONL mirror of the populated TSV. Carries `text`, `prompt`, `reference`, `review_status`, `eval_consumable`, hash, and slicing fields for eval/dev tooling. |
 | `data/evals/eval_hashes.jsonl` | no (gitignored) | Canonical JSONL contamination ledger; all `accepted` row hashes appended here with `schema_version`, `sha256_normalized`, `hash_method=sha256`, `normalization_method=NFC`, `origin=manual_w1`, `stage=eval-only`, `division=evals`, and `row_id`. |
 | `scripts/315_hash_manual_w1_eval.py` | yes | Local validator/hash path. Can initialize a clearly marked draft TSV, summarize categories/slices, and update the JSONL ledger. |
 
@@ -69,6 +70,17 @@ clearly marked prototype/local pending human review. They are useful only for
 exercising the file path, Unicode checks, category/slice summaries, tokenizer
 audit input, and local contamination preflight. They are **not accepted eval
 items** and must not be reported as a benchmark.
+
+Convert the populated TSV to the local JSONL mirror without touching the
+contamination ledger:
+
+```bash
+python3 scripts/315_hash_manual_w1_eval.py --execute --jsonl-only
+```
+
+The JSONL mirror includes every valid TSV row and preserves
+`review_status`/`eval_consumable` flags. Draft rows remain prototype-local and
+must not be reported as accepted eval results.
 
 Once rows are human-reviewed and changed to `review_status=accepted`, update the
 canonical local ledger:
@@ -108,7 +120,6 @@ not an implementation). When it lands, the W1 manual micro-eval is wired in as:
 
 Until the harness exists, this directory is the contract. Authors can begin
 populating the off-git TSV against this schema in parallel with FineWeb-2 ingest.
-The Stage-0 tokenizer audit can also consume the populated TSV directly:
-`python3 scripts/040_tokenizer_audit.py --input data/evals/manual_w1/w1-haw-micro-eval.tsv`
-concatenates `prompt` + `reference` by default and reports the manual rows as one
-of the high-diacritic sample sources.
+The Stage-0 tokenizer audit (planned as a test) is expected to consume the
+populated TSV directly — concatenating `prompt` + `reference` by default — so
+the manual rows feed in as one of the high-diacritic sample sources.

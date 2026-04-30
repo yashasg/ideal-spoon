@@ -42,7 +42,9 @@ from llm_hawaii.metrics import (  # noqa: E402
 SOURCE_ID = "manual_w1"
 NORMALIZATION_METHOD = "NFC"
 EVAL_HASH_SCHEMA_VERSION = "eval-hashes-jsonl-v1"
+MANUAL_W1_JSONL_SCHEMA_VERSION = "manual-w1-jsonl-v1"
 DEFAULT_INPUT = Path("data/evals/manual_w1/w1-haw-micro-eval.tsv")
+DEFAULT_JSONL = Path("data/evals/manual_w1/w1-haw-micro-eval.jsonl")
 DEFAULT_LEDGER = Path("data/evals/eval_hashes.jsonl")
 DEFAULT_MANIFEST = Path("data/evals/manual_w1/w1-hash-manifest.json")
 HEADER = [
@@ -369,6 +371,44 @@ def build_eval_hash_record(row: ManualW1Row, input_path: Path) -> dict[str, Any]
     }
 
 
+def build_eval_jsonl_record(row: ManualW1Row, input_path: Path) -> dict[str, Any]:
+    """Build the local JSONL mirror consumed by eval/dev tooling.
+
+    The ``text`` field follows the existing JSONL loaders while the structured
+    prompt/reference fields preserve the W1 task contract for future harnesses.
+    """
+    material = hash_material(row.prompt, row.reference)
+    accepted = row.review_status == "accepted"
+    return {
+        "schema_version": MANUAL_W1_JSONL_SCHEMA_VERSION,
+        "source_id": SOURCE_ID,
+        "source_path": display_path(input_path),
+        "stage": "eval-only",
+        "division": "evals",
+        "split": "w1" if accepted else row.review_status,
+        "row_id": row.item_id,
+        "item_id": row.item_id,
+        "category": row.category,
+        "prompt": row.prompt,
+        "reference": row.reference,
+        "text": material,
+        "text_field": "text",
+        "review_status": row.review_status,
+        "eval_consumable": accepted,
+        "prototype_local": not accepted,
+        "nfc_normalized": row.nfc_normalized,
+        "diacritic_density": row.diacritic_density,
+        "diacritic_density_bin": diacritic_density_bin(row.diacritic_density),
+        "sha256_normalized": compute_hash(row.prompt, row.reference),
+        "hash_method": "sha256",
+        "normalization_method": NORMALIZATION_METHOD,
+        "hash_material": "NFC(prompt) + U+000A + NFC(reference)",
+        "author": row.author,
+        "notes": row.notes,
+        "source_line": row.line_no,
+    }
+
+
 def summarize_rows(rows: list[ManualW1Row]) -> dict[str, Any]:
     return {
         "rows": len(rows),
@@ -455,6 +495,14 @@ def print_schema() -> None:
             "default_included_statuses": ["accepted"],
             "local_draft_flag": "--include-draft-for-local-ledger",
         },
+        "jsonl_mirror": {
+            "canonical_path": str(DEFAULT_JSONL),
+            "schema_version": MANUAL_W1_JSONL_SCHEMA_VERSION,
+            "text_field": "text",
+            "text_material": "NFC(prompt) + U+000A + NFC(reference)",
+            "write_command": "python3 scripts/315_hash_manual_w1_eval.py --execute --jsonl-only",
+            "note": "Rows retain review_status/eval_consumable flags; draft rows are prototype-local.",
+        },
         "slices": {
             "category": list(CATEGORIES),
             "diacritic_density_bin": ["none", "low", "medium", "high"],
@@ -479,8 +527,24 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_MANIFEST,
         help=f"Local hash manifest output (default: {DEFAULT_MANIFEST}).",
     )
+    parser.add_argument(
+        "--jsonl-output",
+        type=Path,
+        default=DEFAULT_JSONL,
+        help=f"Local W1 JSONL mirror output (default: {DEFAULT_JSONL}).",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Validate and summarize without writing ledger outputs.")
     parser.add_argument("--execute", action="store_true", help="Write ledger/manifest outputs.")
+    parser.add_argument(
+        "--emit-jsonl",
+        action="store_true",
+        help="Also write a local JSONL mirror of all valid TSV rows.",
+    )
+    parser.add_argument(
+        "--jsonl-only",
+        action="store_true",
+        help="Validate the TSV and write only the local JSONL mirror; skip ledger/manifest updates.",
+    )
     parser.add_argument(
         "--init-draft",
         action="store_true",
@@ -508,6 +572,7 @@ def main(argv: list[str] | None = None) -> int:
     input_path = resolve_repo_path(args.input)
     ledger_path = resolve_repo_path(args.ledger)
     manifest_path = resolve_repo_path(args.manifest)
+    jsonl_path = resolve_repo_path(args.jsonl_output)
     dry_run = args.dry_run or not args.execute
 
     if args.init_draft:
@@ -538,6 +603,13 @@ def main(argv: list[str] | None = None) -> int:
     missing_categories = [category for category in CATEGORIES if category not in {row.category for row in rows}]
     if missing_categories:
         print(f"[WARN] W1 categories missing from local TSV: {missing_categories}", file=sys.stderr)
+
+    if args.emit_jsonl or args.jsonl_only:
+        jsonl_records = [build_eval_jsonl_record(row, input_path) for row in rows]
+        write_jsonl(jsonl_records, jsonl_path, dry_run=dry_run)
+        if args.jsonl_only:
+            print("[SUCCESS] W1 manual eval JSONL conversion complete.")
+            return 0
 
     included_statuses = set(REVIEW_STATUSES if args.include_draft_for_local_ledger else ("accepted",))
     included_rows = [row for row in rows if row.review_status in included_statuses]

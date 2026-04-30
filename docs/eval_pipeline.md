@@ -1,6 +1,6 @@
 # Evaluation Pipeline
 
-> **Status:** Prototype design for a learning project. **No public release** of weights, adapters, tokenizer, generations, or eval scores is planned. The gates and metrics below describe what an honest internal eval loop looks like for a low-resource Hawaiian adaptation; they are not a release certification process. See the prototype-vs-release ADR in [`.squad/decisions.md`](../.squad/decisions.md).
+> **Status:** Prototype design for a learning project. **No public release** of weights, adapters, tokenizer, generations, eval scores, API, or demo is planned. The gates and metrics below describe what an honest internal eval loop looks like for a low-resource Hawaiian adaptation; they are not a release certification process. See the prototype-vs-release ADR in [`.squad/decisions.md`](../.squad/decisions.md).
 >
 > **Owner:** Rusty (NLP Researcher), with input from Basher (training) and Livingston (compute/budget) where eval cadence collides with free-tier reality.
 >
@@ -40,7 +40,7 @@ The job of the eval pipeline is to make the *currently dominant* bottleneck legi
 | **Per-checkpoint Stage 1 eval** | Small fixed eval set (see §3) on each saved checkpoint | ~30–60 min wallclock or every meaningful step interval (see §4) | Detect divergence, orthography collapse, English regression *during* the run, not after. |
 | **Stage 1 gate** | Full Stage 1 eval suite on candidate checkpoint | At checkpoint promotion | Go/no-go for fp16 merge → Stage 2. Defined in `training-pipeline.md` §2.4. |
 | **Per-checkpoint Stage 2 eval** | Small fixed translation eval (chrF both directions, leakage check, retention probe) | Cadence matched to Stage 2 step count; checkpoint-aligned | Catch direction collapse, "always translate" regression, retention loss. |
-| **Stage 2 gate** | Full Stage 2 eval suite on candidate checkpoint | At checkpoint promotion | Go/no-go for ship-as-candidate. Defined in `training-pipeline.md` §4.4. |
+| **Stage 2 gate** | Full Stage 2 eval suite on candidate checkpoint | At checkpoint promotion | Go/no-go for internal prototype-candidate promotion. Defined in `training-pipeline.md` §4.4. |
 | **Post-run error analysis** | Slice-by-slice diagnostic pass (see §6) on the gated checkpoint | After gate, before next iteration | Identify the dominant bottleneck for the next experiment. Output feeds the run report's "next experiment" field. |
 
 The cadence is deliberately tilted toward **cheap, frequent, checkpoint-aligned** probes during training and **expensive, careful, gated** probes at stage boundaries. The expensive probes are not run on every checkpoint; the cheap ones are.
@@ -62,14 +62,10 @@ Metrics fall into four buckets. Every metric is reported with the eval-suite SHA
 
 These metrics are computed on both the eval set's references *and* the model's generations. Divergence between the two is the diagnostic.
 
-**Stage-0 tokenizer audit command path.** Before the Llama-3.1-8B serious-run
-config is allowed near real training data, run:
-
-```bash
-python3 scripts/040_tokenizer_audit.py \
-  --model-id meta-llama/Llama-3.1-8B \
-  --input data/stage1/stage1.jsonl.gz data/evals/manual_w1/w1-haw-micro-eval.tsv
-```
+**Stage-0 tokenizer audit gate.** Before the Llama-3.1-8B serious-run config
+is allowed near real training data, a tokenizer audit must be run locally on
+representative Hawaiian slices (e.g. `data/stage1/stage1.jsonl.gz` and
+`data/evals/manual_w1/w1-haw-micro-eval.tsv`).
 
 Reports are written under ignored `data/tokenizer_audit/` and must not be
 fabricated: missing Hugging Face/`transformers` dependencies or gated Llama
@@ -81,7 +77,13 @@ overall tokens/word ≤2.50, high-diacritic tokens/word ≤3.25, explicit byte
 fallback = 0, combined byte fallback/proxy ≤1%, and sufficient sample coverage
 (≥1,500 words plus ≥10 high-diacritic samples).
 
-**W1 manual micro-eval (independent of FineWeb-2).** A small hand-authored, human-reviewed Hawaiian probe set (~50–100 items) is maintained as a *separate* cheap-eval source so the orthography metrics above are not solely measured against an LID-classified web crawl. Schema, field semantics, and authoring rules live in [`data-sources/manual-eval/`](../data-sources/manual-eval/README.md); populated rows are off-git at `data/evals/manual_w1/w1-haw-micro-eval.tsv` (under the canonical `evals` division per `data-pipeline.md` "Dataset division taxonomy") and are hashed into the eval-hashes ledger with `origin=manual_w1, stage=eval-only, division=evals, split=w1`. The local hash path is `scripts/315_hash_manual_w1_eval.py`, which defaults to `review_status=accepted` rows; draft rows require `--include-draft-for-local-ledger` and are marked `eval_consumable=false`. W1 is **never used as training data**, runs alongside the FineWeb-2 dev slice at the cheap-eval cadence (§4), and is sliced by `category` (`okina_survival`, `kahako_retention`, `unicode_nfc`, `tokenizer_survival`, `generation_sanity`), `diacritic_density`, and derived `diacritic_density_bin` (`none` = 0, `low` = 1–2, `medium` = 3–5, `high` ≥ 6) per §5.
+Current status: there is no standalone audit script in the repo; a
+tokenizer-audit test is planned. The real gated Llama-3.1-8B go/no-go remains
+blocked until Hugging Face access/dependencies are available and the audit is
+actually run. Do not substitute smoke-model or placeholder numbers for this
+gate.
+
+**W1 manual micro-eval (independent of FineWeb-2).** A small hand-authored Hawaiian probe set (~50–100 items) is maintained as a *separate* cheap-eval source so the orthography metrics above are not solely measured against an LID-classified web crawl. Rows become accepted eval rows only after Hawaiian-literate review; until #7 closes, local draft rows are wiring/preflight only and must not be reported as eval results. Schema, field semantics, and authoring rules live in [`data-sources/manual-eval/`](../data-sources/manual-eval/README.md); populated rows are off-git at `data/evals/manual_w1/w1-haw-micro-eval.tsv` (under the canonical `evals` division per `data-pipeline.md` "Dataset division taxonomy") and are hashed into the eval-hashes ledger with `origin=manual_w1, stage=eval-only, division=evals, split=w1` only after acceptance. The local hash path is `scripts/315_hash_manual_w1_eval.py`, which defaults to `review_status=accepted` rows; current seeded/local rows are draft, and draft rows require `--include-draft-for-local-ledger` for contamination preflight with `eval_consumable=false` / `prototype_local=true`. W1 is **never used as training data**; only accepted rows run alongside the FineWeb-2 dev slice at the cheap-eval cadence (§4). It is sliced by `category` (`okina_survival`, `kahako_retention`, `unicode_nfc`, `tokenizer_survival`, `generation_sanity`), `diacritic_density`, and derived `diacritic_density_bin` (`none` = 0, `low` = 1–2, `medium` = 3–5, `high` ≥ 6) per §5.
 
 **FineWeb-2 `haw_Latn` eval splits.** The official FineWeb-2 test split (887 rows) is deterministically split 70/30 by `scripts/310_split_dedupe_fineweb2_haw.py` using a seeded stable row-id/hash ordering and count-exact half-up rounding: 621 dev rows (→ `data/evals/fineweb2_haw/dev.jsonl`) and 266 holdout rows (→ `data/final/fineweb2_haw/holdout.jsonl`). All 887 rows are NFC-normalized before SHA-256 hashing and recorded in the canonical JSONL eval-hash ledger at `data/evals/eval_hashes.jsonl`; the train split is deduplicated against this hash set to enforce the invariant `train ∩ eval_hashes = ∅`. Dev is used for cheap per-checkpoint eval; holdout is protected for major-milestone gates only.
 
@@ -106,7 +108,7 @@ Held-out splits are cluster-aware (see `data-pipeline.md`); PPL is computed only
 
 | Probe | What it catches |
 |---|---|
-| **Leakage / contamination check** | Test outputs vs training shards — bigram-overlap and exact-SHA. CI-asserted at load time; recomputed on outputs as a generation-time check. |
+| **Leakage / contamination check** | Test outputs vs training shards — bigram-overlap and exact-SHA. Build-time checks consume the canonical `data/evals/eval_hashes.jsonl`; runtime loader enforcement remains #4. Recomputed on outputs as a generation-time check. |
 | **Hallucination probe** | Prompts about non-existent Hawaiian places/people; track fabrication rate. Stage 1 signal for "model is confabulating fluent-sounding nonsense." |
 | **Generalization probe** | Non-translation prompts at Stage 2; catches "always translate" collapse and refusal/register sanity. |
 | **Human spot eval** | N=20–50 minimum, N=50–100 ideal, by a Hawaiian speaker/learner. 5-point Likert for adequacy + fluency. Required for release scope; encouraged for prototype scope. **Automatic metrics alone are not trusted.** |
@@ -141,7 +143,7 @@ A single global metric tells you almost nothing. Every gate-level eval and every
 | **OCR confidence** | Where source-level OCR confidence is available (nūpepa pipeline). Isolates OCR noise from model behavior. |
 | **Tokenizer behavior** | Items binned by tokens/word and byte-fallback rate at the input. Identifies whether quality drops correlate with fragmentation. |
 | **Data split** | Train vs dev vs test vs holdout. Gap between train and dev is the overfitting signal; gap between dev and holdout is the cluster-leak signal. |
-| **Provider / environment handoff** | Local vs Kaggle vs Azure runs of the same eval. Catches harness drift, dtype/quantization differences, and environment-specific silent failures. |
+| **Provider / environment handoff** | Provider 1 vs Provider 2 vs Provider 3 runs of the same eval. Catches harness drift, dtype/quantization differences, and environment-specific silent failures. |
 
 Slicing is not optional. The "headline number went up" framing is rejected at code review.
 
@@ -158,12 +160,12 @@ Used during post-run error analysis. The matrix is not exhaustive; it is the fir
 | English PPL blew up after Stage 1 | Catastrophic forgetting — rehearsal too thin | Increase English rehearsal slice (5% → 10%); verify rehearsal corpus didn't drift. |
 | Stage 1 fluency lost after Stage 2 | Retention slice too small or off-distribution | Increase Stage 2 retention slice (10% → 20%); verify retention examples are Stage-1-style monolingual CLM, not SFT-formatted. |
 | One direction's chrF collapses (en→haw or haw→en) | Direction imbalance or asymmetric data quality | Rebalance batches 50/50; audit parallel-pair quality per direction; check instruction templates cover both haw-side and en-side prompts. |
-| Test chrF improbably high | Eval leakage | Recompute after n-gram strip; re-run cluster-aware split builder; verify `eval_hashes.jsonl` was actually loaded by the dataloader. |
+| Test chrF improbably high | Eval leakage | Recompute after n-gram strip; re-run cluster-aware split builder; verify `eval_hashes.jsonl` was consumed by the build/check guard path. |
 | Hallucination rate high on real-world Hawaiian entities | Corpus gap or overfitting to register | Slice by source; check whether hallucinations cluster on contemporary topics absent from the corpus. |
 | Quality drop correlates with high tokens/word slices | Tokenizer fragmentation is the bottleneck | Vocab extension experiment; consider Hawaiian-specific BPE/Unigram piece set; weigh embedding-table cost. |
 | Train↔dev gap large, dev↔holdout small | Overfitting on a specific source | Reweight data mix; cap per-source repeats. |
 | Dev↔holdout gap large | Cluster leak across splits | Rebuild splits with stricter clustering; re-run contamination guard. |
-| Numbers differ between Kaggle and Azure runs of same checkpoint | Environment drift (dtype, quantization, harness version) | Pin eval-suite SHA; pin dtype; run a same-checkpoint reproducibility eval as the harness sanity check. |
+| Numbers differ between providers on the same checkpoint | Environment drift (dtype, quantization, harness version) | Pin eval-suite SHA; pin dtype; run a same-checkpoint reproducibility eval as the harness sanity check. |
 | Stage 2 model "always translates" non-translation prompts | SFT register collapse | Generalization probe; expand non-translation examples in retention slice; verify target-only loss masking. |
 
 The matrix is consulted **before** opening a new training experiment. A run report without an attribution-matrix entry pointing at the next experiment is incomplete.

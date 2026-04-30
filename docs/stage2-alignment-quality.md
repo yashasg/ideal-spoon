@@ -1,6 +1,6 @@
 # Stage 2 Alignment Scoring & Quality-Filter Policy
 
-> **Status:** Prototype-scoped policy (private/learning project). Issue #12.
+> **Status:** Prototype-scoped policy (private/learning project). Issue #12 is prototype-ready.
 > Owner: Rusty (NLP). Consumers: Linus' Stage-2 manifest builder (#11),
 > Basher's bidirectional SFT JSONL emitter (#14).
 >
@@ -149,38 +149,46 @@ ledgers; they are never selected by the SFT emitter.
 
 ## 7. Compatibility with Linus (#11) and Basher (#14)
 
-If Linus' manifest builder or Basher's SFT emitter land later, this
-field vocabulary is the stable surface they should target:
+The landed scorer, manifest builder, and SFT emitter target this field vocabulary
+as their stable surface:
 
-- **Manifest builder (#11):** call `score_pair()` per candidate, merge
-  the returned dict into the manifest row. The fields named in
-  `data-pipeline.md` §"Stage 2 manifest schema" are preserved verbatim;
-  policy additions (`alignment_confidence_tier`,
-  `alignment_score_components`, `quality_flags`,
-  `manual_review_reasons`, `policy_version`) extend that schema and do
-  not collide with any existing column.
-- **SFT emitter (#14):** select only rows with
-  `alignment_confidence_tier == "accept"` and
-  `split == "train"`. Pass `alignment_type`, `register`, `synthetic`,
-  `prototype_only`, and `release_eligible` through to the JSONL example
-  as documented in `data-pipeline.md` §"Stage 2 output JSONL".
-  `quality_flags` and `manual_review_reasons` stay on the *manifest*,
-  not the JSONL.
+- **Scorer (#12):** `scripts/321_score_stage2_alignment.py` runs the policy over
+  candidate-pair JSONL and writes `<output>.jsonl` plus `<output>.summary.json`.
+  Smoke contract: `python3 scripts/321_score_stage2_alignment.py --self-test`.
+- **Manifest builder (#11):** `scripts/320_build_stage2_manifest.py` defines and
+  validates the canonical JSONL manifest schema at
+  `data/stage2/stage2_manifest.jsonl`; run
+  `python3 scripts/320_build_stage2_manifest.py --print-schema` for the schema
+  surface. The fields named in `data-pipeline.md` §"Stage 2 manifest schema" are
+  preserved verbatim; policy additions (`alignment_confidence_tier`,
+  `alignment_score_components`, `quality_flags`, `manual_review_reasons`,
+  `policy_version`) may be merged onto candidate/manifest rows without becoming
+  trainer JSONL fields.
+- **SFT emitter (#14):** `scripts/330_emit_stage2_sft_jsonl.py` consumes
+  `stage2_manifest.jsonl` and emits `data/stage2/stage2_sft.jsonl` by default.
+  It selects requested `split` values (default `train`) and skips
+  `alignment_review_required=true` rows unless explicitly overridden; manifest
+  assembly should map non-`accept` policy tiers to review-required or filter them
+  before emission. It passes `alignment_type`, `register`, `synthetic`,
+  `prototype_only`, and `release_eligible` through to the JSONL example as
+  documented in `data-pipeline.md` §"Stage 2 output JSONL". `quality_flags` and
+  `manual_review_reasons` stay on the *manifest*, not the JSONL.
 
-If either component's design lands and disagrees with this vocabulary,
-that's a coordination point — bump `POLICY_VERSION` and update §3 / §4
-in lockstep.
+If either component changes and disagrees with this vocabulary, that's a
+coordination point — bump `POLICY_VERSION` and update §3 / §4 in lockstep.
 
 ## 8. Non-goals
 
-- **Not a release filter.** Release/cultural review remain a separate
-  step per `eval_pipeline.md` §9.
+- **Not a public-release filter.** Public release is out of scope for the
+  private prototype; any future release/cultural review would remain a separate
+  process per `eval_pipeline.md` §9.
 - **Not an LID classifier.** LID confidence is consumed when present
   (e.g., from a future GlotLID pass); this module never runs a model.
 - **Not an alignment engine.** Embedding cosines (LaBSE/LASER) come from
   upstream tools; this module persists the score and gates on it.
-- **Not a contamination guard.** That's issue #4 (training-loader
-  guard) and the `eval_hashes.jsonl` ledger.
+- **Not the runtime contamination guard.** Build-time manifest checks use
+  `eval_hashes.jsonl`; the training-loader guard remains issue #4
+  (Squad:Yashas).
 
 ## 9. References
 

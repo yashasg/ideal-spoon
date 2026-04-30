@@ -1,22 +1,30 @@
-"""Data loading + tokenization hooks.
+"""Data loading + tokenization hooks for Stage-1 CPT.
 
-Implement this file in this order:
-1. Make JSONL loading boring and strict: bad paths or bad JSON should fail.
-2. Normalize text to NFC before tokenization; Hawaiian diacritics make this
-   load-bearing, not cosmetic.
-3. Tokenize one example and inspect `input_ids`, `attention_mask`, and labels.
-4. Build the smallest Stage-1 causal-LM dataset first. Do not add Stage-2
-   prompt/response masking until plain CLM works.
-5. Only after the simple path works, add packing/chunking for efficiency.
+What this file is responsible for right now:
+1. Read JSONL safely (`iter_jsonl` / `load_jsonl`) and fail loudly on bad data.
+2. Normalize text to NFC (`normalize_text`) before tokenization.
+3. Tokenize each record for plain causal LM (`tokenize_example`), with
+    `labels = input_ids`.
+4. Build a simple train dataset (`build_train_dataset`) and collator
+    (`make_collator`) that work on CPU for smoke tests.
 
-Expected input format: JSONL, one example per line, each with at least a
-`text` field (configurable). For Stage 2 SFT later, you'll add a parallel-pair
-format with prompt/response — leave a TODO for that and focus on the Stage-1
-CLM path first.
+What this file is *not* responsible for yet:
+- Stage-2 prompt/response masking logic.
+- Packing/chunking optimizations.
+- Tokenizer-efficiency analytics.
 
-This module deliberately lazy-imports `transformers` / `datasets`. The file
-parses cleanly without them installed; functions that need them will raise a
-clear RuntimeError telling you what to install.
+Quick local validation flow:
+- Load a small JSONL (for example `code/examples/train.jsonl.example`).
+- Tokenize one sample and inspect `input_ids`, `attention_mask`, `labels`.
+- Build the dataset and verify it is non-empty and each row has those keys.
+
+Expected input format (current Stage-1 path):
+- JSONL, one object per line.
+- Each object has a text field (default `text`, configurable with `text_field`).
+
+This module deliberately lazy-imports optional dependencies (for example
+`transformers`) so this file can still be imported in environments that only
+run data/Unicode unit tests.
 """
 
 from __future__ import annotations
@@ -138,26 +146,27 @@ def tokenize_example(
     return enc
 
 
-# ---------------- TODOs for the learner ----------------
+# ---------------- Next implementation steps ----------------
 #
-# TODO(packing): For Stage 1 CPT, packing many short docs into a single
-#   max_length sequence (with EOS separators) substantially improves
-#   throughput. Look at `trl`'s ConstantLengthDataset or write a small
-#   generator that buffers tokenized records and emits fixed-size chunks.
+# DO-NOW checklist (keep these changes in Stage-1 scope):
+# 1) Add unit tests for:
+#    - `iter_jsonl`: missing file, bad JSON, empty-line handling.
+#    - `normalize_text`: NFC behavior with combining macron input.
+#    - `tokenize_example`: missing `text_field` and labels==input_ids.
+# 2) Add a tiny smoke runner (or test) that:
+#    - loads `code/examples/train.jsonl.example`,
+#    - tokenizes with a small `max_length`,
+#    - confirms `build_train_dataset` returns >0 rows.
 #
-# TODO(sft-masking): For Stage 2 SFT (translation), the loss must be
-#   masked to *target* tokens only. Tokenize prompt and response
-#   separately, concatenate, and set labels for prompt positions to -100
-#   so they don't contribute to the loss.
-#
-# TODO(rehearsal): Stage 1 needs ~5–10% English rehearsal to fight
-#   catastrophic forgetting. Implement a simple two-source mixer that
-#   samples from a Hawaiian shard and an English shard at a configured
-#   ratio.
-#
-# TODO(contamination-guard): Before training, hash every tokenized
-#   sequence (NFC SHA-256) and reject any that match
-#   the eval hash ledger under data/evals/. See docs/eval_pipeline.md §3.4.
+# AFTER Stage-1 is stable, do these in order:
+# TODO(packing): Pack many short docs into fixed-length chunks with EOS
+#   separators to improve throughput. Keep this as an optional path first.
+# TODO(sft-masking): Add Stage-2 prompt/response loss masking by setting
+#   prompt label positions to -100.
+# TODO(rehearsal): Add a two-source sampler for Hawaiian + English rehearsal
+#   at a configured ratio (for example 90/10).
+# TODO(contamination-guard): Hash normalized tokenized sequences (NFC SHA-256)
+#   and reject collisions with eval ledgers under `data/evals/`.
 
 
 def build_train_dataset(

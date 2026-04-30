@@ -295,9 +295,20 @@ def _page_content_batch_url(*, page_ids: list[int]) -> str:
     # action=query + prop=revisions rvslots=main rvprop=ids|timestamp|content
     # gives us wikitext plus revision_id in one call. pageids is preferred
     # over titles to avoid title-encoding edge cases.
+    #
+    # ``prop=proofread`` is the MediaWiki ProofreadPage extension prop. On
+    # ``Page:`` namespace (104) pages it returns
+    # ``{quality: 0..4, quality_text: "Without text" | "Not proofread" |
+    # "Problematic" | "Proofread" | "Validated"}``. Quality 4 ("Validated")
+    # is the W1 (gold-standard) signal Linus's eval-side wires up. On main
+    # namespace (0) pages the ProofreadPage extension does NOT surface a
+    # per-page quality (main pages aggregate quality only via the Page:
+    # subpages they transclude); for those pages the ``proofread`` key is
+    # absent and we record nulls. Combining ``revisions|proofread`` in one
+    # query keeps this a zero-extra-request enrichment.
     params: dict[str, Any] = {
         "action": "query",
-        "prop": "revisions",
+        "prop": "revisions|proofread",
         "pageids": "|".join(str(page_id) for page_id in page_ids),
         "rvprop": "ids|timestamp|content|flags",
         "rvslots": "main",
@@ -305,6 +316,27 @@ def _page_content_batch_url(*, page_ids: list[int]) -> str:
         "formatversion": 2,
     }
     return _build_url(params)
+
+
+def _extract_proofread(page: dict[str, Any]) -> tuple[int | None, str | None]:
+    """Return ``(quality, quality_text)`` from a ProofreadPage prop block.
+
+    Only ns=104 (``Page:``) pages carry this. Any other namespace yields
+    ``(None, None)``. The mapping is fixed by ``meta=proofreadinfo``:
+    0=Without text, 1=Not proofread, 2=Problematic, 3=Proofread,
+    4=Validated. W1 corresponds to quality_text == "Validated".
+    """
+    pr = page.get("proofread")
+    if not isinstance(pr, dict):
+        return None, None
+    q = pr.get("quality")
+    qt = pr.get("quality_text")
+    try:
+        q_int = int(q) if q is not None else None
+    except (TypeError, ValueError):
+        q_int = None
+    qt_str = str(qt) if qt is not None else None
+    return q_int, qt_str
 
 
 def _page_has_content(page: dict[str, Any]) -> bool:
@@ -427,10 +459,13 @@ def _fetch_page_content(
     rev_id: int | None = None
     rev_timestamp: str | None = None
     content_present = False
+    proofread_quality: int | None = None
+    proofread_quality_text: str | None = None
     try:
         payload = json.loads(body.decode("utf-8"))
         pages = payload.get("query", {}).get("pages", []) or []
         if pages:
+            proofread_quality, proofread_quality_text = _extract_proofread(pages[0])
             revs = pages[0].get("revisions", []) or []
             if revs:
                 rev_id = int(revs[0].get("revid")) if revs[0].get("revid") is not None else None
@@ -462,11 +497,15 @@ def _fetch_page_content(
             "revision_id": rev_id,
             "revision_timestamp": rev_timestamp,
             "content_present": content_present,
+            "proofread_quality": proofread_quality,
+            "proofread_quality_text": proofread_quality_text,
             "api_endpoint": API_ENDPOINT,
         },
         notes=(
-            "MediaWiki action=query prop=revisions rvslots=main; "
-            "raw JSON envelope stored as-is — extraction is downstream's job"
+            "MediaWiki action=query prop=revisions|proofread rvslots=main; "
+            "raw JSON envelope stored as-is — extraction is downstream's job. "
+            "proofread_quality/_text only populated for ns=104 (Page:) pages; "
+            "ns=0 main pages do not expose ProofreadPage quality directly."
         ),
     )
     _append_provenance(base, rec)
@@ -516,12 +555,22 @@ def _fetch_page_batch(
     revision_ids: list[int] = []
     revision_timestamps: list[str] = []
     content_page_ids: list[int] = []
+    proofread_by_page_id: dict[str, dict[str, Any]] = {}
     for page in page_iter:
         if not isinstance(page, dict):
             continue
         if _page_has_content(page):
             try:
                 content_page_ids.append(int(page.get("pageid")))
+            except (TypeError, ValueError):
+                pass
+        pq, pqt = _extract_proofread(page)
+        if pq is not None or pqt is not None:
+            try:
+                proofread_by_page_id[str(int(page.get("pageid")))] = {
+                    "quality": pq,
+                    "quality_text": pqt,
+                }
             except (TypeError, ValueError):
                 pass
         revs = page.get("revisions", []) or []
@@ -565,12 +614,19 @@ def _fetch_page_batch(
             "revision_timestamps": revision_timestamps,
             "content_page_ids": content_page_ids,
             "content_present": bool(content_page_ids),
+            "proofread_by_page_id": proofread_by_page_id,
+            "proofread_validated_page_ids": [
+                int(pid) for pid, pr in proofread_by_page_id.items()
+                if pr.get("quality_text") == "Validated"
+            ],
             "api_endpoint": API_ENDPOINT,
             "http_content_type": ctype,
         },
         notes=(
-            "Batched MediaWiki action=query prop=revisions rvslots=main; "
-            "stored as NDJSON with one page-shaped JSON object per line"
+            "Batched MediaWiki action=query prop=revisions|proofread rvslots=main; "
+            "stored as NDJSON with one page-shaped JSON object per line. "
+            "ProofreadPage quality only populated for ns=104 (Page:); ns=0 "
+            "(main) pages do not expose per-page proofread quality directly."
         ),
     )
     _append_provenance(base, rec)
@@ -617,7 +673,18 @@ def _load_page_plan(path: Path, *, limit: int, namespaces: tuple[int, ...]) -> l
                 ) from e
             if ns not in namespaces:
                 continue
-            rows.append({"ns": ns, "page_id": page_id, "title": title})
+            row: dict[str, Any] = {"ns": ns, "page_id": page_id, "title": title}
+            # Optional: proofread quality seeded by 102_collect_hawwikisource.py
+            # via a follow-up prop=proofread lookup at enumeration time. These
+            # are kept for downstream traceability but are re-derived from the
+            # live ``prop=proofread`` response in _fetch_page_batch — the live
+            # value wins because pages can be re-validated between plan and
+            # fetch. We carry the seeded value forward in the plan only.
+            if "proofread_quality" in obj:
+                row["proofread_quality_seeded"] = obj.get("proofread_quality")
+            if "proofread_quality_text" in obj:
+                row["proofread_quality_text_seeded"] = obj.get("proofread_quality_text")
+            rows.append(row)
             if len(rows) >= limit:
                 break
     return rows

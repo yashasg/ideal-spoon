@@ -1,6 +1,6 @@
 # Implementation Plan
 
-> **Status:** Prototype design for a learning project. **No public release** of weights, adapters, tokenizer, datasets, or generations is planned. This doc consolidates the team's current working plan into an executable sequence; it is **not** a release roadmap, **not** a benchmark claim, and **not** a commitment to ship a model, hosted service, or corpus. See the prototype-vs-release ADR in [`.squad/decisions.md`](../.squad/decisions.md).
+> **Status:** Prototype design for a learning project. **No public release** of weights, adapters, tokenizer, datasets, generations, eval scores, API, or demo is planned. This doc consolidates the team's current working plan into an executable sequence; it is **not** a release roadmap, **not** a benchmark claim, and **not** a commitment to ship a model, hosted service, or corpus. See the prototype-vs-release ADR in [`.squad/decisions.md`](../.squad/decisions.md).
 >
 > **Owner:** Danny (Lead), with inputs from Rusty (NLP), Basher (Training), Livingston (Cost), Linus (Data).
 >
@@ -17,9 +17,9 @@
 
 The plan operationalizes decisions already accepted in `.squad/decisions.md`. It does not introduce new policy. Three things must hold across the whole sequence:
 
-1. **Prototype scope.** No weights, adapters, tokenizer artifacts, datasets, or eval scores are planned for public release. Cultural review, license whitelisting, and human-eval thresholds described in the release branch of `training-pipeline.md` are out of scope here and remain hypothetical.
+1. **Prototype scope.** No weights, adapters, tokenizer artifacts, datasets, generations, eval scores, API, or demo are planned for public release. Cultural review, license whitelisting, and human-eval thresholds described in the release branch of `training-pipeline.md` are out of scope here and remain hypothetical.
 2. **Adapt, don't pretrain.** From-scratch pretraining is rejected at this budget and corpus scale. The bottleneck is data quality, tokenizer fit, and eval discipline — not GPU spend.
-3. **Gates are checkpoints, not vibes.** Every phase boundary has an artifact (manifest hash, eval-suite SHA, run report) checked in before the next phase starts. A run without a complete report does not promote.
+3. **Gates are checkpoints, not vibes.** Every phase boundary has an artifact identifier (manifest hash, eval-suite SHA, run report) frozen and recorded before the next phase starts. Generated data and model artifacts stay under ignored/private storage; a run without a complete report does not promote.
 
 ### Phase boundaries
 
@@ -45,18 +45,18 @@ The compute plan is sequenced across three providers. The split exists because (
 
 **Candidates:** Kaggle (30 GPU-h/wk on P100 / 2×T4) is the strongest free tier; Lightning AI free studio and Colab free are usable for shorter dev tasks; local RTX 2080 (8 GB) handles tokenizer audits, normalization checks, manifest builds, and 0.5B QLoRA work. T4/P100 tiers are acceptable for plumbing checks but **not** for any number that will gate Stage 1 (no bf16, no FA2 on Turing/Pascal).
 
-**Stage 0 readiness gates that must complete on Provider 1:**
+**Stage 0 readiness gates that must complete before the Provider 2 training block opens:**
 
-- Tokenizer audit on representative slices (nūpepa, *Baibala Hemolele*, contemporary Hawaiian) per `training-pipeline.md` §1.1. Decision on embedding/lm_head unfreeze, vocab extension, or base swap is recorded here.
-- Data manifests built and CI-green per `data-pipeline.md`: provenance fields populated, license whitelist enforced, NFC normalization invariant verified, ʻokina U+02BB and kahakō survival baselines computed on references.
-- Contamination guard wired and asserted at dataloader load time; `eval_hashes.jsonl` built; cluster-aware splits built; n-gram-overlap recheck path exercised.
+- Tokenizer audit on representative slices (nūpepa, *Baibala Hemolele*, contemporary Hawaiian) per `training-pipeline.md` §1.1. The script path exists, but the real gated Llama-3.1-8B go/no-go remains blocked on Hugging Face access/dependencies plus an actual run; decision on embedding/lm_head unfreeze, vocab extension, or base swap is recorded only after that report exists.
+- Data manifests built and CI-green per `data-pipeline.md`: provenance fields populated, prototype lineage fields enforced, NFC normalization invariant verified, ʻokina U+02BB and kahakō survival baselines computed on references. Current local Stage-1 outputs live under ignored `data/stage1/` and the FineWeb cleaner reports 95,507 rows seen / 6,528 rejected / train tokens `59,534,611 → 44,067,289`.
+- Contamination guard inputs wired and asserted in available artifact checks; canonical `eval_hashes.jsonl` built as JSONL; FineWeb-2 dev/holdout split frozen at 621 / 266 rows; cluster-aware split path scoped; n-gram-overlap recheck path exercised.
 - Eval harness built; eval-suite SHA pinned; pre-FT baseline computed on the chosen 7B/8B base for Hawaiian held-out PPL and English PPL anchors. Without this baseline no later "better" claim is admissible.
 - Pipeline smoke on Qwen2.5-0.5B, both stages end-to-end on tiny slices, with all metrics emitting and contamination guard firing on a planted positive. This is plumbing validation; the numbers are not interpreted.
 - Short 7B resume test (≤1 h) demonstrating QLoRA NF4 load + FA2 throughput + checkpoint-to-HF-private-repo + resume-from-HF on the candidate base. Confirms the checkpoint contract works before the 60 h window opens.
 
-**Output bundle (frozen, hashed, committed to run-report row):** base SHA, tokenizer SHA, corpus manifest SHA (Stage 1 + Stage 2), eval-hashes SHA, eval-suite SHA, normalization spec, embedding/lm_head policy, env.lock.
+**Output bundle (frozen, hashed, recorded in the run-report row):** base SHA, tokenizer SHA, corpus manifest SHA (Stage 1 + Stage 2), eval-hashes SHA, eval-suite SHA, normalization spec, embedding/lm_head policy, env.lock.
 
-**Hard rule:** none of the above may bleed into the Provider 2 paid window.
+**Hard rule:** none of the above may bleed into the Provider 2 paid training window, except an explicitly budgeted ≤1 h Provider-2-class resume probe.
 
 ### 2.2 Provider 2 — Paid 60-hour stable training block (Stage 1 + merge + Stage 2)
 
@@ -82,7 +82,7 @@ The compute plan is sequenced across three providers. The split exists because (
 
 **Adapter strategy:** **merge Stage 1 into fp16 base, train fresh Stage 2 LoRA on the merged model.** Stacked adapters are reserved for short A/B ablations only; they are not the release-shape path. One quantization boundary per stage; Stage 2 reloads in 4-bit from the merged fp16.
 
-**Checkpoint contract (every save):** adapter, optimizer state, scheduler state, RNG, dataloader position, `trainer_state.json`, env.lock, base-model SHA pin, tokenizer SHA pin. Eval log committed alongside. Storage = HF Hub private repo (or equivalent S3-compatible object store) — this is the artifact bus across providers.
+**Checkpoint contract (every save):** adapter, optimizer state, scheduler state, RNG, dataloader position, `trainer_state.json`, env.lock, base-model SHA pin, tokenizer SHA pin. Eval log stored alongside. Storage = HF Hub private repo (or equivalent S3-compatible object store) — this is the artifact bus across providers.
 
 **Hard rule:** if any Stage 1 → merge → Stage 2 boundary falls back to Provider 1 or forward to Provider 3 mid-stage, the run is invalid.
 
@@ -102,14 +102,16 @@ The compute plan is sequenced across three providers. The split exists because (
 
 A single checklist that must be green before Provider 2 spend opens. Each item maps to an existing doc section.
 
-- **Tokenizer audit** (Rusty) — `training-pipeline.md` §1.1, `eval_pipeline.md` §3.1, implemented by `scripts/040_tokenizer_audit.py`. Required output: tokens/word and byte-fallback/proxy rate on representative Hawaiian slices; model/tokenizer SHA fields; go/no-go recommendation for Llama-3.1-8B; decision on embedding/lm_head unfreeze and any vocab extension; final base-model selection unblocked.
-- **Data manifests** (Linus, with Rusty on register balance) — `data-pipeline.md` Stage 1 and Stage 2 manifest schemas. Required output: per-document and per-pair provenance, license whitelist enforced at load, NFC normalization invariant green, register-balance check on Bible-heavy mixes flagged, `intended_use ∈ {prototype_private, release_candidate}` field populated (prototype-only rows acceptable here).
-- **Contamination guard** (Rusty / Basher) — `data-pipeline.md` Stage 1 §contamination + Stage 2 §contamination + `eval_hashes.jsonl`. Required output: cluster-aware splits, W1 manual rows hashed through `scripts/315_hash_manual_w1_eval.py` when accepted (or explicit local draft preflight), n-gram overlap CI assertion at load time, planted-positive smoke firing the guard.
-- **Eval harness** (Rusty / Basher / Livingston) — `eval_pipeline.md` §2–§4. Required output: harness loads, W1 categories/slices (`okina_survival`, `kahako_retention`, `unicode_nfc`, `tokenizer_survival`, `generation_sanity`, `diacritic_density_bin`) are consumable, all metrics emit, eval-suite SHA pinned, pre-FT baseline on the candidate base committed.
+- **Tokenizer audit** (Rusty) — `training-pipeline.md` §1.1, `eval_pipeline.md` §3.1. Required output: tokens/word and byte-fallback/proxy rate on representative Hawaiian slices; model/tokenizer SHA fields; go/no-go recommendation for Llama-3.1-8B; decision on embedding/lm_head unfreeze and any vocab extension. Current status: no standalone audit script in the repo; a tokenizer-audit test is planned. Final base-model selection remains blocked on gated HF access/dependencies plus a real run.
+- **Data manifests** (Linus, with Rusty on register balance) — `data-pipeline.md` Stage 1 and Stage 2 manifest schemas. Required output: per-document and per-pair provenance, license posture recorded at load, NFC normalization invariant green, register-balance check on Bible-heavy mixes flagged, `prototype_only` / `release_eligible` lineage fields enforced (prototype-only rows are expected here; release scope is hypothetical).
+- **Contamination guard** (Rusty / Basher) — `data-pipeline.md` Stage 1 §contamination + Stage 2 §contamination + `eval_hashes.jsonl`. Required output: cluster-aware splits, W1 manual rows hashed through `scripts/315_hash_manual_w1_eval.py` when accepted (or explicit local draft preflight), n-gram overlap artifact/CI assertion before any training read, planted-positive smoke firing the available guard path. The runtime loader guard remains human-owned under #4.
+- **Eval harness** (Rusty / Basher / Livingston) — `eval_pipeline.md` §2–§4. Required output: harness loads, W1 categories/slices (`okina_survival`, `kahako_retention`, `unicode_nfc`, `tokenizer_survival`, `generation_sanity`, `diacritic_density_bin`) are schema-consumable, all metrics emit, eval-suite SHA pinned, pre-FT baseline on the candidate base committed. Current W1 rows are draft/`eval_consumable=false` until Hawaiian-literate review.
 - **0.5B / 1B smoke** (Basher / Rusty) — Qwen2.5-0.5B end-to-end on tiny slices, both stages. Optionally Qwen2.5-1B if local memory permits. Includes the QLoRA-vs-fp16-LoRA falsification arm per `eval_pipeline.md` §7. This is plumbing + prior-falsification, not quality.
 - **Short 7B resume test** (Basher) — ≤1 h on the chosen base, on the chosen Provider 2 GPU class, demonstrating QLoRA NF4 load, FA2, checkpoint push to HF private repo, and resume-from-HF on a fresh container. Confirms the checkpoint contract before the 60 h window opens.
 
 A Stage 0 failure is a Stage 0 failure. It does not promote to Stage 1 with caveats.
+
+**Current prototype status (2026-04-29):** Stage 1/2 scaffold issues #2, #3, #5, #6, and #9–#14 are prototype-ready. Remaining blockers before serious 7B/8B spend are #8 (real gated Llama tokenizer audit) and the human-owned #4 runtime loader guard; #7 still needs Hawaiian-literate W1 review before W1 rows are treated as accepted eval results. #1 remains backlog/stretch.
 
 ---
 
@@ -127,7 +129,7 @@ This section captures the model-selection conversation already accepted in `.squ
 | **Mistral-7B**               | **Excluded**                                | Clean license, but weaker multilingual coverage and no meaningful Polynesian signal in pretraining. Wrong fit for ʻŌlelo Hawaiʻi.                                                                                                     |
 | **From-scratch pretraining** | **Rejected**                                | Hawaiian is low-resource; from-scratch at our budget would underperform a careful adaptation. The team consensus is to spend effort on data, tokenizer, and eval, not on training a base from zero.                                   |
 
-**Final base-model selection is blocked on the tokenizer audit.** No 7B/8B GPU spend opens before the audit reports on representative nūpepa, *Baibala Hemolele*, and contemporary slices, and before the embedding/lm_head policy is decided.
+**Final base-model selection is blocked on the tokenizer audit.** No 7B/8B GPU spend opens before the real gated Llama audit reports on representative nūpepa, *Baibala Hemolele*, and contemporary slices, and before the embedding/lm_head policy is decided. The script path exists; access/run is the remaining blocker.
 
 ---
 
@@ -148,7 +150,7 @@ This plan defers all eval methodology to [`docs/eval_pipeline.md`](./eval_pipeli
 
 1. **Pre-FT baseline on the chosen base is mandatory** before Stage 1. No "better" claim is admissible without it.
 2. **Cheap eval rides the checkpoint cadence** (~30–60 min) on Provider 2 — Hawaiian PPL, English PPL delta, ʻokina/kahakō survival, leakage recheck at Stage 1; chrF by direction, retention probe, leakage recheck at Stage 2. Cheap eval set is fixed and small; never re-tuned mid-run.
-3. **Full eval is gate-only.** Stage 1 → merge, merge → Stage 2, Stage 2 → ship-as-prototype-candidate, and the final reproducibility-gated eval on Provider 3 are the only points where the full eval suite runs.
+3. **Full eval is gate-only.** Stage 1 → merge, merge → Stage 2, Stage 2 → internal prototype-candidate promotion, and the final reproducibility-gated eval on Provider 3 are the only points where the full eval suite runs.
 
 Hard fails worth restating here because they shape the implementation plan, not just the eval doc:
 
@@ -193,7 +195,7 @@ Ranked by expected impact on the prototype, not on a release.
 
 1. **Tokenizer fragmentation on ʻokina / kahakō** — pathological byte-fallback on the Hawaiian diacritics is the most likely "wrong base" signal. Mitigation: tokenizer audit is a Stage 0 hard gate; vocab extension or a base swap is preferable to grinding through a bad tokenizer.
 2. **Catastrophic forgetting** — Stage 1 erodes English; Stage 2 erodes Stage 1 fluency. Mitigation: 5–10 % English rehearsal in Stage 1; 10–20 % Stage-1-style monolingual retention slice in Stage 2; English PPL regression and retention probes in cheap eval.
-3. **Eval leakage / contamination** — train↔eval n-gram overlap, near-duplicates, cluster-leak across splits silently inflate every score. Mitigation: cluster-aware splits, `eval_hashes.jsonl`, CI assertion at load time, n-gram strip recheck on outputs, planted-positive smoke that must fire the guard.
+3. **Eval leakage / contamination** — train↔eval n-gram overlap, near-duplicates, cluster-leak across splits silently inflate every score. Mitigation: cluster-aware splits, `eval_hashes.jsonl`, artifact/CI assertion before training reads, n-gram strip recheck on outputs, planted-positive smoke that must fire the available guard path.
 4. **OCR and source-register skew** — heavy weighting on 19th-century nūpepa or *Baibala Hemolele* yields a model that sounds period/biblical. Mitigation: per-source slicing in eval, register-balance check at manifest stage, contemporary slice tracked separately.
 5. **Provider-switch drift mid-stage** — bnb 4-bit kernels are not deterministic across CUDA / GPU class; dtype toggles between fp16 (T4/P100) and bf16 (A10/A100/4090) silently change the loss curve. Mitigation: Stage 1 + merge + Stage 2 pinned to one provider/GPU class on Provider 2; reproducibility gate on Provider 3.
 6. **Free-tier interruption** — Kaggle and Colab sessions die. Mitigation: checkpoint every 30 min, resume from HF, do nothing on Provider 1 that has to land in one continuous session.
@@ -206,11 +208,11 @@ Ranked by expected impact on the prototype, not on a release.
 
 Restated for the implementation plan specifically. These are the things this plan **does not** promise and will **not** quietly drift toward.
 
-- **No public release** of weights, adapters, tokenizer artifacts, datasets, generations, or eval scores out of this work. The release branch of `training-pipeline.md` and the cultural-review machinery in `data-pipeline.md` describe what a release would require; nothing in this plan triggers any of it.
+- **No public release** of weights, adapters, tokenizer artifacts, datasets, generations, eval scores, API, or demo out of this work. The release branch of `training-pipeline.md` and the cultural-review machinery in `data-pipeline.md` describe what a release would require; nothing in this plan triggers any of it.
 - **No claim of Hawaiian fluency, cultural authority, or ceremonial / official / educational fitness.** Eval numbers describe held-out behavior; they do not certify the model speaks ʻŌlelo Hawaiʻi correctly or appropriately.
 - **No benchmark leaderboard run.** Eval exists to find the bottleneck and choose the next experiment, not to publish numbers.
 - **No frontier-scale training** and no full fine-tune of a 7B/8B base. QLoRA is the only training shape budgeted here.
-- **No web-scraped corpus.** Sources come through `data-pipeline.md` with provenance and license.
+- **No ad hoc web-scraped corpus.** Sources come through `data-pipeline.md` with provenance, observed license, ToS snapshot, and local-only lineage.
 - **No production service**, hosted API, demo Space, or chat product out of this repo.
 - **No multi-node / FSDP / ZeRO-sharded run.** Single-GPU QLoRA only at this scope.
 

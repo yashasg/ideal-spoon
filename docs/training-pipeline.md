@@ -1,7 +1,7 @@
 # Training Pipeline
 
 > Status: **PROTOTYPE — learning project, not for redistribution.**
-> **No public release of weights, adapters, tokenizers, generations, eval scores, or derived data is planned.** The "release-candidate" scope referenced throughout this document describes *hypothetical* gates that would apply if the project ever changed posture from learning prototype to public release — it is not a roadmap toward shipping. See the prototype-vs-release ADR in `.squad/decisions.md`.
+> **No public release of weights, adapters, tokenizers, generations, eval scores, derived data, API, or demo is planned.** The "release-candidate" scope referenced throughout this document describes *hypothetical* gates that would apply if the project ever changed posture from learning prototype to public release — it is not a roadmap toward shipping. See the prototype-vs-release ADR in `.squad/decisions.md`.
 
 This document describes the training pipeline for the Hawaiian-language LLM adaptation. It consolidates the accepted ADRs (two-stage training plan, base-model recommendation, prototype-vs-release split) into an operational sequence: what runs where, in what order, and what must be true before each step costs time or money.
 
@@ -29,7 +29,7 @@ It is not training code; it is the contract the training code is expected to sat
 [Eval]    Stage-specific gates  ──►  Run report + (private) artifact
                                     │
                                     ▼
-[Release gate]  Separate clearance pass.  No prototype-tainted weights ship.
+[Release-scope gate]  Hypothetical separate clearance pass.  Prototype-tainted artifacts never ship.
 ```
 
 The two-stage shape (Stage 1 CPT → merge → fresh Stage 2 SFT LoRA) is fixed. The base model and the gates around each stage are what change between prototype and release runs.
@@ -38,7 +38,7 @@ The two-stage shape (Stage 1 CPT → merge → fresh Stage 2 SFT LoRA) is fixed.
 
 ## 1. Stage 0 — Readiness Gates (no GPU spend until these pass)
 
-Stage 0 is the cheap stage. It catches the failures that would otherwise burn a Kaggle session or an Azure A100 spot hour.
+Stage 0 is the cheap stage. It catches the failures that would otherwise burn the paid Provider 2 block.
 
 ### 1.1 Tokenizer audit (Rusty)
 
@@ -52,18 +52,15 @@ Audit deliverable:
 
 Implementation path:
 
-```bash
-python3 scripts/040_tokenizer_audit.py \
-  --model-id meta-llama/Llama-3.1-8B \
-  --input data/stage1/stage1.jsonl.gz data/evals/manual_w1/w1-haw-micro-eval.tsv
-```
-
-The script accepts JSONL/JSON/TSV/CSV/text samples, defaults to text fields
-`text,prompt,reference`, normalizes audited text to NFC, and conservatively
-canonicalizes likely Hawaiian ʻokina stand-ins to U+02BB before tokenization.
-It writes the report under the ignored `data/tokenizer_audit/` tree. If
-`transformers` is missing or gated Llama tokenizer access is unavailable, it
-exits with install/login instructions instead of emitting placeholder numbers.
+The audit is run locally and writes its report under the ignored
+`data/tokenizer_audit/` tree. Audited text must be NFC-normalized with likely
+Hawaiian ʻokina stand-ins canonicalized to U+02BB before tokenization. If
+`transformers` is missing or gated Llama tokenizer access is unavailable, the
+audit must fail loudly with install/login instructions instead of emitting
+placeholder numbers. Current status: there is no standalone audit script in
+the repo; a tokenizer-audit test is planned. The gated Llama audit/go-no-go
+remains the #8 spend gate and is still blocked on Hugging Face
+access/dependencies plus an actual run.
 
 Inspect these report fields before any serious Stage-1 spend:
 
@@ -91,7 +88,7 @@ Outcome → main target:
 - **Primary:** `Llama-3.1-8B` if the audit passes (best Polynesian-adjacent pretraining signal).
 - **Fallback:** `Qwen2.5-7B` (cleanest license: Apache-2.0).
 - **Held option:** `Gemma-2-9B` (license flow-down clauses; only if both above fail).
-- **Excluded as released base:** Aya-23 / Aya-Expanse (CC-BY-NC), Mistral-7B (weak multilingual coverage).
+- **Excluded as public-release base:** Aya-23 / Aya-Expanse (CC-BY-NC), Mistral-7B (weak multilingual coverage).
 
 The chosen base-model SHA and tokenizer SHA are **frozen at Stage 1 start** and recorded in the run manifest. Stage 2 must load the identical tokenizer files (CI hash check).
 
@@ -103,10 +100,17 @@ Hard prereq before any Stage 1 GPU launch (see two-stage ADR §"Hard data gates"
 2. License posture applied:
    - Release-candidate runs: CC0 / CC-BY / CC-BY-SA / explicit permissive only; loader rejects `prototype_private`, `unclear`, `unreviewed*`.
    - Prototype-private runs: relaxed per the prototype ADR, but `intended_use=prototype_private` set on every row, manifest still required, contamination guard still on.
-3. Normalization end-to-end: UTF-8 → NFC → ʻokina U+02BB → whitespace/control clean → langID `haw` → boilerplate strip → exact-SHA + MinHash near-dup dedup. `sha256_raw` and `sha256_normalized` populated. For FineWeb-2 specifically, `205` only fetches raw LID-classified rows; `301_build_stage1_dataset.py` performs the prototype cleaning gate and records raw vs cleaned token counts plus rejection reasons before any Stage-1 trainer JSONL is emitted.
+3. Normalization end-to-end: UTF-8 → NFC → ʻokina U+02BB → whitespace/control clean → langID `haw` → boilerplate strip → exact SHA / repeated-paragraph dedup now, with MinHash/LSH near-dup dedup still planned. `sha256_raw` and `sha256_normalized` populated. For FineWeb-2 specifically, `205` only fetches raw LID-classified rows; `301_build_stage1_dataset.py` performs the prototype cleaning gate and records raw vs cleaned token counts plus rejection reasons before any Stage-1 trainer JSONL is emitted.
 4. Cluster-aware train/dev/test/holdout splits assigned at corpus-build time. Held-out splits live in a read-only path; loaders forbidden from touching it.
 5. Cultural-sensitivity tagging at ingest. Hard-escalate categories (mele/oli/pule, moʻolelo from named tradition-bearers, moʻokūʻauhau, place-name lore tied to specific ʻohana/ahupuaʻa, restricted-archive material, **bulk pre-1925 nūpepa**) tagged even at prototype scope.
-6. `eval_hashes.jsonl` exists; both stages' dataloaders import it and assert empty intersection with their training shards. CI-enforced.
+6. `eval_hashes.jsonl` exists; build/check tools import it and assert empty intersection with training shards. Runtime dataloader enforcement remains the human-owned #4 guard.
+
+Local Stage-1 artifacts exist under ignored `data/stage1/` (`stage1_manifest.jsonl`,
+`stage1.jsonl.gz`, `token_target_report.json`, plus FineWeb cleaning stats). The
+FineWeb-2 local run saw 95,507 rows, rejected 6,528, and reduced raw vs cleaned
+Stage-1 train-token estimates from 59,534,611 to 44,067,289. The builder's
+strict undersized-slice path exits **2**; that token-volume check does not
+replace the real tokenizer audit gate above.
 
 **No data → no train.** The contamination guard and cultural tagging do not relax under prototype scope; only the release-eligibility flag does.
 
@@ -155,8 +159,8 @@ Continued pretraining on Hawaiian monolingual text. Causal-LM objective, **no in
 | Pipeline plumbing, NFC checks, eval scaffolding | Local RTX 2080 |
 | 0.5B smoke (both stages) | Local RTX 2080 |
 | 0.5B Kaggle dry-run | Kaggle |
-| **7B/8B Stage 1 CPT** | **Kaggle T4×2 / P100, multi-session, with checkpoint sync.** Azure A100 40GB spot only if Kaggle is insufficient. |
-| Stage 1 → fp16 merge sanity-check | Local or Kaggle CPU |
+| **7B/8B Stage 1 CPT** | **Provider 2 paid stable block** — one vendor/GPU class, L4 / A10 / A100 / 4090-class (SM ≥80). T4/P100 free tiers are smoke-only, not gate-number environments. |
+| Stage 1 → fp16 merge sanity-check | Same Provider 2 environment; CPU merge is acceptable only with matching env lock, base SHA, and tokenizer SHA. |
 
 Stage 1 dominates wallclock. If only one stage fits in budget, **Stage 1 must run on the 7B**.
 
@@ -213,17 +217,17 @@ Supervised fine-tuning for translation, **bidirectional (en→haw and haw→en) 
 
 | Work | Where |
 |---|---|
-| **7B/8B Stage 2 SFT** | **Kaggle T4×2** by default; or a single **Azure A100 40GB spot, ~6–10 hr** if Kaggle is exhausted. |
-| Final eval / baselines | Local + Kaggle |
+| **7B/8B Stage 2 SFT** | Same **Provider 2 paid stable block** as Stage 1 + merge; no provider/GPU-class switch mid-run. |
+| Final eval / baselines | Provider 3 eval-only environment after same-checkpoint reproducibility passes. |
 
-Azure spot only, with auto-shutdown, checkpoint to blob, budget alerts at $30 / $50 / $60, sessions ≤12 hr. On-demand A100 is forbidden under the credit-fit ADR.
+Provider 2 is a bounded paid window, not an open-ended training account. If Azure is selected, use spot only with auto-shutdown, checkpoint to blob/object storage, budget alerts at 50% / 80%, and short sessions; if another provider is selected, the same cost and checkpoint discipline applies.
 
 ### 4.3.1 Stage 2 SFT JSONL emitter (`scripts/330_emit_stage2_sft_jsonl.py`)
 
 The bridge from canonical `stage2_manifest.jsonl` to trainer-facing JSONL is a small, stdlib-only script. One canonical pair → up to two directional rows per the [Stage 2 output JSONL](./data-pipeline.md#stage-2-output-jsonl) contract; row shape is fixed there and the trainer reads `direction` / `loss_mask` rather than inferring.
 
 - **Inputs.** A Stage-2 manifest JSONL (one row per canonical pair). Each row carries either inline `text_en` / `text_haw` or `text_en_path` / `text_haw_path` refs (absolute or repo-relative). Sha-addressed text refs are a TODO once the Stage-2 ingest emits a `sha256_*_clean → blob` map.
-- **Output.** `data/stage2/stage2_sft.jsonl` by default (under the gitignored `data/` tree). The script never writes inside the repo proper.
+- **Output.** `data/stage2/stage2_sft.jsonl` by default (under the gitignored `data/` tree). The script never writes tracked training data into the repo.
 - **Filters (fail-conservative, all configurable).** `--splits` (default `train`), `--directions` (`both` | `en2haw` | `haw2en`), `--min-alignment-score` (only gates rows with a non-null embedding score; deterministic alignments — `verse-id`, `tmx-line`, etc. — pass through), and opt-in flags `--allow-review-required` / `--allow-synthetic`. Rows with `alignment_review_required=true` or unrecognised `alignment_type` are skipped by default with a counted reason.
 - **Provenance carried per emitted row.** `pair_id`, `source`, `register`, `alignment_type`, `alignment_method`, `alignment_score`, `synthetic`, `synthetic_source_model`, `edition_or_version`, `prototype_only`, `release_eligible`, `dedup_cluster_id`, `crosslink_stage1_overlap`, plus `split`. Heavier fields stay in the manifest, queryable by `pair_id`.
 - **Out of scope here.** Retention-slice (`haw-mono`) rows — those come from the Stage-1 builder and are merged in by a separate step. Contamination guard against `eval_hashes.jsonl` is a separate pass before any training read; this emitter must not pretend to gate.
@@ -236,11 +240,11 @@ The emitter is a skeleton: it validates the contract end-to-end on a small fixtu
 1. **chrF / chrF++** (primary; BLEU is unreliable for morphologically rich, low-resource languages — report both, weight chrF) on a held-out en↔haw dev/test set, **beating both** (a) base zero-shot and (b) Stage-1-only zero-shot, **in both directions, reported separately, never averaged**.
 2. **COMET** if a multilingual COMET model covers Hawaiian adequately; otherwise document the limitation.
 3. **No-translation-leakage check:** model output on the test set is not a near-duplicate of any training pair (bigram-overlap threshold).
-4. **Adequacy + fluency human eval** by a Hawaiian speaker, N=100 ideal / N=30 minimum per direction, 5-point Likert. Mean **≥3.5** to ship as a candidate; **≥4.0** to call it the recommended model.
+4. **Adequacy + fluency human eval** by a Hawaiian speaker, N=100 ideal / N=30 minimum per direction, 5-point Likert. Mean **≥3.5** to promote as an internal candidate; **≥4.0** to call it the internally recommended checkpoint.
 5. **Orthography retention re-check.** SFT didn't kill the ʻokina/kahakō behavior installed by Stage 1. If it did, retention slice was too small; reweight and rerun.
 6. **Generalization probe:** behavior on non-translation prompts hasn't collapsed into "always translate." Refusal/safety/register sanity probe included.
 
-Under **prototype scope**, gates 4 is *encouraged but not blocking*; gates 1–3 and 5–6 apply. Under **release-candidate** scope, all six are blocking, plus the release gate in §6.
+Under **prototype scope**, gate 4 is *encouraged but not blocking*; gates 1–3 and 5–6 apply. Under **release-candidate** scope, all six are blocking, plus the release gate in §6.
 
 ---
 
@@ -260,14 +264,14 @@ Every run, prototype or release, produces a run manifest recording the chain. A 
 - `seed`, training config, LoRA config, quantization config.
 - Eval-suite version and full per-gate results.
 
-**Lineage chain (release-eligible run):**
+**Lineage chain (hypothetical release-scope run):**
 
 ```
 base_model_sha
    └─► stage1_lora_sha   (trained on cleared corpus, intended_use=release_candidate)
          └─► merged_fp16_sha   (Stage 1 → fp16 merge)
                 └─► stage2_lora_sha   (fresh LoRA on merged base, cleared parallel + retention)
-                       └─► release_candidate_artifact   (subject to release gate, §6)
+                       └─► cleared_artifact_candidate   (subject to release gate, §6; not planned here)
 ```
 
 **Prototype runs share the same shape but carry `intended_use=prototype_private` end-to-end.** A prototype merged-base or prototype Stage 2 LoRA **never** flows into a release-candidate chain. To produce a release artifact, Stage 1 is re-run on the cleared corpus from scratch — the merge convention is reused, but the inputs are the cleared corpus, not the prototype corpus.
@@ -276,19 +280,19 @@ base_model_sha
 
 ## 6. Compute sequencing and explicit gates before GPU spend
 
-The credit-fit ADR is the budget reality: ~$50–$60/mo of Azure credits + local RTX 2080 + Kaggle free tier. Translation: one real run, maybe a partial retry. Sequencing matters.
+The three-provider plan is the budget reality: local/free tiers for Stage 0, one bounded paid Provider 2 block for Stage 1 + merge + Stage 2, and a separate Provider 3 eval-only pass. Translation: one real run, maybe one retry. Sequencing matters.
 
 | Step | Where | Gate that must be green before this step starts |
 |---|---|---|
 | Pipeline scaffolding, manifest validators, eval harness | Local RTX 2080 | none |
 | 0.5B end-to-end smoke (both stages) | Local RTX 2080 | tokenizer audit decided; data foundation green; eval harness wired |
 | 0.5B Kaggle dry-run | Kaggle | local smoke green; checkpoint resume demonstrated |
-| **7B/8B Stage 1 CPT** | **Kaggle T4×2 / P100** | base model frozen; tokenizer SHA frozen; corpus manifest generated locally and hashed; contamination guard green; English rehearsal slice prepared; Kaggle dry-run green |
-| Stage 1 → fp16 merge sanity-check | Local or Kaggle CPU | Stage 1 eval gate green (or, prototype scope, blocking subset green) |
-| **7B/8B Stage 2 SFT** | **Kaggle T4×2** *or* **Azure A100 40GB spot (~6–10 hr)** | merged base validated; Stage 2 manifest green; tokenizer hash CI check green; retention slice prepared; eval probes loaded |
-| Final eval / baselines | Local + Kaggle | Stage 2 run completed; checkpoints synced |
+| **7B/8B Stage 1 CPT** | **Provider 2 paid stable block** | base model frozen; tokenizer SHA frozen; corpus manifest generated locally and hashed; eval ledger loaded; contamination artifact checks green; English rehearsal slice prepared; Provider-2-class resume probe green |
+| Stage 1 → fp16 merge sanity-check | Same Provider 2 environment | Stage 1 eval gate green (or, prototype scope, blocking subset green) |
+| **7B/8B Stage 2 SFT** | Same Provider 2 paid stable block | merged base validated; Stage 2 manifest green; tokenizer hash CI check green; retention slice prepared; eval probes loaded |
+| Final eval / baselines | Provider 3 eval-only environment | Stage 2 run completed; checkpoints synced; same-checkpoint reproducibility gate passes |
 
-**Azure guardrails are non-negotiable** any time credits are spent: spot-only, auto-shutdown on idle, checkpoint to blob (not VM disk), budget alerts at 50% / 80%, ≤12 hr per session. Pipeline must be validated locally before any VM spins up.
+**Paid-provider guardrails are non-negotiable** any time credits are spent: auto-shutdown on idle, checkpoint to the artifact bus (not ephemeral VM disk), budget alerts at 50% / 80%, and no launch before the local/free pipeline is green. Azure, if chosen, is spot-only.
 
 **No 7B-class GPU spend** until Stage 0 is green. **No Stage 2 spend** until the Stage 1 gate is green for the run's `intended_use` tier.
 
@@ -316,7 +320,7 @@ Compact form, for the run report's TL;DR.
 - [ ] Stage 1 LoRA merged into fp16 successfully; sanity generations match Stage 1 LoRA inference within tolerance.
 - [ ] Same base SHA + tokenizer SHA carried forward.
 
-### Stage 2 → ship-as-candidate (release-candidate; prototype relaxes 4)
+### Stage 2 → internal candidate (release-candidate; prototype relaxes 4)
 - [ ] chrF / chrF++ beats base and Stage-1-only zero-shot in both directions, reported separately.
 - [ ] No-translation-leakage check green.
 - [ ] Orthography retention not killed by SFT.

@@ -217,6 +217,14 @@ def build_source_plan(*, namespaces: tuple[int, ...], limit: int, batch_size: in
                 "rights_status_hint": "str — inherits source-level posture",
                 "license_observed": "str — inherits source-level license",
                 "tos_or_license_url": "str — inherits source-level ToS",
+                "proofread_quality": (
+                    "int|null — MediaWiki ProofreadPage quality (0..4); "
+                    "only populated for ns=104 (Page:) rows; null for ns=0"
+                ),
+                "proofread_quality_text": (
+                    "str|null — Without text|Not proofread|Problematic|"
+                    "Proofread|Validated; quality_text==\"Validated\" is W1"
+                ),
             },
             "consumed_by": "scripts/202_fetch_hawwikisource_raw.py --page-plan",
             "limit_requested": limit,
@@ -295,6 +303,87 @@ def enumerate_pages(
                 break
             time.sleep(rate_limit_seconds)
     return rows
+
+
+def _proofread_url(*, page_ids: list[int]) -> str:
+    params: dict[str, Any] = {
+        "action": "query",
+        "prop": "proofread",
+        "pageids": "|".join(str(pid) for pid in page_ids),
+        "format": "json",
+        "formatversion": 2,
+    }
+    return f"{API_ENDPOINT}?{urllib.parse.urlencode(params)}"
+
+
+def enrich_with_proofread(
+    rows: list[dict[str, Any]],
+    *,
+    rate_limit_seconds: float,
+    dry_run: bool,
+) -> None:
+    """Annotate page_plan rows in-place with ``proofread_quality`` and
+    ``proofread_quality_text`` via the MediaWiki ProofreadPage prop.
+
+    Quality mapping (from ``meta=proofreadinfo``): 0=Without text,
+    1=Not proofread, 2=Problematic, 3=Proofread, 4=Validated. Quality 4
+    ("Validated") is the W1 gold-standard signal Linus's eval-side wires
+    up. The prop is only meaningful for ns=104 (``Page:``) pages; for
+    main-namespace (0) pages the API returns no ``proofread`` key and the
+    fields stay ``None`` in the plan. We still emit the keys so downstream
+    schema is uniform.
+    """
+    # Initialise keys uniformly so downstream consumers see a stable schema.
+    for r in rows:
+        r.setdefault("proofread_quality", None)
+        r.setdefault("proofread_quality_text", None)
+
+    # Only Page: ns rows can yield a real value; skip the call entirely if
+    # there are none.
+    page_ns_rows = [r for r in rows if int(r["ns"]) == 104]
+    if not page_ns_rows:
+        if dry_run:
+            print("  [dry-run] no ns=104 rows; would skip proofread enrichment")
+        else:
+            print("  proofread enrichment skipped: 0 ns=104 (Page:) rows in plan")
+        return
+
+    chunk = 50
+    for start in range(0, len(page_ns_rows), chunk):
+        batch = page_ns_rows[start : start + chunk]
+        ids = [int(r["page_id"]) for r in batch]
+        url = _proofread_url(page_ids=ids)
+        if dry_run:
+            print(f"  [dry-run] would GET proofread: {url}")
+            continue
+        body = _http_get(url)
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except Exception as e:
+            raise FetchError(f"proofread payload not JSON for {url}: {e!r}") from e
+        by_id: dict[int, dict[str, Any]] = {}
+        for p in payload.get("query", {}).get("pages", []) or []:
+            try:
+                by_id[int(p["pageid"])] = p.get("proofread") or {}
+            except (TypeError, KeyError, ValueError):
+                continue
+        validated = 0
+        for r in batch:
+            pr = by_id.get(int(r["page_id"]), {}) or {}
+            q = pr.get("quality")
+            qt = pr.get("quality_text")
+            try:
+                r["proofread_quality"] = int(q) if q is not None else None
+            except (TypeError, ValueError):
+                r["proofread_quality"] = None
+            r["proofread_quality_text"] = str(qt) if qt is not None else None
+            if r["proofread_quality_text"] == "Validated":
+                validated += 1
+        print(
+            f"  proofread enriched: batch={len(batch)} "
+            f"validated={validated} (W1 candidates)"
+        )
+        time.sleep(rate_limit_seconds)
 
 
 def write_outputs(
@@ -407,6 +496,16 @@ def main(argv: list[str] | None = None) -> int:
         except FetchError as e:
             print(f"  FETCH ERROR during enumeration: {e}", file=sys.stderr)
             return 3
+        if pages is not None:
+            try:
+                enrich_with_proofread(
+                    pages,
+                    rate_limit_seconds=args.rate_limit_seconds,
+                    dry_run=args.dry_run,
+                )
+            except FetchError as e:
+                print(f"  FETCH ERROR during proofread enrichment: {e}", file=sys.stderr)
+                return 3
         if args.dry_run:
             pages = None  # do not write a real page_plan in dry-run mode
     plan_path, page_plan_path = write_outputs(
