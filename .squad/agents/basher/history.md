@@ -1,5 +1,34 @@
 # Basher — History
 
+## 2026-04-30 — QLoRA bitsandbytes compute dtype fix
+
+**User Directive:** Fix QLoRA bitsandbytes compute dtype wiring to follow TrainConfig bf16/fp16 flags.
+
+**Deliverables:**
+- `code/llm_hawaii/model.py` — Extracted `_bnb_compute_dtype_name(bf16, fp16) -> str` (pure Python); refactored `_bnb_4bit_config(bf16, fp16)` to derive dtype dynamically; updated `load_base_model()` and `build_model_and_tokenizer()` to wire through TrainConfig flags.
+- `code/tests/test_model.py` — 4 new unit tests for `_bnb_compute_dtype_name` (no torch dependency).
+- `code/configs/stage1_fineweb2_haw_kaggle_t4x2.json` — added `device_placement` note clarifying `device_map="auto"` is single-process model sharding, not DDP.
+- `code/README.md` — added inline note on Kaggle T4x2 config.
+- `docs/training-pipeline.md` — added callout box explaining DDP/device_map distinction.
+
+**Key Design Decisions:**
+- **Pure-Python dtype naming:** `_bnb_compute_dtype_name()` takes bool flags, returns string ("float16", "bfloat16", "float32"), then `getattr(torch, name)`. Testable without torch.
+- **Compute dtype derivation:** `fp16=true, bf16=false` → torch.float16 (Kaggle T4x2); `bf16=true` → torch.bfloat16; neither set → torch.float32.
+- **Kaggle T4x2 correctness:** Config now uses correct dtype for Turing/T4 GPUs (no bfloat16 support on T4).
+
+**Validation:**
+- ✅ JSON parse: `code/configs/stage1_fineweb2_haw_kaggle_t4x2.json` valid
+- ✅ `--print-config` produces correct output
+- ✅ `py_compile` on changed Python files passes
+- ✅ `test_train` 16/16 pass
+- ✅ `test_data` 14/14 pass
+- ✅ 4 new dtype helper unit tests pass
+- ✅ `git diff --check` passes
+
+**Status:** Implemented. Merged into `.squad/decisions.md`.
+
+---
+
 ## 2026-05-01 — Training runner readiness for Stage 1 CPT run
 
 **User Directive:** Make the training runner ready for the next Stage 1 CPT/QLoRA run on compute.

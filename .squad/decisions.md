@@ -1,5 +1,99 @@
 # Decisions
 
+> Updated 2026-04-30T10:06:39Z: Merged Basher QLoRA bitsandbytes compute dtype fix. Outcome: `_bnb_4bit_config()` now correctly derives compute dtype from TrainConfig `bf16`/`fp16` flags. Kaggle T4x2 config (fp16=true, bf16=false) now uses torch.float16 instead of unsupported torch.bfloat16.
+
+---
+
+## Decision: Basher — QLoRA bitsandbytes compute dtype now follows TrainConfig (2026-04-30)
+
+**Owner:** Basher (Training Engineer)
+
+**Status:** IMPLEMENTED — All validation passed
+
+### Summary
+
+`_bnb_4bit_config()` in `code/llm_hawaii/model.py` previously hardcoded
+`bnb_4bit_compute_dtype=torch.bfloat16`, ignoring the `bf16`/`fp16` fields in
+`TrainConfig`. This caused the Kaggle T4x2 config (`fp16=true, bf16=false`) to
+silently use the wrong compute dtype (bfloat16 is not supported on Turing/T4).
+
+### Fix applied
+
+- Extracted `_bnb_compute_dtype_name(bf16, fp16) -> str` — pure Python, no torch.
+- `_bnb_4bit_config(bf16, fp16)` uses it to derive `torch.<dtype>` via `getattr`.
+- `load_base_model()` accepts `bf16`/`fp16` kwargs and passes them through.
+- `build_model_and_tokenizer(cfg)` passes `cfg.bf16` / `cfg.fp16`.
+
+**Result:** `fp16=true, bf16=false` → `torch.float16`; `bf16=true` → `torch.bfloat16`;
+neither set → `torch.float32`.
+
+### Docs updated
+
+- `code/configs/stage1_fineweb2_haw_kaggle_t4x2.json`: added `device_placement` note
+  clarifying `device_map="auto"` is single-process model sharding, not DDP.
+- `docs/training-pipeline.md`: added callout box explaining the DDP/device_map distinction.
+- `code/README.md`: added inline note on the Kaggle T4x2 config.
+
+### Tests
+
+Four new unit tests in `code/tests/test_model.py` cover `_bnb_compute_dtype_name`
+without requiring torch.
+
+### Validation
+
+- ✅ JSON parse: `code/configs/stage1_fineweb2_haw_kaggle_t4x2.json` valid
+- ✅ `--print-config` produces correct output
+- ✅ `py_compile` on changed Python files passes
+- ✅ `test_train` 16/16 pass
+- ✅ `test_data` 14/14 pass
+- ✅ 4 new dtype helper unit tests pass
+- ✅ `git diff --check` passes
+
+---
+
+## Decision: Basher — Kaggle T4x2 Keep Single-Process; device_map="auto" is Model Placement Only (2026-04-30)
+
+**Owner:** Basher (Training Engineer)
+
+**Status:** RECOMMENDATION — no code changes required
+
+### Summary
+
+Kaggle T4x2 = 2 × NVIDIA T4 (16 GB VRAM each, 32 GB total, separate PCIe devices — not a unified pool).
+
+Our current code is correct. `device_map="auto"` with QLoRA is **model-parallel placement** (layers split across GPUs to fit in memory), not data-parallel DDP. Single-process `python -m llm_hawaii.train` is the right and only viable launch strategy for this config.
+
+### Key Findings
+
+1. **Kaggle exposes 2 discrete T4 GPUs** to the notebook process. Both are visible via `torch.cuda.device_count()` and CUDA_VISIBLE_DEVICES.
+2. **`device_map="auto"` + bitsandbytes 4-bit**: spreads model layers across GPUs for memory fitting. Training is still single-process/single-stream — no throughput DDP scaling.
+3. **QLoRA + true DDP is not supported** by bitsandbytes. bitsandbytes 4-bit wraps params in custom `bnb.nn.Linear4bit` objects that are incompatible with DDP's gradient-gathering and state-dict contracts. This is an upstream blocker, not a configuration choice.
+4. **`accelerate launch --num_processes 2`** would spawn 2 processes each trying to load the model with `device_map="auto"` + 4-bit — this causes CUDA init conflicts and is known broken for bnb-quantized models.
+
+### What the Current Code Does on T4x2
+
+| Aspect | Behavior |
+|---|---|
+| Launch method | `python -m llm_hawaii.train` (single process) |
+| GPU placement | `device_map="auto"` spreads 8B layers across both T4s for memory |
+| Compute | Single forward/backward pass — one GPU may be idle most steps |
+| Throughput scaling | None (no DDP) |
+| Memory benefit | Yes — fits 8B+QLoRA in ~13–15 GB active + 4-bit weights spread |
+
+### Recommendation
+
+**Keep single-process `python -m llm_hawaii.train`.** This is the only safe and correct option with QLoRA+bitsandbytes on T4x2.
+
+- Do NOT add `accelerate launch` or `torchrun` with `num_processes > 1` for this QLoRA config.
+- If true DDP throughput scaling is needed, drop QLoRA and use full bf16/fp16 fine-tune on higher-VRAM hardware (A100/H100). Then `accelerate launch` is appropriate.
+- The config `notes.hardware` field is accurate; the "conservative for a single T4 process" wording is slightly loose (device_map=auto uses both for placement) but not wrong. No file edits required.
+
+### Future: If Bitsandbytes DDP Support Lands Upstream
+
+Monitor https://github.com/TimDettmers/bitsandbytes/issues for multi-GPU 4-bit DDP support. If it lands, revisit. Until then, single-process is correct.
+
+---
+
 > Updated 2026-04-30T10:00:52Z: Merged Basher Kaggle T4x2 DDP research. Outcome: QLoRA + bitsandbytes 4-bit cannot use DDP (upstream blocker). Keep single-process `python -m llm_hawaii.train` with `device_map="auto"` for model placement. No code changes required.
 
 ---
