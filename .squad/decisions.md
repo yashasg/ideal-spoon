@@ -1,6 +1,49 @@
 # Decisions
 
-> Updated 2026-04-30T08:55:56Z: Merged human_fetch translation probe decisions. Stage 0 is checkpoint 0 in unified eval series. Linus implemented bidirectional en→haw / haw→en probe with char-bigram F1 baseline (73/73 tests green). Rusty approved all 10-point checklist. Batch below.
+> Updated 2026-04-30T10:00:52Z: Merged Basher Kaggle T4x2 DDP research. Outcome: QLoRA + bitsandbytes 4-bit cannot use DDP (upstream blocker). Keep single-process `python -m llm_hawaii.train` with `device_map="auto"` for model placement. No code changes required.
+
+---
+
+## Decision: Basher — Kaggle T4x2 Keep Single-Process; device_map="auto" is Model Placement Only (2026-04-30)
+
+**Owner:** Basher (Training Engineer)
+
+**Status:** RECOMMENDATION — no code changes required
+
+### Summary
+
+Kaggle T4x2 = 2 × NVIDIA T4 (16 GB VRAM each, 32 GB total, separate PCIe devices — not a unified pool).
+
+Our current code is correct. `device_map="auto"` with QLoRA is **model-parallel placement** (layers split across GPUs to fit in memory), not data-parallel DDP. Single-process `python -m llm_hawaii.train` is the right and only viable launch strategy for this config.
+
+### Key Findings
+
+1. **Kaggle exposes 2 discrete T4 GPUs** to the notebook process. Both are visible via `torch.cuda.device_count()` and CUDA_VISIBLE_DEVICES.
+2. **`device_map="auto"` + bitsandbytes 4-bit**: spreads model layers across GPUs for memory fitting. Training is still single-process/single-stream — no throughput DDP scaling.
+3. **QLoRA + true DDP is not supported** by bitsandbytes. bitsandbytes 4-bit wraps params in custom `bnb.nn.Linear4bit` objects that are incompatible with DDP's gradient-gathering and state-dict contracts. This is an upstream blocker, not a configuration choice.
+4. **`accelerate launch --num_processes 2`** would spawn 2 processes each trying to load the model with `device_map="auto"` + 4-bit — this causes CUDA init conflicts and is known broken for bnb-quantized models.
+
+### What the Current Code Does on T4x2
+
+| Aspect | Behavior |
+|---|---|
+| Launch method | `python -m llm_hawaii.train` (single process) |
+| GPU placement | `device_map="auto"` spreads 8B layers across both T4s for memory |
+| Compute | Single forward/backward pass — one GPU may be idle most steps |
+| Throughput scaling | None (no DDP) |
+| Memory benefit | Yes — fits 8B+QLoRA in ~13–15 GB active + 4-bit weights spread |
+
+### Recommendation
+
+**Keep single-process `python -m llm_hawaii.train`.** This is the only safe and correct option with QLoRA+bitsandbytes on T4x2.
+
+- Do NOT add `accelerate launch` or `torchrun` with `num_processes > 1` for this QLoRA config.
+- If true DDP throughput scaling is needed, drop QLoRA and use full bf16/fp16 fine-tune on higher-VRAM hardware (A100/H100). Then `accelerate launch` is appropriate.
+- The config `notes.hardware` field is accurate; the "conservative for a single T4 process" wording is slightly loose (device_map=auto uses both for placement) but not wrong. No file edits required.
+
+### Future: If Bitsandbytes DDP Support Lands Upstream
+
+Monitor https://github.com/TimDettmers/bitsandbytes/issues for multi-GPU 4-bit DDP support. If it lands, revisit. Until then, single-process is correct.
 
 ---
 

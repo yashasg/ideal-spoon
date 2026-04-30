@@ -537,3 +537,24 @@ python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json
 
 **Ready for:** Compute environment Stage 1 CPT/QLoRA run.
 
+
+## 2026-04-30 — Kaggle T4x2 DDP Feasibility Research
+
+**Context:** Baseline understanding of Kaggle T4x2 hardware (2× NVIDIA T4, 16 GB each) and whether DDP (Distributed Data Parallel) is viable for Stage 1 training under the current QLoRA config.
+
+**Research Outcome:**
+
+Kaggle exposes two discrete T4 GPUs via CUDA. The current training config uses `device_map="auto"` with bitsandbytes 4-bit quantization, which is **model-parallel placement** (layers spread across GPUs to fit in memory), not data-parallel DDP. Training is single-process/single-stream; one GPU may be idle most steps.
+
+QLoRA + bitsandbytes 4-bit cannot use DDP: bitsandbytes wraps parameters in custom `bnb.nn.Linear4bit` objects that break DDP's gradient gathering and state-dict contracts (upstream blocker). `accelerate launch --num_processes 2` would fail with CUDA init conflicts (known broken for bnb-quantized models).
+
+**Decision:** Keep single-process `python -m llm_hawaii.train`. No code changes required. This is the only safe and correct option with current QLoRA+bitsandbytes config on T4x2.
+
+- Do NOT add multi-process launchers (accelerate, torchrun) for QLoRA.
+- If DDP throughput scaling needed in future: drop QLoRA, use full precision (bf16/fp16), retarget to higher-VRAM hardware (A100/H100).
+- Monitor upstream bitsandbytes for 4-bit DDP support.
+
+**Merged to decisions.md:** 2026-04-30T10:00:52Z
+
+**Status:** Recommendation — no implementation required. First Kaggle T4x2 run ready to proceed with single-process model placement.
+
