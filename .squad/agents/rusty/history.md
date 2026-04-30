@@ -112,3 +112,36 @@ Produced the NLP-side cleanup plan for the tokenizer audit harness in response t
 **Decision:** `.squad/decisions/inbox/rusty-harness-cleanup-tokenizer-family-aware.md` (now merged to decisions.md).
 
 ---
+
+## 2026-04-30T04:05:58Z — Tokenizer audit decisions finalized and merged
+
+**From:** Scribe (Session logger)
+
+**Summary:** Rusty tokenizer audit decisions consolidated and merged to canonical decisions.md:
+
+**1. Kaʻehuikimanōopuʻuloa as tokenizer-audit slice (assessment + Linus conversion task):**
+- Volume: 3,223 Hawaiian words, 21 paragraphs, 756 ʻokina, 614 kahakō, diacritic density ≈0.1254
+- Gate compatibility: ✅ Meets Stage-0 minimums alone (≥1,500 words, ≥10 high-diacritic samples)
+- NFC + U+02BB clean: canonicalization should be no-op (good control for harness)
+- Caveats: audit-only (not W1/eval/training), license unverified, single-genre (one author/moʻolelo/register)
+- Practical target for audit defensibility: collect 3–5 additional varied-genre slices (~150–500 words each) to reach ~5–6k words across ≥3 genres
+
+**2. Llama-3.1-8B audit analysis: proxy-heuristic mismatch vs. tokenizer blocker (NLP assessment):**
+- Core finding: `byte_fallback_or_proxy_rate = 0.1928` (fails 1% gate) but this is **harness mismatch, not tokenizer blocker**
+- Proxy rule designed for SentencePiece+byte-fallback; Llama-3 uses byte-level BPE (tiktoken family)
+- In byte-level BPE, multi-byte UTF-8 chars (ʻokina=3 bytes, kahakō=2 bytes) decompose to byte-chars all `ord>127`; unmerged pieces are **lossless**, not fallback
+- Clinching signals: (a) `explicit_byte_fallback_rate=0` is structurally always 0 for byte-level BPE (no `<0xXX>` vocab), so cannot be blocker; (b) `tokens_per_word=2.47` would not survive 19% real fragmentation on diacritic-heavy text (would blow to ≥3.0)
+- **Real gate gaps remain:** missing fingerprint/SHAs, unevaluated high-diacritic and diacritic-chars sections
+- Recommendation: produce round-trip evidence (5 ʻokina+kahakō sentences, verify `decode(all_ids)==NFC(text)` and each flagged piece is lossless), then file harness fix (tokenizer-family-aware proxy handling), populate SHAs + slices, re-run
+
+**3. Outcomes:**
+- No threshold changes. Frozen gate stands: overall tokens/word ≤2.50, high-diac ≤3.25, explicit byte fallback=0, proxy ≤1%, diac chars ≤2, fingerprint required
+- No data changes, no eval/training promotion of audit slice (audit-only)
+- GPU freeze enforced until clean audit with all sections populated
+
+**Orchestration logs:** `.squad/orchestration-log/2026-04-30T04:05:58Z-linus.md`  
+**Related decisions:** Merged to `.squad/decisions.md` under:
+- "Added 2026-04-30: Rusty — Kaʻehuikimanōopuʻuloa as tokenizer-audit candidate slice (assessment)"
+- "Added 2026-04-30: Rusty — Llama-3.1-8B audit no_go is proxy-heuristic mismatch, not tokenizer blocker (analysis)"
+
+**Key ask:** Linus round-trip inspection + tokenizer-family-aware proxy heuristic for harness cleanup.

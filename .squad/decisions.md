@@ -1005,3 +1005,387 @@ Three decisions merged:
 - Linus: Kaʻehuikimanōopuʻuloa book-slice conversion (additive, audit-only)
 - Rusty: Assessment confirming strong audit candidacy; two-slice pair meets Stage-0 minimums
 - Basher: Tokenizer-audit output contract (report.json gate schema, hard-fail semantics)
+
+---
+
+## Updated 2026-04-30T04:02:09Z: Copilot directive — User preference for tokenizer-audit helper API
+
+**Timestamp:** 2026-04-30T04:02:09Z
+**By:** yashasg (via Copilot)
+**Scope:** Helper API surface
+
+User directive: Tokenizer audit helper should derive required metadata from (model_id, tokenizer) arguments rather than requiring separate manual SHA/hash arguments.
+
+**Impact:** Implementation target for Linus's metadata helper (landed 2026-04-30).
+
+---
+
+## Added 2026-04-30: Linus — Tokenizer audit helper metadata extraction (landed)
+
+**Owner:** Linus (Data Engineer)
+**Status:** Landed in `code/tests/test_tokenizer_audit.py`
+
+### Summary
+
+Implemented `tokenizer_metadata_from_model_and_tokenizer(model_id, tokenizer)` to derive audit report metadata directly from tokenizer object and model ID, eliminating null placeholders.
+
+### New Helper
+
+```
+tokenizer_metadata_from_model_and_tokenizer(model_id, tokenizer) → dict
+```
+
+Returns:
+- `model_id` — passed through
+- `tokenizer_name_or_path` — from `tokenizer.name_or_path`
+- `hf_commit_sha` — from `tokenizer._commit_hash` or `tokenizer.init_kwargs.get("_commit_hash")`
+- `tokenizer_class` — class name
+- `is_fast` — boolean
+- `vocab_size` — `len(tokenizer)` or `None`
+
+### Fields Removed from Audit Report
+
+- `model.model_repo_sha` (was `None`)
+- `model.tokenizer_sha256` (was `None`)
+- `model.tokenizer_fingerprint_sha256` (was `None`)
+
+These will be populated later when `build_audit_report` orchestrator can make Hub API calls or filesystem reads.
+
+### Validation
+
+- ✅ Compilation: `python3 -m py_compile code/tests/test_tokenizer_audit.py`
+- ✅ Unit tests: 6/6 pass without `transformers` installed
+- ⚠️ Smoke test blocked locally: missing `transformers` dependency
+
+### Downstream Impact
+
+Consumers expecting `model.{model_repo_sha, tokenizer_sha256, tokenizer_fingerprint_sha256}` will encounter `KeyError`. For now, use `model.hf_commit_sha`.
+
+---
+
+## Added 2026-04-30: Rusty — Kaʻehuikimanōopuʻuloa as tokenizer-audit candidate slice (assessment)
+
+**Owner:** Rusty (NLP Researcher)
+**Status:** Assessment; no code/data changes
+
+User added pages from *He Moʻolelo Kaʻao no Kaʻehuikimanōopuʻuloa* (Moses Manu / Ulukau).
+
+### Assessment Results
+
+**Corpus volume:** 3,223 Hawaiian words, 21 paragraphs, 756 ʻokina, 614 kahakō, diacritic density ≈0.1254.
+
+**Gate compatibility (Issue #8 Stage-0):**
+- ✅ ≥1,500 words (actual: 3,223)
+- ✅ ≥10 high-diacritic samples (21 paragraphs all pass ʻokina+kahakō ≥3; many pass diacritics/word ≥0.25)
+- ✅ Clean NFC, U+02BB throughout (no canonicalization work needed)
+
+**Verdict:** Strong tokenizer-audit candidate, covers gate minimums on its own.
+
+### Caveats (binding for downstream)
+
+- **Audit-only:** Not W1, not eval, not training
+- **License unverified:** Ulukau/Moses Manu public domain plausible but not confirmed; do not redistribute/push remote
+- **Single-genre:** One author, one moʻolelo, one register; audit will pass numerically but be genre-narrow
+- **Recommendation for broader coverage:** Collect 3–5 additional small slices (~150–500 words each) from varied genres (news editorial, modern prose, place-names, numerals/dates) to reach ~5,000–6,000 words across ≥3 genres for defensible numbers
+
+### Asks
+
+- **Linus:** Convert `human_fetch_book_pages.txt` → `data/tokenizer_audit/ulukau_nupepa/kaehuikimanoopuuloa/` JSONL using prior slice shape
+- **Coordinator:** Route varied-genre collection to user if/when audit needs defensibility upgrade
+
+---
+
+## Added 2026-04-30: Linus — Kaʻehuikimanōopuʻuloa converted to tokenizer-audit input (completed)
+
+**Owner:** Linus (Data Engineer)
+**Status:** Completed (additive, audit-only, not committed)
+
+### Outputs
+
+Under `data/tokenizer_audit/ulukau_nupepa/kaehuikimanoopuuloa/` (ignored, not committed):
+- `kaehuikimanoopuuloa.jsonl` (1 row, `lang=haw`)
+- `kaehuikimanoopuuloa.haw.txt`
+- `manifest.json`
+- `README.md`
+- Helper script: `scripts/_convert_kaehuikimanoopuuloa.py`
+
+### Normalization Applied
+
+- Unicode NFC
+- ʻokina: folded U+2018/U+2019/U+02BC/U+0060 → U+02BB (0 substitutions; source was clean)
+- Whitespace: per-line stripped; runs collapsed to single space; multi-blank → single blank (page scaffolding removed)
+- Content: no diacritics stripped, no deletions, curly quotes preserved
+
+### Counts
+
+| Metric | Value |
+|---|---|
+| Records | 1 (`lang=haw`) |
+| Chars | 14,753 |
+| Words | 3,224 |
+| Paragraphs | 21 |
+| ʻokina | 756 |
+| Kahakō | 614 |
+| Diacritic density | ≈0.1254 |
+
+**Comparison:** Prior Ulukau landing-copy HAW slice: ≈0.082 density. New slice substantially stronger high-diacritic probe.
+
+### Policy (binding)
+
+- `audit_use = tokenizer_audit_candidate`
+- `audit_only = true`
+- `stage1_eligible = eval_eligible = training_eligible = w1_eligible = false`
+- `license_status = unverified`
+- **Do not promote** without fresh provenance + license + Hawaiian-literate review
+
+### Invariants Preserved
+
+- Raw source SHA verified equal pre/post
+- Prior `data/tokenizer_audit/ulukau_nupepa/human_fetch.*` untouched
+- No Stage-1 manifest, eval_hashes.jsonl, or W1 writes
+- No commits
+
+### Asks
+
+- **Frank/licensing:** Clear rights for *Kaʻehuikimanōopuʻuloa* before any promotion
+- **Rusty:** When tokenizer-audit test lands, consider this as high-diacritic probe (density 0.1254, 756 ʻokina, 614 kahakō)
+
+---
+
+## Added 2026-04-30: Basher — Tokenizer-audit output contract (schema, gates, hard-fail semantics)
+
+**Owner:** Basher (Training Engineer)
+**Status:** Proposed (team review)
+**Scope:** Output shape of planned tokenizer-audit test (`code/tests/test_tokenizer_audit.py`)
+
+### Artifact Locations (prototype-local, ignored)
+
+```
+data/tokenizer_audit/<run_id>/
+  report.json          # machine-readable, gate-read
+  report.md            # human summary (≤1 screen)
+  samples.jsonl        # per-sample metrics
+  inputs.manifest.json # consumed slices, counts
+```
+
+`<run_id>` format: `<UTC-yyyymmddThhmmssZ>__<model_short>__<tok_fp8>`
+Example: `20260430T020225Z__llama31-8b__a1b2c3d4`
+
+### `report.json` — Machine-Readable Gate Input
+
+**Key sections:**
+- `schema_version`, `run_id`, `created_utc`
+- `tool`: name, version, git SHA, host platform/Python/transformers
+- `model`: model_id, model_repo_sha, tokenizer_sha256, tokenizer_fingerprint_sha256, tokenizer_files_hashed
+- `inputs.slices[]`: slice_id, path, sha256, lang_filter, records, words, audit_only
+- `thresholds`: copies from decisions.md frozen values
+- `overall`, `high_diacritic`: tokens_per_word, explicit_byte_fallback_rate, byte_fallback_or_proxy_rate
+- `diacritic_chars[]`: char, codepoint, tokens, passes
+- `checks[]`: id, passed, actual, threshold
+- `recommendation`: decision (`go`|`no_go`), reasons, blocks, next_actions
+- `errors[]`: hard-fail diagnostics
+
+**Decision rule:** `recommendation.decision = "go"` **iff all** `checks[*].passed = true`. Any false → `"no_go"` with failed ids in reasons.
+
+**Alias:** `tokenizer_sha256` and `tokenizer_fingerprint_sha256` are the same value (both emitted for doc-reference compatibility).
+
+**Invariant:** Threshold values in report must match `decisions.md` at audit time or test fails loudly.
+
+### `report.md` — Human Summary
+
+≤1 screen, required sections:
+1. Header: run_id, model id, repo SHA, tokenizer fingerprint (12 hex chars), date, decision (GO/NO-GO)
+2. Inputs table: slice_id, words, high_diacritic_samples, audit_only
+3. Metrics table: overall + high-diacritics with thresholds and ✅/❌ markers
+4. Per-diacritic-char rows: ʻ, ā, ē, ī, ō, ū → token count, ✅/❌
+5. Decision paragraph: on `no_go`, list failed check ids and literal text "This blocks `code/configs/llama31_8b_a100.json` Stage-1 spend until a re-run reports `go`."
+6. Footer: "Prototype/local artifact. Not release certification. Not eval data."
+
+### `samples.jsonl` — Per-Record Evidence
+
+One JSON per audited record. Fields:
+- slice_id, record_id, lang
+- char_count, word_count, okina_count, kahako_count, diacritics_per_word
+- is_high_diacritic
+- token_count, tokens_per_word
+- explicit_byte_fallback_count, byte_fallback_or_proxy_count
+- explicit_byte_fallback_rate, byte_fallback_or_proxy_rate
+
+Used for debugging `no_go` and future slice-level breakdowns. Gate reads only `report.json`.
+
+### `inputs.manifest.json` — Slice Metadata
+
+Lists slices consumed (paths, hashes, counts).
+
+### Hard-Fail Behavior (do not fabricate)
+
+If `transformers` missing, Llama gated, or no Hawaiian samples found:
+
+1. Write `report.json` with `recommendation.decision = "no_go"`, `recommendation.reasons = ["environment.<reason>"]`, populated `errors[]`, and zero/null metrics (never fake numbers)
+2. Write `report.md` with `NO-GO (environment)` header + install/login instructions
+3. Return non-zero unittest result
+
+**Principle:** Preserve "do not fabricate audit results" stance from Issue #8 decision.
+
+### How Gate Is Interpreted
+
+- **`decision == "go"`** → Basher may freeze `model_repo_sha` + `tokenizer_sha256` into Stage-1 manifest for `code/configs/llama31_8b_a100.json`. **Only** path unblocking serious 8B Stage-1 spend.
+- **`decision == "no_go"`** → Stage-1 spend stays blocked. Either grow audit coverage + re-run, or open fallback-tokenizer/vocab-extension decision.
+- **`go` is not release/eval signal:** Audit slices remain `audit_only`; no rows into `data/evals/eval_hashes.jsonl` or W1.
+
+### What This Does NOT Do
+
+- Change Rusty's thresholds, fingerprint requirements, or "do not fabricate" stance
+- Introduce standalone audit script; surface remains `code/tests/test_tokenizer_audit.py` (smoke placeholder)
+- Modify `data/evals/eval_hashes.jsonl`, W1, or docs (docs follow-up flagged, not included here)
+
+### Notes for Other Agents
+
+- **Rusty:** Thresholds + fingerprint requirements unchanged; copied verbatim into `report.json.thresholds`. If different decision rule needed, flag before test authoring.
+- **Linus:** New audit slices under `data/tokenizer_audit/<src>/` need only expose JSONL shape already used; harness aggregates into `inputs.slices[]`. Slices stay `audit_only`.
+- **Frank/licensing:** `report.md` carries "Prototype/local artifact" footer to prevent misread as release claim.
+
+---
+
+## Added 2026-04-30: Basher — Llama-3.1-8B tokenizer audit NO-GO (gate closed, awaits clean re-run)
+
+**Owner:** Basher (Training Engineer)
+**Status:** Recommendation; gate closed awaiting clean re-run + Rusty concurrence
+**Input:** `data/tokenizer_audit/official/20260430T033208Z__meta-llama_Llama-3.1-8B.json`
+
+### Current Report Says
+
+- `recommendation.decision = "no_go"` — explicit blocker
+- `overall.byte_fallback_or_proxy_rate = 0.1928` (~19× over 0.01 threshold) — **catastrophic**
+- `overall.tokens_per_word = 2.474` (passes, 1% margin) — knife-edge
+- `overall.explicit_byte_fallback_rate = 0.0` — passes but suspicious given 19% proxy rate
+- `high_diacritic.status = "not_evaluated"` — Hawaiian-specific signal missing
+- `diacritic_chars.status = "not_evaluated"` — standalone diacritic counts missing
+
+### Contract Violations in Artifact
+
+- File in `data/tokenizer_audit/official/…` but `"dry_run": true` (contradicts path convention)
+- `model.tokenizer_sha256 = null`, `model.tokenizer_fingerprint_sha256 = null`, `model.model_repo_sha = null` — **cannot freeze SHA into config**; gate precondition violated
+- High-diacritic and standalone-diacritic sections missing
+
+**Verdict:** Even if metrics were green, artifact cannot legally promote gate due to missing fields.
+
+### Decision
+
+**No-go for Stage-1 GPU spend on Llama-3.1-8B.** No interim base swap yet.
+
+### Next Actions (before any GPU spend, in order)
+
+1. **Fix audit instrumentation:**
+   - Populate non-null `tokenizer_sha256`, `tokenizer_fingerprint_sha256`, `model_repo_sha`
+   - Evaluate `high_diacritic` slice (kahakō + ʻokina-heavy)
+   - Populate `diacritic_chars` items (per-char token counts for ā ē ī ō ū ʻ)
+   - Reconcile byte-fallback accounting: clarify why explicit=0 consistent with proxy=19%
+
+2. **Re-run as true official audit:**
+   - Output: `data/tokenizer_audit/official/<ts>__meta-llama_Llama-3.1-8B.json`
+   - `dry_run` field absent (per path convention; dry runs → `data/tokenizer_audit/dryrun/`)
+
+3. **Hand to Rusty** (gate owner) for go/no_go decision on clean report
+
+4. **If no_go persists:** Evaluate interim bases (Qwen2.5-7B for multilingual, Gemma-2-9B, hold Qwen2.5-0.5B smoke tier). Let audit numbers decide; no pre-commit.
+
+### Not Doing
+
+- Modifying training data
+- Starting any training run
+- Freezing SHA into `code/configs/llama31_8b_a100.json`
+- Swapping base model in config defaults
+
+### Cross-refs
+
+- Gate definition: `.squad/decisions.md` Issue #8
+- Output contract: `.squad/decisions/inbox/basher-tokenizer-audit-output-contract.md`
+- Metric definitions: `code/tests/test_tokenizer_audit.py`
+
+---
+
+## Added 2026-04-30: Rusty — Llama-3.1-8B audit no_go is proxy-heuristic mismatch, not tokenizer blocker (analysis)
+
+**Owner:** Rusty (NLP Researcher)
+**Status:** Analysis; no code/data/gate-threshold changes proposed
+**Artifact:** `data/tokenizer_audit/official/20260430T033208Z__meta-llama_Llama-3.1-8B.json`
+
+### Report Quick Summary
+
+- ✅ `overall.tokens_per_word = 2.474` (passes ≤2.50)
+- ✅ `explicit_byte_fallback_count = 0` (passes, no `<0xXX>` tokens)
+- ❌ `byte_fallback_or_proxy_rate = 0.1928` (fails 1% gate)
+- ⚠️ `high_diacritic` + `diacritic_chars` not evaluated
+
+### Why no_go Is Mostly Heuristic Mismatch
+
+The current proxy rule in `code/tests/test_tokenizer_audit.py`:
+
+```python
+stripped = piece.lstrip("▁Ġ ")
+return len(stripped) == 1 and ord(stripped) > 127
+```
+
+**Was written for SentencePiece-with-byte-fallback** (Qwen, Llama-2) where a single non-ASCII piece is either (a) `<0xXX>` token (caught explicitly) or (b) an unmerged single-char fallback worth flagging.
+
+**Llama-3 uses tiktoken-derived byte-level BPE** (GPT-2 family). In byte-level BPE:
+- Every UTF-8 byte mapped to Latin-1-Supplement / Latin-Extended-A codepoint (all `ord > 127`)
+- Multi-byte chars (ʻokina = 3 bytes; ā/ē/ī/ō/ū = 2 bytes) encoded as **sequence of byte-chars**
+- Survival of single byte-char piece = **lossless, round-trip-clean**, not a lossy fallback
+- Whether they fuse to multi-byte BPE token depends on learned merges during training
+
+**On Hawaiian text:** Every ʻokina/kahakō missing a learned merge in Llama-3 vocab surfaces as exactly the flagged pattern: `len(stripped)==1, ord>127`. Corpus has ~1,370 diacritics (756 ʻokina + 614 kahakō); 1,538 hits is right order of magnitude for byte-level BPE on diacritic-dense Hawaiian without learned merges.
+
+**Two clinching signals this is heuristic noise, not real damage:**
+
+1. **`explicit_byte_fallback_rate = 0`** — Llama-3 has no `<0xXX>` vocab; check is structurally inapplicable, not "passing because tokenizer is great"
+2. **`tokens_per_word = 2.47` passes** — If 19% of tokens were truly catastrophic fragmentation, tokens/word on diacritic-heavy text would blow to 2.5–3.0+. Hitting 2.47 is consistent with "byte-level BPE handling Hawaiian without learned merges, losslessly"
+
+### What Is Still a Real Concern
+
+- **Missing provenance:** `tokenizer_sha256` + `tokenizer_fingerprint_sha256` both `null`. Gate requires fingerprint; legitimate blocker.
+- **Missing slice evaluations:** `high_diacritic` and `diacritic_chars` not evaluated. Gate explicitly requires both. Without these, clean overall number isn't gate-sufficient.
+- **Single-genre stress:** Per prior assessment, audit on one author/register is suggestive, not defensible.
+
+### Recommendation
+
+Treat current no_go as:
+
+- **NOT** tokenizer-quality blocker for Llama-3.1-8B on Hawaiian. Byte-level BPE does what byte-level BPE does; not lossy.
+- **YES** harness blocker: `byte_fallback_or_proxy_rate` metric **not meaningful for byte-level BPE family** (Llama-3, GPT-2/3/4, tiktoken models). Applying it produces false negative every time on diacritic-heavy non-Latin scripts.
+- **YES** gate blocker on missing fingerprint + unevaluated slices — real gate gaps regardless of proxy issue.
+
+Private prototype/learning project → "tighten harness, re-run," not "abandon Llama-3.1-8B."
+
+### Immediate Next Step (low-spend)
+
+**Produce evidence, not opinion. On same `kaehuikimanoopuuloa.jsonl` slice:**
+
+1. Take ~5 sentences with ʻokina + kahakō. Dump side-by-side:
+   - Raw text
+   - Token ids
+   - `tokenizer.convert_ids_to_tokens(ids)` (pieces the heuristic sees)
+   - `tokenizer.decode([id])` per token (round-trip text — this is truth)
+   - Whether each piece flagged by `_is_byte_fallback_or_proxy`
+
+2. **Confirm two things:**
+   - Every flagged piece round-trips to non-empty UTF-8 byte/char (**lossless**, not U+FFFD or empty)
+   - `tokenizer.decode(all_ids) == NFC(original_text)` (full round-trip identity)
+
+3. **If both hold (expected):** Data in hand to:
+   - File harness fix making proxy heuristic tokenizer-family-aware (skip/redefine for byte-level BPE; keep current for SentencePiece+byte-fallback). Linus owns; Rusty reviews.
+   - Separately populate `tokenizer_sha256` / `tokenizer_fingerprint_sha256` and `high_diacritic` / `diacritic_chars` slices, re-run.
+
+If round-trip **not** clean → picture changes, no_go becomes real tokenizer blocker. Current report does not show that yet.
+
+### Bright Lines Held
+
+- No threshold changes. Frozen gate (overall ≤2.50, high-diac ≤3.25, explicit byte fallback=0, proxy≤1%, diac chars≤2, fingerprint required) stands until evidence supports family-aware "proxy" redefinition.
+- No training/eval promotion of audit slice. Tokenizer audit only.
+- No edits to `data/`. No new `eval_hashes.jsonl` rows.
+
+### Asks
+
+- **Linus:** Ownership of harness change + round-trip dump
+- **Coordinator:** Route harness to Linus; fingerprint/slice-population to audit-runner owner

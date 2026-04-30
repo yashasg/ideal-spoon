@@ -219,3 +219,31 @@ Recommended treating `proofread_status=4` ("Validated") Wikisource as W1 _candid
 **Decision:** `.squad/decisions/inbox/linus-tokenizer-audit-harness-cleanup.md` (now merged to decisions.md).
 
 ---
+
+## 2026-04-30 — Tokenizer audit helper: metadata derived from inputs
+
+- Added `tokenizer_metadata_from_model_and_tokenizer(model_id, tokenizer)` in `code/tests/test_tokenizer_audit.py`. Pulls `tokenizer_name_or_path`, `hf_commit_sha` (`_commit_hash` then `init_kwargs["_commit_hash"]`), `tokenizer_class`, `is_fast`, and `vocab_size = len(tokenizer)` directly off the tokenizer object. Robust to `tokenizer=None` (returns dict with `model_id` set, rest `None`).
+- `tokenizer_audit_output_from_encoding(...)` now embeds this dict as the `model` section. Removed null placeholder fields `model_repo_sha`, `tokenizer_sha256`, `tokenizer_fingerprint_sha256` — those need Hub/file access and aren't derivable from this helper's inputs; they belong in the future `build_audit_report` orchestrator (see harness-cleanup decision), not here.
+- Deferred `import llm_hawaii.data` into the smoke test method so the module is importable (and the helper unit tests runnable) without `transformers` installed.
+- Added 6 unit tests with fake tokenizers; all pass: `cd code/tests && python3 -m unittest -v test_tokenizer_audit.TestTokenizerMetadataFromModelAndTokenizer` → 6/6 OK. `python3 -m py_compile code/tests/test_tokenizer_audit.py` clean.
+- Decision recorded: `.squad/decisions/inbox/linus-tokenizer-helper-metadata.md`.
+
+## Learnings
+
+- 2026-04-30: HF `PreTrainedTokenizer*` exposes the loaded revision via `tokenizer._commit_hash` (set when loaded from the Hub), with `tokenizer.init_kwargs["_commit_hash"]` as the older/serialized fallback. That's the cheap, no-network handle for "which exact tokenizer revision" — prefer it over null placeholders or fabricated SHAs in audit reports. Real `tokenizer.json` SHA + repo SHA still belong in a Hub-aware orchestrator, not in shape-only helpers.
+
+## 2026-04-30T04:05:58Z — Tokenizer helper metadata update landed
+
+**From:** Scribe (Session logger)
+
+**Summary:** Linus tokenizer helper metadata extraction task completed and logged:
+- New function: `tokenizer_metadata_from_model_and_tokenizer(model_id, tokenizer)` pulls metadata directly from tokenizer object inputs
+- Removed null placeholder fields: `model.model_repo_sha`, `model.tokenizer_sha256`, `model.tokenizer_fingerprint_sha256`
+- Includes tokenizer name, class, `is_fast` flag, vocab size, and `hf_commit_sha` derived from `tokenizer._commit_hash` or `init_kwargs`
+- Validation: ✅ compilation, ✅ 6/6 unit tests pass; ⚠️ smoke test blocked locally by missing `transformers` dependency
+
+**Orchestration log:** `.squad/orchestration-log/2026-04-30T04:05:58Z-linus.md`  
+**Session log:** `.squad/log/2026-04-30T04:05:58Z-tokenizer-helper-metadata-update.md`  
+**Related decision:** Merged to `.squad/decisions.md` under "Added 2026-04-30: Linus — Tokenizer audit helper metadata extraction (landed)"
+
+**Next:** Full smoke test on CI/full environment with `transformers` installed. Ready for integration with tokenizer audit pipeline.

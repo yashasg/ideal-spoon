@@ -154,3 +154,33 @@ Decision note: `.squad/decisions/inbox/basher-llama31-tokenizer-audit-no-go.md`.
 
 **Your related orchestration log:** `.squad/orchestration-log/20260430T033611Z-basher.md`  
 **Session log:** `.squad/log/20260430T033611Z-llama-tokenizer-audit-review.md`
+
+## 2026-04-30T04:05:58Z — Tokenizer audit output contract and Llama-3.1-8B no_go decisions finalized
+
+**From:** Scribe (Session logger)
+
+**Summary:** Basher tokenizer audit decisions logged and merged to canonical decisions.md:
+
+**1. Tokenizer-audit output contract (proposed, team review):**
+- Schema for `code/tests/test_tokenizer_audit.py` audit outputs: `report.json` (gate-read), `report.md` (human), `samples.jsonl`, `inputs.manifest.json`
+- `report.json` machine-readable contract: gate decision rule, threshold copying, hard-fail semantics (no fabrication on missing `transformers` / gated Llama / no Hawaiian samples)
+- `report.md` human summary structure (≤1 screen): header, inputs table, metrics table, diacritic-char rows, decision paragraph, footer
+- Hard-fail: write `no_go` with `errors[]` and null metrics, never fabricated numbers
+- Decision logic: `go` iff all `checks[*].passed == true`; otherwise `no_go`
+
+**2. Llama-3.1-8B tokenizer audit no-go (gate closed):**
+- Input: `data/tokenizer_audit/official/20260430T033208Z__meta-llama_Llama-3.1-8B.json`
+- Current blockers: `byte_fallback_or_proxy_rate = 0.1928` (~19× over 0.01 threshold), missing `tokenizer_sha256` / `tokenizer_fingerprint_sha256` / `model_repo_sha` (cannot freeze), high-diacritic and diacritic-chars sections `not_evaluated`, `dry_run: true` field in `official/` path (violates convention)
+- Verdict: **No-go for Stage-1 GPU spend on Llama-3.1-8B.** Even if metrics were green, missing SHAs prevent config freeze.
+- Next actions (in order): fix audit instrumentation, re-run as true official audit, hand to Rusty for gate call, evaluate interim bases only if clean re-run still says no_go
+
+**3. Key findings from joint Basher/Rusty assessment:**
+- No GPU spend, no data changes, no SHA freeze until clean official audit exists
+- Audit SHAs, high-diacritic coverage, and diacritic-char coverage are hard preconditions, independent of metric values
+
+**Orchestration logs:** `.squad/orchestration-log/2026-04-30T04:05:58Z-linus.md`  
+**Related decisions:** Merged to `.squad/decisions.md` under:
+- "Added 2026-04-30: Basher — Tokenizer-audit output contract (schema, gates, hard-fail semantics)"
+- "Added 2026-04-30: Basher — Llama-3.1-8B tokenizer audit NO-GO (gate closed, awaits clean re-run)"
+
+**Stage-1 GPU freeze:** Enforced until clean Llama audit passes `go`. Basher decision documented in canonical decisions.md.
