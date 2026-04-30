@@ -204,3 +204,30 @@ Produced the NLP-side cleanup plan for the tokenizer audit harness in response t
 **Schema:** Remains v1 (backward-compatible). v2 + `run_kind` deferred per existing decisions.md.
 
 **Orchestration log:** `.squad/orchestration-log/2026-04-30T04:44:24Z-linus-tokenizer-audit-cleanup-implementation.md`
+
+---
+
+## 2026-04-30 — Between-checkpoint signal contract (read-only assessment)
+
+User asked: "what will we check between checkpoints, how do we know from the eval if the model is improving or getting worse." Wrote a focused signal map for Stage-1 cheap-eval (Hawaiian held-out PPL on FineWeb-2 dev + W1 manual micro-eval once accepted), grounded in `docs/eval_pipeline.md` §3.1/§3.2/§3.4, §4 (cheap cadence), §5 (slicing), §6 (attribution).
+
+Key points to remember:
+- Stage-0 base summary at `docs/eval-runs/stage0/20260430T063118Z__stage0_base_eval_summary.json` is a *single-prompt* baseline (`prompt_count: 1`, `generation_count: 1`, hawaiian_ppl=7.915 on `data/evals/fineweb2_haw/dev.jsonl`). It anchors PPL only; the orthography numbers (okina=15, wrong_okina=0, kahako=9, density_bin=high, is_nfc=true) are from one generation and are illustrative, not a full orthography distribution. Per-checkpoint cheap eval needs the full dev slice, not n=1.
+- Improvement = held-out Hawaiian PPL drops on the same `eval_file_sha256` AND ʻokina survival rate stays at 1.0 with `wrong_okina=0`, kahakō retention vs reference doesn't drop, NFC stays true, English-PPL delta doesn't blow past +20% (forgetting threshold from §6), tokens/word and byte-fallback don't drift up on outputs, and W1 per-category pass-rates (okina_survival, kahako_retention, unicode_nfc, tokenizer_survival, generation_sanity) are flat-or-up.
+- Warning signs *even when PPL improves*: ʻokina collapses to U+2018/U+0027 (hard fail at Stage 1 gate), kahakō stripping or NFD drift, English PPL up >20% rel, train↔dev gap widening with dev↔holdout flat (overfit), dev↔holdout gap widening (cluster leak), generation degeneracy (repetition / English collapse / register collapse) on open-ended sanity probes, n-gram overlap with `eval_hashes.jsonl` rising on outputs, hallucination rate on real-Hawaiian-entity probes climbing, high-diacritic-density slice degrading while low-density improves (orthography fingerprint), tokens/word rising on inputs (tokenizer pathology), provider-to-provider score divergence on the same checkpoint.
+- Held-out PPL alone is not sufficient. Single-global-metric framing is rejected per §5. Comparisons only valid at fixed `eval_suite_sha` + `eval_file_sha256` (SHA already captured in the Stage-0 summary).
+- W1 manual micro-eval is currently template-only / draft — until #7 closes (Hawaiian-literate review → `accepted`), W1 results are wiring-only and must not be reported as benchmark numbers. The independent (non-FineWeb-2) orthography signal is therefore *not yet live* even though the design slot exists.
+
+Decision written: `.squad/decisions/inbox/rusty-eval-checkpoints.md`.
+Did not modify code or docs. One critical correction reported: do not generalize the Stage-0 summary's orthography block (n=1 generation) into a per-checkpoint orthography baseline; the cheap-eval loop needs the full dev slice (and W1 once accepted) before deltas are interpretable.
+
+## 2026-04-30: Checkpoint eval signals finalized
+
+Joint advisory with Basher on per-checkpoint Hawaiian LLM evaluation signals. Delivered:
+- Six signal families: hawaiian_ppl per-slice, english_ppl_delta, orthography (okina survival, kahako retention, NFC), tokenizer behavior (tokens/word, byte-fallback), generation sanity (no repetition/code-switch/register flip), contamination integrity (overlap, hallucination rate).
+- Improvement = conjunction across all families (asymmetric)
+- Regression = any one tripwire sufficient (asymmetric): okina collapse to U+2018/U+0027 is Stage-1 hard-fail
+- Slicing required: source/register, diacritic density, length, tokenizer bin, split, W1 category (once accepted)
+- Critical: Stage-0 orthography baseline is n=1 sample, not distributional; per-checkpoint must use full dev slice (621 rows)
+
+Outcome: `.squad/decisions.md` entry, orchestration logs, session log recorded. Ready for Stage-1 monitoring implementation.

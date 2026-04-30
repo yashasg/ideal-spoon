@@ -184,3 +184,65 @@ Decision note: `.squad/decisions/inbox/basher-llama31-tokenizer-audit-no-go.md`.
 - "Added 2026-04-30: Basher — Llama-3.1-8B tokenizer audit NO-GO (gate closed, awaits clean re-run)"
 
 **Stage-1 GPU freeze:** Enforced until clean Llama audit passes `go`. Basher decision documented in canonical decisions.md.
+
+## Learnings — 2026-04-30 — Stage 0 eval download helper
+
+- Added `scripts/download_stage0_eval.sh`: SSH/SCP puller for Stage 0 eval artifacts. Mirrors the producer split from `scripts/run_stage0_eval.sh`:
+  - full reports → `data/eval_runs/stage0/*__stage0_base_eval.json` (gitignored)
+  - tracked summaries → `docs/eval-runs/stage0/*__stage0_base_eval_summary.json`
+- CLI: `./scripts/download_stage0_eval.sh <ssh-dest> [remote-repo-path]` (defaults remote to `~/ideal-spoon`). Env knobs: `SSH_PORT`, `SSH_OPTS`, `SCP_OPTS`, `ONLY=full|summary|both`, `DRY_RUN=1`, `OVERWRITE=1`.
+- Read-only on remote (ls + scp). Default no-clobber. `set -eu`, POSIX sh.
+- README: usage added under `code/README.md` "Stage 0 eval runner" → "Pulling Stage 0 results back from the compute box".
+
+### 2026-04-30 — Checkpoint-eval signal review (read-only assessment)
+
+User asked what to look at between checkpoints to know if the model is improving or regressing. Reviewed `code/llm_hawaii/evaluate.py`, `scripts/run_stage0_eval.sh`, `docs/eval_pipeline.md`, `docs/training-pipeline.md`, and the Stage 0 baseline summary (`docs/eval-runs/stage0/20260430T063118Z__stage0_base_eval_summary.json`).
+
+Stage 0 baseline (Llama-3.1-8B, FineWeb-2 dev 621 rows): `hawaiian_ppl = 7.9152`, eval_file_sha256 frozen, single prompt orthography clean (NFC=true, okina=15, wrong_okina=0, kahako=9, density=high). Treat 7.92 as the anchor every Stage 1 checkpoint is compared against.
+
+**What to check between checkpoints (cheap, every save):**
+1. Hawaiian held-out PPL on the same dev split — primary trend signal.
+2. Orthography on a fixed prompt set: `is_nfc`, `okina`, `wrong_okina`, `kahako`, `diacritic_density_bin`. ʻokina-survival and kahakō-retention are the early-warning canaries — they collapse before PPL does.
+3. Generation SHA drift vs prior checkpoint (already recorded in summary) — confirms model actually changed.
+4. Train-loss trajectory + grad-norm + LR alongside the eval point so PPL anomalies can be attributed.
+
+**What to add at gate-level (not every checkpoint):**
+- English PPL regression vs base (≤+20% per `eval_pipeline.md` §3.2 / `training-pipeline.md` §2.4 gate 3). **Not currently wired in `evaluate.py`** — documented gap, blocks the Stage 1 gate from being callable as written.
+- Per-source / per-register PPL slice (already a TODO in `perplexity()` requiring `source` field on JSONL records).
+- W1 manual micro-eval (when accepted), and Stage 2 chrF-by-direction.
+
+**Numeric gates (improvement vs regression):**
+- Improvement: PPL trends monotonically downward across ≥2 consecutive checkpoints; target ≥20% relative reduction vs 7.92 (≈ ≤6.33) by Stage 1 gate. Tolerate ±2% noise band.
+- Hard regression flags (any of):
+  - PPL up >5% checkpoint-to-checkpoint, or up across 2 consecutive checkpoints.
+  - `wrong_okina` becomes non-zero or trends up — orthography breaking.
+  - `is_nfc=false` on any sample — pipeline-level NFC failure.
+  - `kahako` collapses to 0 on a known high-density prompt — kahakō retention loss.
+  - Generation length collapses, repetition explodes, or output flips to English/other script.
+  - (Once wired) English PPL >+20% vs base — catastrophic forgetting.
+
+**Fair-comparison preconditions (must be identical across compared checkpoints):**
+- `eval_file_sha256` (already recorded), prompt set + `generation_sha256` keys, `max_length`, decoding config (greedy, `do_sample=False`, `max_new_tokens`), tokenizer SHA, base-model SHA, and **eval-time dtype/quantization** (eval the base model the same way for every checkpoint).
+- Always re-anchor against the Stage 0 base row (7.9152) on the same plot — PPL deltas mean nothing without it.
+- Never re-tune the eval set mid-run (`eval_pipeline.md` §4).
+
+**Critical corrections (reported, not edited):**
+- `evaluate.py:59` hard-codes `dtype=torch.float16`. Llama-3.1-8B/A100 trains in bf16; loading a bf16-trained adapter on an fp16 base for eval introduces a precision mismatch that can mask or amplify PPL changes between checkpoints. Should mirror the training dtype (bf16 on A100, fp16 only as Turing fallback). Worth a follow-up before any 7B/8B checkpoint comparison is trusted.
+- `run_stage0_eval.sh` exercises a single prompt. For checkpoint-to-checkpoint orthography trending, the fixed prompt set should be ≥5–10 deterministic prompts (covering low/medium/high diacritic density per `metrics.diacritic_density_bin`); otherwise per-prompt noise dominates the signal.
+- English-PPL probe absent in `evaluate.py` — Stage 1 gate #3 in `training-pipeline.md` §2.4 is currently unmeasurable. Either implement it before Stage 1 gate is called, or explicitly re-scope the gate.
+- Per-source slice PPL absent (already TODO in `evaluate.py:84`); without it, regressions are not attributable to nūpepa-vs-contemporary skew per `eval_pipeline.md` §6.
+
+Decision inbox: `.squad/decisions/inbox/basher-eval-checkpoints.md`.
+
+## 2026-04-30: Checkpoint eval signals finalized
+
+Joint advisory with Rusty on per-checkpoint Hawaiian LLM evaluation signals. Delivered:
+- Cheap cadence metrics (PPL, orthography, generation SHA, training companions)
+- Gate-level signals (English PPL, per-source slicing, W1 micro-eval)
+- Improvement thresholds (≥20% PPL reduction to ≤6.33 target; flat orthography; stable English)
+- Regression tripwires (PPL +>5%, okina collapse to U+2018/U+0027, wrong_okina>0, is_nfc=false, English >+20% delta, high-diacritic degradation, generation degeneracy, contamination rise)
+- Fair-comparison preconditions (frozen eval_file_sha256, prompt set, decoding config, dtype/quantization, tokenizer SHA, base-model SHA)
+
+Critical corrections flagged (not implemented): dtype mismatch (bf16 train vs fp16 eval), single-prompt orthography baseline (n=1 insufficient), unwired English probe, no per-source slicing, partial run_report schema.
+
+Outcome: `.squad/decisions.md` entry, orchestration logs, session log recorded. Ready for implementation phase.

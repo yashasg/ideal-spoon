@@ -1732,3 +1732,132 @@ No SHA256 computation in helpers (per Rusty constraint and prior Linus contract)
 **Orchestration log:** `.squad/orchestration-log/2026-04-30T04:44:24Z-linus-tokenizer-audit-cleanup-implementation.md`  
 **Session log:** `.squad/log/2026-04-30T04:44:24Z-tokenizer-audit-cleanup-implementation.md`
 
+
+---
+
+## Decision: Basher + Rusty — Between-checkpoint evaluation signals for Stage-1 Hawaiian LLM monitoring
+
+**Date:** 2026-04-30T07:00:17Z  
+**Owners:** Basher (Training Engineer), Rusty (NLP Researcher)  
+**Status:** Proposed signal contract; no code/doc changes. Read-only assessment.  
+**Inputs reviewed:** `code/llm_hawaii/evaluate.py`, `scripts/run_stage0_eval.sh`, `docs/eval_pipeline.md`, `docs/training-pipeline.md`, `docs/eval-runs/stage0/20260430T063118Z__stage0_base_eval_summary.json`.  
+
+### Anchor
+
+Stage 0 baseline (Llama-3.1-8B base, FineWeb-2 `haw_Latn` dev, 621 rows):
+
+- `hawaiian_ppl = 7.9152`
+- `eval_file_sha256 = 6e2595be…60db` (frozen)
+- Single-prompt orthography: `is_nfc=true`, `okina=15`, `wrong_okina=0`, `kahako=9`, `diacritic_density_bin=high`.
+
+This is the anchor for every Stage 1 checkpoint comparison. Always plot Stage 0 alongside checkpoint deltas.
+
+### What we check at every checkpoint (cheap cadence)
+
+Cheap signals run on frozen eval set (same `eval_file_sha256` + `eval_suite_sha` as Stage-0 baseline):
+
+**1. Hawaiian held-out PPL:** On FineWeb-2 dev split (621 rows). Primary trend signal. Per-source/register slice also required (no headline-only averaging).
+
+**2. Orthography on fixed prompt set (≥5–10 prompts, spanning low/medium/high diacritic density):**
+   - `is_nfc` — must stay `true`
+   - `wrong_okina` — must stay `0`
+   - `okina`, `kahako`, `diacritic_density` — track absolute counts; sudden drops on known-high-density prompt = orthography collapse
+
+**3. Generation SHA drift:** `generation_sha256.sample_*` vs previous checkpoint — confirms model actually changed; identical SHAs = training stuck or eval cached.
+
+**4. Training-side companions:** Train loss, grad norm, LR logged at same step. PPL anomalies only interpretable next to these.
+
+**5. English PPL delta:** vs base (currently unwired in `evaluate.py` — gap noted).
+
+**6. Tokenizer behavior on outputs:** tokens/word, byte-fallback rate. Drift up = model learning to fragment Hawaiian.
+
+### Gate-level signals (promotion / stage boundary only)
+
+- English PPL within ±20% of base
+- Per-source/register PPL slice (TODO at `evaluate.py:84`)
+- W1 manual micro-eval (when accepted rows exist)
+- Held-out (not dev) FineWeb-2 split (266 rows) reserved for stage-boundary gates
+
+### How we declare "improving" (conjunction required, all of these must be true)
+
+1. `hawaiian_ppl` ≤ previous checkpoint, monotone-or-flat across ≥2 checkpoints (allow ±2% noise band); no register slice up >5% rel
+2. ʻokina survival = 1.0; `wrong_okina = 0`; `is_nfc = true` on 100% of generations; `combining_macron = 0`
+3. Kahakō retention ≥ reference distribution within tolerance (no silent stripping)
+4. `english_ppl_delta` ≤ +20% rel vs base
+5. Tokens/word and byte-fallback rate not worse than Stage-0 audit baseline
+6. No new contamination overlap; hallucination rate flat-or-down
+7. (Once W1 live) per-category pass-rates flat-or-up
+
+Stage 1 gate target: ≥20% relative PPL reduction vs 7.9152 → **≤ ~6.33**.
+
+### How we declare "getting worse" (any one tripwire is sufficient)
+
+- ʻokina collapses to U+2018 / U+0027 anywhere in generations **[Stage-1 hard-fail gate]**
+- Kahakō stripped, or NFD output (`is_nfc=false` or combining macron present)
+- `wrong_okina` becomes non-zero or trends up
+- PPL up > 5% checkpoint-to-checkpoint, or up across 2 consecutive checkpoints
+- English PPL up >20% rel (catastrophic forgetting; triggers rerun with more rehearsal)
+- High-diacritic-density slice degrades while low-density improves (orthography handling regression masked by averaging)
+- Tokens/word or byte-fallback up on outputs (model learning to fragment)
+- Generation degeneracy: repetition loops, English collapse, register collapse on open-ended Hawaiian prompts
+- Train↔dev gap widening with dev↔holdout flat (overfit) or dev↔holdout gap widening (cluster leak)
+- n-gram overlap of generations vs `eval_hashes.jsonl` rising (leakage suspect)
+- Hallucination rate climbing on real-Hawaiian-entity probes
+- Provider/environment handoff disagreement on same checkpoint (harness drift, not model quality)
+
+The asymmetry is intentional: **improvement requires conjunction; regression requires only one tripwire.** Held-out PPL alone cannot license a "better" claim.
+
+### Slicing required (not optional)
+
+Every cheap eval reports the same generations sliced along:
+
+- **Source / register** — period/biblical vs contemporary vs governmental/educational (catches "model only sounds like 1860s nūpepa")
+- **Diacritic density** — `none`/`low`/`medium`/`high` bins (already wired in `metrics.py`; present in Stage-0 summary)
+- **Length** — short / medium / long
+- **Tokenizer behavior bin** — items binned by input tokens/word + byte-fallback rate
+- **Split** — train↔dev↔holdout gaps
+- **W1 category** (once accepted) — `okina_survival`, `kahako_retention`, `unicode_nfc`, `tokenizer_survival`, `generation_sanity`
+
+### Fair-comparison preconditions (must be identical across all compared checkpoints)
+
+- `eval_file_sha256` (already recorded)
+- Prompt set + `generation_sha256` keys
+- Decoding config: `max_length`, `do_sample=False`, `max_new_tokens`
+- Tokenizer SHA, base-model SHA
+- **Eval-time dtype/quantization for the base model**
+- Re-anchor every plot against Stage 0 (7.9152)
+- Eval set is never re-tuned mid-run
+
+### Critical corrections (reported, not implemented in this decision)
+
+1. **`evaluate.py:59` hard-codes `dtype=torch.float16`.** A100 training runs bf16. Loading bf16-trained adapter on fp16 base for eval introduces precision mismatch masking/amplifying PPL deltas. Mirror training dtype (bf16 on A100; fp16 only as Turing fallback) before first 7B/8B checkpoint comparison is trusted.
+
+2. **`run_stage0_eval.sh` exercises one prompt.** Per-checkpoint orthography trending needs fixed ≥5–10 prompt set spanning low/medium/high diacritic density; otherwise per-prompt noise dominates signal.
+
+3. **No English-PPL probe in `evaluate.py`.** Stage 1 gate #3 (`training-pipeline.md` §2.4) currently unmeasurable. Wire it or explicitly re-scope the gate.
+
+4. **No per-source slice PPL** (existing TODO at `evaluate.py:84`). Without it, regressions cannot be attributed to nūpepa-vs-contemporary skew.
+
+5. **Run-report schema partially populated.** `evaluate.py` returns subset; promote to full `run_report.json` next to each checkpoint per `eval_pipeline.md` §8 before gate calls.
+
+6. **Stage-0 orthography baseline carries n=1.** The `orthography_metrics.sample_0` block (one generation from one prompt) is not distributional. Per-checkpoint orthography deltas must compute against full dev slice (621 rows). Held-out PPL (7.915) *is* usable anchor (computed over eval file, not sample).
+
+7. **W1 manual micro-eval not yet live.** Proposed Stage-2 category (once rows accepted) is wiring-only until real accepted rows exist; not reportable benchmark until then.
+
+### Out of scope
+
+- No GPU spend implied; no code or doc edits performed by this note.
+- Tokenizer-audit gate (separate, currently `no_go`) still blocks Stage 1 spend independently.
+- Stage-2 chrF / direction / "always translate" probes (covered in `eval_pipeline.md` §3.3 and §6, not this checkpoint).
+- Human spot eval (≥20–50 minimum, full eval only at stage gates; not between-checkpoint signal).
+
+### Flagged for later action
+
+- Wire English PPL probe in `evaluate.py`
+- Implement per-source/register PPL slicing (resolve TODO at `evaluate.py:84`)
+- Fix dtype mismatch (mirror training dtype in eval harness)
+- Expand Stage-0 orthography baseline to ≥5–10 prompts across density bins before Stage-1 checkpoint comparison begins
+- Formalize `run_report.json` schema for full gate reporting (per `eval_pipeline.md` §8)
+
+**Orchestration logs:** `.squad/orchestration-log/2026-04-30T07-00-17Z-basher.md`, `.squad/orchestration-log/2026-04-30T07-00-17Z-rusty.md`  
+**Session log:** `.squad/log/2026-04-30T07-00-17Z-eval-checkpoints.md`
