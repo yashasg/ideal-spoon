@@ -159,3 +159,19 @@ Recommended treating `proofread_status=4` ("Validated") Wikisource as W1 _candid
 - Orchestration log: `.squad/orchestration-log/2026-04-29T21-34-03Z-linus.md`
 - Session log: `.squad/log/2026-04-29T21-34-03Z-wikisource-w1-quality.md`
 - Decisions merged to `.squad/decisions.md`
+
+## Learnings
+
+### 2026-04-30 — Ulukau/Nupepa human_fetch → tokenizer-audit candidate
+
+- Converted `data/raw/ulukau_nupepa/human_fetch.md` (manual paste of Ulukau Hawaiian newspapers landing copy, EN + HAW) into an additive, audit-only artifact.
+- Outputs (all under ignored `data/`):
+  - `data/tokenizer_audit/ulukau_nupepa/human_fetch.jsonl` (2 records, `lang` ∈ {en, haw}).
+  - `data/tokenizer_audit/ulukau_nupepa/human_fetch.haw.txt` (Hawaiian-only).
+  - `data/tokenizer_audit/ulukau_nupepa/human_fetch.txt` (both sections).
+  - `data/tokenizer_audit/ulukau_nupepa/README.md` (manifest + policy).
+- Helper: `scripts/_convert_ulukau_human_fetch.py` (local one-shot, idempotent; not committed).
+- Normalization: NFC; ʻokina folded to U+02BB from U+2018/U+2019/U+02BC/U+0060; markdown `# English` / `# Hawaiian` scaffolding stripped; page titles + bodies preserved.
+- HAW slice: 527 chars, ~103 words, ʻokina × 22, kahakō × 21, diacritic density ≈ 0.082 — useful as a high-diacritic probe row for the planned tokenizer-audit test (Rusty, Issue #8 gate).
+- Policy: tagged `audit_use=tokenizer_audit_candidate`, `audit_only=true`, `stage1/eval/training/w1_eligible=false`. License status `unverified_landing_copy`. User's "likely native speaker" belief recorded as note, not verification.
+- Did NOT touch raw source, Stage 1, eval hashes, or W1. Did not commit. Pre-existing dirty files in `scripts/` left alone.

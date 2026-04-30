@@ -409,3 +409,112 @@ Do not work on PowerPoint yet. Maintain a Markdown file documenting the project 
 **Status:** Context capture — for workflow and docs framing
 
 The user is using VS Code as their IDE. Capture for future project journey notes and workflow/docs framing.
+
+---
+
+## Decision: Rusty — Tokenizer-audit input slice shape & `human_fetch.md` suitability
+
+**Date:** 2026-04-30  
+**Owner:** Rusty (NLP Researcher)  
+**Status:** Team recorded — canonicalized from inbox
+
+### TL;DR
+
+`data/raw/ulukau_nupepa/human_fetch.md` is **useful** as one tokenizer-audit slice (Ulukau / Hoʻolaupaʻi-flavored Hawaiian, plausibly native-speaker authored/translated, already NFC-clean ʻokina at U+02BB and kahakō present), but it is **not** by itself sufficient to clear the gate, and it is **not** W1/eval material until separately reviewed. Linus owns conversion.
+
+### Recommended minimum input shape for the audit test harness
+
+The future `code/tests/test_tokenizer_audit.py` should consume a per-source slice file under `data/tokenizer_audit/` (off-git). Two formats, in priority order:
+
+1. **JSONL (preferred).** One sample per line:
+   - `id` (string, stable, e.g. `ulukau_nupepa-20260429-haw-001`)
+   - `text` (string, **NFC**, ʻokina canonicalized to **U+02BB**, kahakō preserved as combining-mark NFC composites)
+   - `source` (string, e.g. `ulukau_nupepa/human_fetch.md`)
+   - `lang` (string, `haw` or `eng`; tokenizer audit consumes only `lang=haw`)
+   - `is_high_diacritic` (bool, computed: `okina+kahakō ≥ 3` AND `diacritics/word ≥ 0.25`, per the canonical gate definition in decisions.md)
+   - Optional: `notes`, `provenance` (e.g. `human_fetch`, `wikisource`, `manual_w1`)
+2. **TXT fallback.** One paragraph per blank-line-separated block; the harness must paragraph-split, NFC-normalize, ʻokina-canonicalize, and compute `is_high_diacritic` itself. Use only when JSONL conversion is impractical.
+
+The harness then aggregates `overall.*` and `high_diacritic.*` (`tokens_per_word`, `explicit_byte_fallback_rate`, `byte_fallback_or_proxy_rate`) and writes a report under ignored `data/tokenizer_audit/` that includes input sample paths/sources and tokenizer fingerprint SHA-256 — exactly per the existing canonical decision (decisions.md, Rusty entry for Issue #8). No threshold or fingerprint changes are proposed here; only the input shape.
+
+### Suitability of `human_fetch.md` as an audit slice
+
+- **Use as:** one Hawaiian-newspapers-flavored tokenizer-audit slice. The Hawaiian paragraph is short (~90–100 words) and contains rich ʻokina + kahakō (`ʻŌlelo`, `Hawaiʻi`, `nā`, `paʻi`, `huaʻōlelo`, `Hoʻolaupaʻi`, `Pīhopa`, `kūikawā`, `Māori`), which is exactly the high-diacritic stress profile the gate cares about.
+- **Conversion (Linus):** split the file into two records by markdown heading; emit only the `# Hawaiian` block as `lang=haw`, drop the `# English` block from audit aggregation (or keep with `lang=eng` for sanity but exclude from Hawaiian metrics). NFC + ʻokina-canonicalize; the file already appears U+02BB-clean but normalize defensively.
+- **Caveats — bright line:**
+  - **Volume.** ~95 Hawaiian words is **far below** the gate's `≥1,500 words` and `≥10 high-diacritic samples` minimums. This file is one contributing slice, not a standalone gate input. The gate must still aggregate against `data/stage1/stage1.jsonl.gz` and the W1 micro-eval per docs/eval_pipeline.md §3.
+  - **Not eval.** "Likely native-speaker / translated" is encouraging for tokenizer stress-testing but is **not** verified W1/eval data. Do **not** hash this into `data/evals/eval_hashes.jsonl`, do not promote to W1, and do not report as eval signal until Hawaiian-literate review per the W1 contract (decisions.md, manual W1 entry).
+  - **Provenance.** Source is a manual fetch from Ulukau collection metadata; the licensing/attribution status of the prose itself should be confirmed before any non-local distribution. For local tokenizer audit only, this is fine.
+  - **Bilingual contamination risk.** Keep English and Hawaiian in separate records so English tokens cannot inflate or deflate Hawaiian tokens/word.
+
+### Alignment with existing test stub
+
+`code/tests/test_tokenizer_audit.py` today is a placeholder smoke that loads a Qwen tokenizer via `llm_hawaii.data.load_tokenizer` and does not exercise the gate. When Linus authors the real test, the JSONL shape above is what it should consume; no changes to the stub are proposed in this task (Linus owns code conversion, and the canonical model under audit is still Llama-3.1-8B per decisions.md, not Qwen).
+
+### Notes for other agents
+
+- **Linus:** please convert `data/raw/ulukau_nupepa/human_fetch.md` into a JSONL slice under `data/tokenizer_audit/ulukau_nupepa/` (off-git) using the shape above, splitting by language heading and emitting NFC + U+02BB-canonical text. Treat as tokenizer-audit input only; do not route into Stage 1 ingest or eval ledger from this path.
+- **Frank / W1 owners:** unchanged. This file is not W1.
+
+---
+
+## Decision: Linus — Ulukau/Nupepa human_fetch as tokenizer-audit candidate
+
+**Date:** 2026-04-30  
+**Owner:** Linus (Data Engineer)  
+**Status:** Team recorded — canonicalized from inbox
+
+### What
+
+Converted `data/raw/ulukau_nupepa/human_fetch.md` (user-pasted Ulukau Hawaiian newspapers collection landing copy: English paragraph + Hawaiian paragraph) into a normalized tokenizer-audit input artifact.
+
+### Where
+
+Local-only, ignored per `/data/` rule:
+
+- `data/tokenizer_audit/ulukau_nupepa/human_fetch.jsonl` (2 records)
+- `data/tokenizer_audit/ulukau_nupepa/human_fetch.haw.txt`
+- `data/tokenizer_audit/ulukau_nupepa/human_fetch.txt`
+- `data/tokenizer_audit/ulukau_nupepa/README.md`
+- Helper: `scripts/_convert_ulukau_human_fetch.py` (uncommitted, idempotent).
+
+Aligned with Rusty's Stage-0 tokenizer-audit gate convention that audit inputs/reports live under ignored `data/tokenizer_audit/`.
+
+### Policy (binding for downstream consumers)
+
+- `audit_use = tokenizer_audit_candidate`, `audit_only = true`.
+- **Not** Stage-1 eligible. **Not** eval-eligible. **Not** W1.
+  **Not** training-eligible.
+- License status: `unverified_landing_copy`. Frank should clear before any
+  promotion path is even discussed.
+- The user's belief that the Hawaiian paragraph is native-speaker
+  authored/translated is recorded as a `quality_note`, not as a verification
+  claim. A native-speaker review is still required for any escalation.
+
+### Normalization
+
+- Unicode NFC.
+- ʻokina U+2018 / U+2019 / U+02BC / U+0060 → U+02BB.
+- Markdown headings (`# English`, `# Hawaiian`) treated as scaffolding and
+  removed; page title + paragraph body retained as source text.
+- No diacritic stripping; Hawaiian punctuation preserved.
+
+### Counts
+
+- HAW: 527 chars, ~103 words, ʻokina × 22, kahakō × 21, diacritic density
+  ≈ 0.082 — usable as a high-diacritic slice probe.
+- EN: 539 chars, ~78 words, ʻokina × 2, kahakō × 1 (proper nouns).
+
+### What I did NOT do
+
+- Did not modify `data/raw/ulukau_nupepa/human_fetch.md`.
+- Did not modify Stage 1 outputs, eval hashes, W1 files, or any committed
+  manifests.
+- Did not commit. Did not touch unrelated dirty files in `scripts/`.
+
+### Asks
+
+- **Rusty:** when authoring the tokenizer-audit test, this artifact is a
+  ready high-diacritic Hawaiian probe row. Treat as candidate input only.
+- **Frank:** if/when license clearance for Ulukau landing copy is in scope,
+  this is the path to clear. Until then it stays audit-only.

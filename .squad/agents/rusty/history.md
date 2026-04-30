@@ -6,6 +6,12 @@
 - **Role:** NLP Researcher
 - **Joined:** 2026-04-29T01:38:35.141Z
 
+## 2026-04-30 — Tokenizer-audit slice shape proposed for `human_fetch.md`
+
+Reviewed `data/raw/ulukau_nupepa/human_fetch.md` as a candidate tokenizer-audit slice. It's a bilingual EN/HW Ulukau/Hoʻolaupaʻi blurb, ~95 Hawaiian words, already NFC-ish with U+02BB ʻokina and kahakō intact — solid high-diacritic stress material. Proposed minimum input shape for the planned tokenizer-audit test: JSONL of `{id, text(NFC+U+02BB), source, lang, is_high_diacritic}` per sample, with TXT paragraph-split fallback; harness must split by `# English` / `# Hawaiian` headings and exclude English from Hawaiian metrics. Caveats logged: file alone is far below the ≥1,500 words / ≥10 high-diacritic gate minimums (one contributing slice, not the gate); "likely native-speaker" is fine for tokenizer stress but is **not** W1/eval data and must not be hashed into `eval_hashes.jsonl` without separate Hawaiian-literate review. Did not modify code; Linus owns conversion. Existing `code/tests/test_tokenizer_audit.py` is still a Qwen smoke stub — when Linus writes the real test it should consume the JSONL shape against the canonical Llama-3.1-8B tokenizer; gate thresholds and fingerprint requirements are unchanged from the frozen decisions.md entry. Decision written to `.squad/decisions/inbox/rusty-tokenizer-audit-slice-shape.md`.
+
+---
+
 ## 2026-04-29 — Tokenizer audit gate path landed (#8)
 
 Added `scripts/040_tokenizer_audit.py` as the Stage-0 local-only tokenizer audit for `meta-llama/Llama-3.1-8B`. It supports JSONL/JSON/TSV/CSV/text samples, NFC + conservative U+02BB ʻokina canonicalization, source/path accounting, overall and high-diacritic slices, explicit byte fallback plus byte/proxy rates, tokenizer fingerprint SHA-256, and go/no-go reporting under ignored `data/tokenizer_audit/`.
