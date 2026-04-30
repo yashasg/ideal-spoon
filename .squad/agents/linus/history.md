@@ -1,5 +1,63 @@
 # Linus — History
 
+## 2026-04-30 — Stage 0 summary-shape review and post-review coordination
+
+**Action:** Reviewed `stage0_eval.v2` tracked summary shape for consumability by a future cross-checkpoint aggregator.
+
+**Verdict:** APPROVED. No critical data-contract issues; three non-blocking cosmetic notes forwarded to Basher for optional post-review cleanup (all three applied).
+
+**What I verified:**
+1. Hash-only summary projection: `scripts/run_stage0_eval.sh` excludes raw `generations`, raw prompt text, raw eval text. Per-sample orthography dicts carry only counts/bools. Full artifact stays under ignored `data/eval_runs/` with `full_artifact_sha256` pointer in summary.
+2. Stable top-level keys: all present always; missing fields use `{"status":"absent"}` instead of dropping keys → aggregator can do dense diffs without per-checkpoint key gymnastics.
+3. Schema/version fields: `schema_version = "stage0_eval.v2"`, `prompt_suite.suite_id = "stage0.v1"` + `suite_sha256` → aggregator can gate fairness (mismatched suite ⇒ refuse orthography diff; mismatched tokenizer/eval_set/max_length ⇒ refuse PPL diff).
+4. No raw text tracked: confirmed across 5 surfaces (prompt_suite, eval_set, orthography_metrics, orthography_aggregate, tripwires).
+5. Not-yet-wired probes: uniform `{"status":"not_configured","reason":"..."}` → aggregator branches on single shape.
+6. Cross-checkpoint fairness: all confounds captured in-band (identity, decoding, ppl_config, eval_set, provenance) so deltas are readable without hidden skew.
+
+**Fair-comparison patterns aggregator can rely on:**
+- PPL diff comparable iff `tokenizer_name_or_path`, `tokenizer_vocab_size`, `ppl_config.max_length`, `eval_set.sha256` match (all present).
+- Orthography/tripwires diff comparable iff `prompt_suite.suite_sha256` matches (present).
+- Per-sample drift comparable via `prompt_suite.items[i].id` join on `generation_sha256.sample_i` (present).
+- English-forgetting check: field exists as `english_ppl.status = "not_configured"`; when wired, only status flips + numeric appears; schema stable.
+
+**Fairness gates aggregator must enforce on entry:**
+1. `prompt_suite.suite_sha256` equal across comparison rows (else refuse orthography/tripwire diff).
+2. `eval_set.sha256`, `tokenizer_name_or_path`, `tokenizer_vocab_size`, `ppl_config.max_length` equal (else refuse PPL diff).
+3. `schema_version` equal or migrated explicitly.
+
+**Post-review cleanups applied by Basher (per notes):**
+1. `hawaiian_ppl` parity: now emits `{"status":"not_configured","reason":"..."}` when eval_file is absent, matching the shape used by other absent probes.
+2. `schema_version` fallback: flipped from `"stage0_eval.v1"` (silent mislabel) to `"unknown"` (visible).
+3. Suite-design invariant documented in `code/README.md` + `docs/eval_pipeline.md` §8.1.
+
+**Testing observed:** 18/18 passing via `PYTHONPATH=. python3 -m unittest tests.test_evaluate tests.test_metrics` from `code/`.
+
+**Durable lesson:** For drift-signal artifacts, review checklist is: (1) raw text excluded? (2) keys stable across modes? (3) version + suite hash for gating? (4) confounds captured in-band? (5) not-yet-wired probes uniform placeholder shape? Basher's bundle hits all five; hold future eval/manifest work to this bar.
+
+---
+
+## 2026-04-30 — Reviewed Basher's Stage 0 drift-signal bundle (`stage0_eval.v2`)
+
+**Asked by:** yashasg, on Basher's request. Review-only; no code changes.
+
+**Verdict:** Approved. Wrote `.squad/decisions/inbox/linus-stage0-summary-review.md`.
+
+**What I confirmed:**
+- Hash-only summary projection in `scripts/run_stage0_eval.sh` excludes `generations` and any raw prompt/eval text. Per-sample orthography dicts carry only counts/bools, no text. Full artifact stays under ignored `data/eval_runs/`; summary references it via `full_artifact_sha256`.
+- Stable top-level keys with `{"status": "absent"}` fallback ⇒ aggregator can do dense diffs.
+- `schema_version = "stage0_eval.v2"`, `prompt_suite.suite_id = "stage0.v1"` + `suite_sha256` give the aggregator the gates it needs to refuse unfair comparisons (mismatched suite ⇒ no orthography diff; mismatched tokenizer/eval-set/max_length ⇒ no PPL diff).
+- Not-yet-wired probes (`english_ppl`, `manual_w1`, `hawaiian_ppl_by_source`) all use uniform `{"status":"not_configured","reason":"..."}` so the aggregator can branch on a single shape.
+- Confounds that would silently bias cross-checkpoint deltas are captured in-band: `identity.{model_dtype, device_map, quantization_config, tokenizer_*, model_class, is_adapter, base_model, *_version}`, `decoding.*`, `ppl_config.max_length`, `eval_set.{sha256, *_count, total_tokens, max_length_used}`, `source_git_commit`.
+- 18/18 tests green via `PYTHONPATH=. python3 -m unittest tests.test_evaluate tests.test_metrics` from `code/`.
+
+**Small follow-ups noted (non-blocking, no agent re-route):**
+- Wrap `hawaiian_ppl` with `{"status":"absent"}` when `eval_file` is omitted, for parity with other absent probes.
+- Wrapper's fallback `schema_version` default of `"stage0_eval.v1"` should be `"unknown"` to avoid silent mislabeling if the report ever loses the field.
+- `diacritic_density_bin_counts` appears under both `eval_set` (records) and `orthography_aggregate` (generations); future aggregator must qualify by parent path. Doc-only note.
+
+**Lesson for future review passes:**
+- For drift-signal artifacts, the right review checklist is: (1) raw text excluded? (2) keys stable across run modes? (3) version + suite hash for comparability gating? (4) confounds captured in-band? (5) not-yet-wired probes have uniform placeholder shape? Basher's bundle hits all five. This is the bar I should hold future eval/manifest schema work to.
+
 ## Core Context
 
 - **Project:** A plan for training an open-source LLM focused on the Hawaiian language, including data, model choices, infrastructure, evaluation, and costs.

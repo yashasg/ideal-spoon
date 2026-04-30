@@ -1,5 +1,38 @@
 # Basher — History
 
+## 2026-04-30 — Stage 0 eval drift-signal bundle (`stage0_eval.v2`) implemented and reviewed
+
+**User Directive:** Stage 0 evals should capture the full checkpoint drift-signal bundle so checkpoints can be compared across PPL, orthography, generation, dtype/config identity, and related regression tripwires.
+
+**Deliverables:**
+- `code/llm_hawaii/evaluate.py` — rewrote report shape (additive, retaining existing CLI); captures 7 drift signals: run identity, eval-set metadata, Hawaiian PPL (with per-source placeholder), fixed 7-item prompt suite (stage0.v1), per-sample + aggregate orthography, tripwires, and not-yet-wired probes (english_ppl, manual_w1, hawaiian_ppl_by_source with explicit "not_configured" status)
+- `scripts/run_stage0_eval.sh` — wrapper now defaults to suite-on; summary projects the full bundle without raw text
+- `code/tests/test_evaluate.py` — new file, 7 new tests (no ML deps); all 18 passing (+ existing 11 metrics tests)
+- `docs/eval_pipeline.md` — added §8.1 pointer
+- `code/README.md` — Stage 0 section documents drift bundle + prompt-suite-freeze rule
+- Post-review cleanups applied: hawaiian_ppl parity shape, schema_version fallback flip to "unknown", suite-design freeze invariant documented
+
+**Key Design Decisions:**
+- Prompt suite freeze: `PROMPT_SUITE_ID = "stage0.v1"`, `suite_sha256 = 2683027f538ae8fb2910f758f2865596355893cc91c85dbdfe9ced130797bce6`. Editing in place invalidates all prior baselines; only way to change is to bump PROMPT_SUITE_ID.
+- Summary carries no raw text (prompt/eval/generation text stays under ignored `data/`); hash-only projection with stable top-level keys means aggregator can do dense cross-checkpoint diffs.
+- Placeholders for not-yet-wired probes (english_ppl, manual_w1, hawaiian_ppl_by_source) use uniform `{"status":"not_configured","reason":"..."}` so future wiring only flips status, not the schema.
+- `kahako_collapse_on_high_diacritic` tripwire counts zero-kahakō generations when high-bin prompts explicitly request kahakō — reports as integer 0–N (signal, not gate).
+
+**Reviews (both approved, no code changes required for this scope):**
+- **Rusty:** Hawaiian phrasing of 7 prompts verified NFC, U+02BB ʻokina throughout, zero wrong-ʻokina seeds, density bins match labels. Tripwire approved conditional on suite-design invariant (high-density prompts must instruct kahakō use). Approved for `stage0.v1` freeze.
+- **Linus:** Summary shape consumable by future cross-checkpoint aggregator. Confirmed hash-only projection, stable keys with `{"status":"absent"}` fallback, fair-comparison gating via `suite_sha256` + `eval_set.sha256` + `ppl_config`, all confounds captured in-band, not-yet-wired probes uniform. Approved for downstream aggregation.
+
+**Validation:**
+- `python3 -m py_compile code/llm_hawaii/evaluate.py code/tests/test_evaluate.py` ✓
+- `sh -n scripts/run_stage0_eval.sh` ✓
+- `PYTHONPATH=. python3 -m unittest tests.test_evaluate tests.test_metrics` — 18/18 passing
+
+**Status:** Implemented, reviewed, approved. Not committed (awaiting coordination for batch commit).
+
+**Cross-team context:**
+- **Rusty:** Approved suite + tripwire + coverage checklist sections A–H as the contract for Stage 0 → Stage 1 aggregation. Flag: critical corrections outstanding (dtype hardcode at evaluate.py:162, per-source PPL slice TODO, English PPL not wired, single prompt not ≥5–10 spanning bins, n=1 orthography not distributional). These don't block v2 freeze; they block Stage 1 gate.
+- **Linus:** Approved shape; noted cosmetic follow-ups (hawaiian_ppl parity when eval_file absent, schema_version fallback visibility) forwarded and applied. No re-review needed; changes are doc + shape parity.
+
 ## Core Context
 
 - **Project:** A plan for training an open-source LLM focused on the Hawaiian language, including data, model choices, infrastructure, evaluation, and costs.
@@ -246,3 +279,74 @@ Joint advisory with Rusty on per-checkpoint Hawaiian LLM evaluation signals. Del
 Critical corrections flagged (not implemented): dtype mismatch (bf16 train vs fp16 eval), single-prompt orthography baseline (n=1 insufficient), unwired English probe, no per-source slicing, partial run_report schema.
 
 Outcome: `.squad/decisions.md` entry, orchestration logs, session log recorded. Ready for implementation phase.
+
+## 2026-04-30 — Stage 0 eval drift bundle implemented (`stage0_eval.v2`)
+
+Implemented the drift-signal bundle promised by the 2026-04-30 checkpoint-eval advisory. Surgical edits, not committed.
+
+**Schema bump:** `EVAL_SCHEMA_VERSION = "stage0_eval.v2"` in `code/llm_hawaii/evaluate.py`. Prior summaries are `v1`-implied (no field).
+
+**New artifact fields** (full report and tracked summary; raw text never touches the summary):
+- `identity.*` — checkpoint, base_model, is_adapter, model_class, model_dtype/device/device_map, quantization_config, tokenizer name/class/vocab size, torch+transformers versions, cuda_available. Captured per-eval so dtype mismatches (the prior bf16-vs-fp16 flag on Llama-3.1-8B) are at least *visible* in every summary.
+- `decoding.*` — do_sample, max_new_tokens, greedy.
+- `ppl_config.max_length`.
+- `eval_set.*` — sha256, record_count, scored_record_count, total_tokens, total_chars, length_bin_counts_tokens (short/medium/long), diacritic_density_bin_counts, source_counts/register_counts (or `{"status":"field_absent"}`).
+- `prompt_suite.*` — suite_id (`stage0.v1`), suite_sha256, items[] with prompt_sha256/prompt_diacritics/diacritic_density_bin/prompt_len_chars. No prompt text.
+- `orthography_aggregate.*` — totals across the suite plus `kahako_collapse_on_high_diacritic`.
+- `tripwires.*` — `wrong_okina_nonzero`, `nfc_failures`, `combining_macron_nonzero`, `kahako_collapse_on_high_diacritic`, `generation_count`, `prompt_suite_sha256`, `prompt_suite_id`.
+- Explicit `status: "not_configured"` placeholders for `english_ppl`, `manual_w1`, `hawaiian_ppl_by_source`. No silent gaps.
+
+**Fixed prompt suite (freeze):** 7 prompts — 1 English control, 2 low (1–2 diacritics), 2 medium (3 each), 2 high (12–13 each). `suite_sha256 = 2683027f538ae8fb2910f758f2865596355893cc91c85dbdfe9ced130797bce6`. **Editing a prompt in place silently breaks cross-checkpoint comparability**; rule now in `code/README.md`: append + bump `PROMPT_SUITE_ID` instead. First-pass prompts authored by me; needs Rusty (Hawaiian-literate) sign-off before any Stage 1 checkpoint compares to the v2 baseline.
+
+**Backwards-compatible CLI:** `--checkpoint`, `--eval-file`, `--prompt` (repeatable, overrides suite) unchanged. New: `--no-prompt-suite`, `--max-length`, `--max-new-tokens`. New behavior: when no `--prompt` is given, the built-in suite runs. Wrapper script defaults `USE_SUITE=1` and no longer hardcodes a single prompt.
+
+**Wrapper changes:** `scripts/run_stage0_eval.sh` now exposes `USE_SUITE`, projects the rich artifact into the tracked summary, and excludes `generations` text from the summary by design (full artifact still has it under ignored `data/eval_runs/stage0/`).
+
+**Validation done:**
+- `python3 -m py_compile` on changed Python files.
+- `sh -n scripts/run_stage0_eval.sh`.
+- 18/18 green via `cd code && PYTHONPATH=. python3 -m unittest tests.test_evaluate tests.test_metrics` (7 new in `test_evaluate.py` — no ML deps). `tests.test_data` requires `transformers`, pre-existing skip.
+- `DRY_RUN=1` of the wrapper rendered correctly under suite-on, `USE_SUITE=0`, and `PROMPT=...` extra.
+- `pytest` not available locally; ran via stdlib `unittest`.
+
+**Decision inbox:** `.squad/decisions/inbox/basher-stage0-drift-signals.md`.
+
+**Asks:**
+- Rusty: review prompt content + the kahakō-collapse tripwire definition.
+- Linus: confirm summary schema works for the cross-checkpoint diff/aggregator he intends to build.
+- Coordinator: routing for English PPL + W1 manual harness wiring (still placeholders); flipping their `status` from `not_configured` to real values is the next blocker for a callable Stage 1 gate.
+
+**Lesson:** placeholder fields (`status: "not_configured"`) beat silent absence — downstream diffs catch the moment a probe lights up instead of dropping the gap on the floor.
+
+## stage0_eval.v2 — post-approval cleanups (Linus + Rusty)
+
+Applied three surgical follow-ups after Linus and Rusty signed off on the
+v2 drift bundle:
+
+- `evaluate.py`: when `--eval-file` is omitted, `hawaiian_ppl` now emits
+  `{"status": "not_configured", "reason": ...}` instead of being absent.
+  Other probes (`english_ppl`, `manual_w1`, `hawaiian_ppl_by_source`)
+  already used this shape; PPL was the odd one out and would silently
+  vanish from summary diffs. Existing PPL-runs path is untouched.
+- `scripts/run_stage0_eval.sh`: summary `schema_version` fallback flipped
+  from `stage0_eval.v1` to `unknown`. A missing `schema_version` is now
+  visible instead of being mislabeled as v1, which matters for any
+  future schema bump (v2 → v3) where a stale full-report would otherwise
+  look legitimate.
+- `code/README.md` + `docs/eval_pipeline.md` §8.1: documented the
+  suite-design freeze invariant — every future `haw_high_*` /
+  high-`diacritic_density_bin` prompt must explicitly request kahakō,
+  otherwise `kahako_collapse_on_high_diacritic` decays into noise. Same
+  rule applies if the bin thresholds in `metrics.diacritic_density_bin`
+  are ever retuned.
+
+Validated with `python3 -m py_compile`, `sh -n`, and the existing
+`tests/test_evaluate.py` (7/7 pass). No new tests added: the cleanups
+are doc/string-shape changes; the existing aggregate + tripwire tests
+already cover the semantic surface.
+
+Lesson: when a report dict mixes "always-on" probes (PPL) and
+"sometimes-wired" probes (English PPL, W1), pick one absent-shape and
+apply it uniformly. Letting one field be `null`/missing while the
+others are status objects creates a quiet diff hole the moment a flag
+flips.

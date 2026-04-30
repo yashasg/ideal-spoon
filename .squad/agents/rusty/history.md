@@ -1,5 +1,77 @@
 # Rusty — History
 
+## 2026-04-30 — Stage 0 eval reviews: prompt suite + drift-coverage checklist
+
+**Actions:**
+1. **Prompt suite review** (`stage0.v1`) — APPROVED for freeze. Verified all 7 prompts: NFC throughout, every ʻokina is U+02BB (never ASCII, U+2018, U+2019, U+02BC), zero wrong-ʻokina seeds, density bins match labels. Hawaiian phrasing natural and grammatical. Tripwire `kahako_collapse_on_high_diacritic` approved as a count-based (0–N) drift signal given that both high-bin prompts explicitly instruct the model to use kahakō — so zero kahakō in a non-trivial generation is fused instruction-following + orthographic failure. Suite-design invariant documented: any future high-diacritic prompt must explicitly request kahakō or the tripwire's weight weakens.
+
+2. **Drift-coverage checklist** — Assessed what every Stage 0 summary must capture for cross-checkpoint comparison to be sound. Sectioned into A–H (identity headers, distributional orthography, fixed suite shape, PPL slices, tokenizer behavior, W1 status, slice fields, machine-checked tripwires). Current baseline PPL (7.9152) is usable anchor; the summary is insufficient for per-signal drift detection. Checklist now in decisions.md as the contract for Stage 1 aggregator.
+
+**Critical corrections flagged (not blocking v2 freeze, but blocking Stage 1 gate):**
+- `evaluate.py:59` hard-codes `torch.float16`; A100 training runs bf16 → at least `identity.model_dtype` is now visible in every summary so the mismatch is *observable*, but the actual fix (bf16 default, fp16 only as Turing fallback) is a separate Basher item.
+- `evaluate.py:84` per-source/register PPL slice TODO unresolved → Section D checklist depends on this.
+- No English-PPL probe → `english_ppl_up_gt_20pct` tripwire and Section D baseline are unmeasurable until wired.
+- `run_stage0_eval.sh` exercises one prompt → Section C requires ≥5–10 spanning density bins before Stage 1 comparison.
+- Current orthography is n=1 → Section B distributional baseline must replace single-sample before Stage 1 checkpoint comparison is meaningful.
+
+**Lessons for future work:**
+- Suite-design invariant is a property of the *prompts*, not the *code* — if a high-bin prompt doesn't instruct kahakō use, zero kahakō in the response is no longer evidence of model failure. Future suite bumps must respect this or add a parallel tripwire indexed over the kahakō-instructing subset only.
+- Self-referential high-density prompts (asking the model in Hawaiian to write Hawaiian "with all the kahakō and ʻokina") are good design — they fuse instruction-following and orthography into one signal.
+- Tripwires are signals, not gates — reporting `kahako_collapse_on_high_diacritic` as an integer 0–N keeps it interpretable and tractable for false-positive filtering.
+
+**Non-blocking follow-ups:**
+- Symmetric `okina_collapse_on_high_diacritic` counter is cheap (data already exists); suggest as Stage 1 additive (no SHA churn).
+
+---
+
+## 2026-04-30 — Stage 0 prompt suite review: `stage0.v1` approved for freeze
+
+Reviewed Basher's `stage0_eval.v2` drift-signal bundle for Hawaiian-language
+correctness — 7 fixed prompts in `code/llm_hawaii/evaluate.py:60`
+(`PROMPT_SUITE_ID="stage0.v1"`, `suite_sha256=2683027f…7bce6`) plus the
+`kahako_collapse_on_high_diacritic` tripwire. **Approved.** Mechanically verified each
+prompt: every Hawaiian prompt is NFC, every ʻokina is U+02BB (no ASCII `'`, no
+U+2018/U+2019, no U+02BC), zero wrong-ʻokina seeds, density bins match labels
+(low: 1/2 diacritics; medium: 3/3; high: 13/12). Phrasing is grammatical and natural
+across registers — `Aloha mai kākou`, `Pehea ʻoe i kēia lā?`, `He aha ka mōʻaukala o
+Hawaiʻi?`, plus two self-referential high-bin instructional prompts that ask for
+kahakō+ʻokina.
+
+Tripwire approved as a **count** (not boolean) drift signal because both `haw_high_*`
+prompts explicitly instruct the model to use kahakō — so `kahako==0` in a non-trivial
+generation is fused instruction-following + orthographic failure, exactly the failure
+mode global PPL misses. Recorded one suite-design invariant for any future bump:
+high-density slot prompts must explicitly request kahakō, otherwise the tripwire's
+weight silently weakens; document at change-time, don't redefine. Non-blocking
+follow-ups noted: cheap symmetric `okina_collapse_on_high_diacritic` sibling counter
+for Stage 1 (data already there); fp16 hardcode at `evaluate.py:162` is now at least
+*visible* via `identity.model_dtype` per the drift-coverage checklist, but the actual
+bf16/fp16 fix is a separate Basher item, not part of this prompt review. Verdict at
+`.squad/decisions/inbox/rusty-stage0-prompt-review.md`. No file edits.
+
+### Durable learnings
+
+- **Suite-design invariant for diacritic-collapse tripwires:** the tripwire's
+  interpretive weight is a property of the *prompts*, not the *code*. If a high-bin
+  prompt doesn't instruct the model to use kahakō (or ʻokina), zero kahakō in the
+  response is no longer evidence of model failure. Future suite versions must respect
+  this or add a parallel tripwire indexed only over the kahakō-instructing subset.
+- **Self-referential high-density prompts are good design.** Asking the model in
+  Hawaiian to write Hawaiian "with all the kahakō and ʻokina" gives one signal that
+  fuses instruction-following and orthography — both fail or both pass, and the same
+  counter catches it cheaply.
+- **Prompt audit checklist is mechanical, not vibes:** NFC pass; ʻokina codepoint ==
+  U+02BB on every prompt; wrong-ʻokina detector returns 0 on every prompt (a suite
+  that itself trips `wrong_okina_nonzero` cannot be a baseline); per-prompt diacritic
+  count agrees with the bin label; `count_hawaiian_diacritics` is the contract, not
+  prose counts in inbox notes.
+- **Tripwires are signals, not gates.** Reporting `kahako_collapse_on_high_diacritic`
+  as an integer 0–N rather than a boolean keeps it interpretable when N > 1 and
+  short-generation false-positives become tractable. Keep this pattern for the
+  symmetric ʻokina counter when wired.
+
+---
+
 ## Core Context
 
 - **Project:** A plan for training an open-source LLM focused on the Hawaiian language, including data, model choices, infrastructure, evaluation, and costs.
@@ -231,3 +303,13 @@ Joint advisory with Basher on per-checkpoint Hawaiian LLM evaluation signals. De
 - Critical: Stage-0 orthography baseline is n=1 sample, not distributional; per-checkpoint must use full dev slice (621 rows)
 
 Outcome: `.squad/decisions.md` entry, orchestration logs, session log recorded. Ready for Stage-1 monitoring implementation.
+
+---
+
+## 2026-04-30 — Stage 0 eval drift-coverage acceptance checklist
+
+Read-only coverage pass (parallel to Basher's implementation) on whether the Stage 0 eval summary captures enough to detect Hawaiian regressions between checkpoints. Reviewed `docs/eval_pipeline.md`, `data-sources/manual-eval/README.md` + template TSV, `code/llm_hawaii/evaluate.py`, `code/llm_hawaii/metrics.py`, and `docs/eval-runs/stage0/20260430T063118Z__stage0_base_eval_summary.json` against the canonical 2026-04-30T07:00:17Z signals decision.
+
+Verdict: current Stage 0 artifact is a usable **PPL anchor only** (`hawaiian_ppl=7.9152`, `eval_file_sha256` frozen). It is **not** a drift baseline: orthography is n=1 (one prompt, one generation), no eval-suite SHA / tokenizer SHA / eval dtype / prompt-set SHA / ledger SHA, no per-source or English PPL slices, no tokens/word or roundtrip_lossless on outputs, no W1 status fields, no slice keys (source/length/tokenizer-behavior/split/w1_category), and tripwires are not serialized as machine-checkable booleans. Restated the six canonical corrections (fp16 hardcode, missing per-source slice, missing English PPL, single-prompt run script, partial run-report schema, n=1 orthography) as acceptance criteria on the artifact.
+
+Output: full A–H checklist (identity header / orthography distributional / fixed prompt suite shape / PPL slices / tokenizer-on-outputs / W1 status / mandatory slice fields / serialized tripwires) written to `.squad/decisions/inbox/rusty-stage0-drift-coverage.md`. No implementation files modified — corrections reported, not edited, per task scope. Hand-off: Basher's implementation pass picks up the six corrections; W1 status fields stay `draft_only` / `eval_consumable_count=0` until #7 acceptance lands.

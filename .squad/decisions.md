@@ -1,6 +1,266 @@
 # Decisions
 
-> Updated 2026-04-30T03:47:33Z: Added Linus tokenizer audit harness cleanup (schema v2, identity fields, high-diacritic/diacritic-char evaluators, debug artifacts, unit tests) and Rusty tokenizer-family-aware proxy handling (byte-level BPE round-trip instead of proxy, family detection, debug dump). Prior: Basher tokenizer audit script removal and Frank quality-4 scan. Recent batch below.
+> Updated 2026-04-30T07:21:57Z: Added Basher stage0_eval.v2 drift-signal bundle (7-item fixed prompt suite, identity/eval-set/orthography/tripwire signals, placeholders for not-yet-wired probes), Rusty prompt-suite review + drift-coverage checklist, Linus summary-shape review. Post-review cleanups applied. Prior: Linus/Rusty tokenizer audit harness cleanup. Batch below.
+
+---
+
+## User Directive: Stage 0 eval drift-signal bundle (2026-04-30T07:04:47Z)
+
+**By:** yashasg (via Copilot)
+
+Stage 0 evals should capture the full checkpoint drift-signal bundle so future checkpoints can be compared across PPL, orthography, generation, dtype/config identity, and related regression tripwires instead of only the current PPL summary.
+
+**Status:** Implemented as `stage0_eval.v2` (Basher); reviewed and approved (Rusty, Linus). Post-review cleanups applied.
+
+---
+
+## Decision: Basher — Stage 0 eval drift-signal bundle (`stage0_eval.v2`)
+
+**Date:** 2026-04-30
+**Owner:** Basher (Training Engineer)
+**Scope:** `code/llm_hawaii/evaluate.py`, `scripts/run_stage0_eval.sh`, `code/tests/test_evaluate.py`, `docs/eval_pipeline.md` §8.1, `code/README.md` Stage 0 section.
+**Status:** Implemented, reviewed, and approved by Rusty + Linus. Post-review cleanups applied (hawaiian_ppl parity, schema_version fallback, suite-design freeze invariant documented).
+
+### What changed
+
+`evaluate.py` now emits a richer artifact under `schema_version = "stage0_eval.v2"` and `scripts/run_stage0_eval.sh` projects that into the tracked hash-only summary. Backwards-compatible CLI: `--prompt`, `--eval-file`, `--checkpoint` unchanged. New: `--no-prompt-suite`, `--max-length`, `--max-new-tokens`. Default behavior when no `--prompt` is given is now to run the built-in fixed suite.
+
+### Captured drift signals (every Stage 0 eval, summary stays tracked-friendly)
+
+1. **Run identity** — `identity.{checkpoint, base_model, is_adapter, model_class, model_dtype, model_device, device_map, quantization_config, tokenizer_class, tokenizer_name_or_path, tokenizer_vocab_size, torch_version, transformers_version, cuda_available}`. `decoding.{do_sample, max_new_tokens, greedy}`. `ppl_config.max_length`.
+2. **Eval-set slice metadata** — `eval_set.{path, sha256, record_count, scored_record_count, total_tokens, total_chars, length_bin_counts_tokens, diacritic_density_bin_counts, source_counts, register_counts, max_length_used}`. No raw text. Source/register counts default to `{"status": "field_absent"}` when absent.
+3. **Hawaiian held-out PPL** — unchanged headline (`hawaiian_ppl`). Per-source slice exposed as `hawaiian_ppl_by_source` with explicit `status: "not_configured"` placeholder.
+4. **Fixed prompt suite** — `PROMPT_SUITE_ID = "stage0.v1"`, 7 items (1 English control, 2 low, 2 medium, 2 high diacritic). `prompt_suite.{suite_id, suite_sha256, items[]}` in artifacts; items carry `prompt_sha256`, `prompt_diacritics`, `diacritic_density_bin`, `prompt_len_chars` — never raw prompt text.
+5. **Per-sample orthography + aggregate** — per-sample dict plus `orthography_aggregate.{n, okina_total, wrong_okina_total, kahako_total, combining_macron_total, nfc_failures, diacritic_density_bin_counts, kahako_collapse_on_high_diacritic}`.
+6. **Tripwires** — `tripwires.{wrong_okina_nonzero, nfc_failures, combining_macron_nonzero, kahako_collapse_on_high_diacritic, generation_count, prompt_suite_sha256, prompt_suite_id}`.
+7. **Explicit not-yet-wired probes** — `english_ppl`, `manual_w1`, `hawaiian_ppl_by_source` all emit `{"status":"not_configured", "reason":"..."}` instead of being silently absent.
+
+### Prompt suite freeze (must not edit in place)
+
+Editing a prompt in place changes `prompt_suite_sha256` and silently breaks comparability with all prior summaries. Adding/removing prompts at the end is fine **only if `PROMPT_SUITE_ID` is bumped** (`stage0.v1` → `stage0.v2`).
+
+Current suite (fingerprint `stage0.v1`, `suite_sha256 = 2683027f538ae8fb2910f758f2865596355893cc91c85dbdfe9ced130797bce6`):
+
+- `en_control_1` — none-density English control.
+- `haw_low_1`, `haw_low_2` — 1–2 diacritics each.
+- `haw_medium_1`, `haw_medium_2` — 3 diacritics each.
+- `haw_high_1`, `haw_high_2` — 12–13 diacritics, both ʻokina + kahakō dense, used for the kahakō-collapse tripwire.
+
+### Suite-design invariant (Rusty approval condition)
+
+Any prompt placed in the `high` diacritic-density slot of the Stage 0 suite must explicitly instruct the model to use kahakō (and, where it makes sense, ʻokina). The `kahako_collapse_on_high_diacritic` tripwire's interpretive weight depends on this. Both `haw_high_1` / `haw_high_2` already comply.
+
+### Post-review cleanups applied
+
+1. **`hawaiian_ppl` shape parity** — When `evaluate_checkpoint` is called without an `--eval-file`, the report now emits `{"status": "not_configured", "reason": "no --eval-file provided; held-out PPL not run"}` instead of leaving the field absent.
+2. **Summary `schema_version` fallback** — `scripts/run_stage0_eval.sh` fallback flipped from `"stage0_eval.v1"` to `"unknown"` so malformed or pre-v2 reports are visible rather than silently mislabeled.
+3. **Suite-design freeze invariant documented** — `code/README.md` and `docs/eval_pipeline.md` §8.1 now state the invariant above.
+
+### Validation
+
+- `python3 -m py_compile code/llm_hawaii/evaluate.py code/tests/test_evaluate.py` ✓
+- `sh -n scripts/run_stage0_eval.sh` ✓
+- `PYTHONPATH=. python3 -m unittest tests.test_evaluate tests.test_metrics` — 18/18 passing
+
+### Out of scope this pass
+
+- English PPL probe — `evaluate.py` does not load an English eval JSONL yet. Status field carries `not_configured`. Stage 1 gate cannot be called green until this is wired.
+- W1 manual micro-eval — loader/integration not implemented. Status field carries `not_configured`.
+- Per-source / per-register PPL slice — needs `source`/`register` field on JSONL records. Eval-set metadata already counts those fields when present; PPL aggregation per slice is the follow-up.
+
+---
+
+## Decision: Rusty — Stage 0 eval coverage assessment (drift-signal acceptance checklist)
+
+**Date:** 2026-04-30T07:30:00Z
+**Owner:** Rusty (NLP Researcher)
+**Status:** Assessment complete. Checklist defines the contract for Stage 0 summary → Stage 1 aggregation.
+
+### Purpose
+
+Specify acceptance criteria so that every Stage 0 eval summary must capture checkpoint-to-checkpoint drift signals in a form that is (a) machine-comparable across checkpoints and (b) sufficient to anchor Stage 1 gate decisions.
+
+### Anchor baseline
+
+Stage 0 baseline already captured: `hawaiian_ppl=7.9152` on FineWeb-2 `haw_Latn` dev. Single-prompt orthography sample is positive but **n=1 and not distributional** — current artifact is insufficient as a drift baseline.
+
+### Acceptance checklist — Stage 0 eval summary must contain
+
+#### A. Identity / fair-comparison header (required, all fields present and non-null)
+
+- `stage`, `checkpoint`, `source_git_commit`, `command`
+- `eval_file`, `eval_file_sha256`
+- `eval_suite_sha` (suite identity, separate from eval-file content)
+- `tokenizer_sha256` and `tokenizer_fingerprint` 
+- `base_model_sha` / HF revision pin
+- `eval_dtype` (must mirror training dtype — bf16 on A100, fp16 only as Turing fallback; record verbatim, do not silently coerce)
+- Decoding config: `do_sample`, `max_new_tokens`, `max_length`, `pad_token_id`
+- `prompt_set_sha256` over the canonical fixed prompt suite (frozen between runs)
+- `generation_sha256.sample_*` per prompt (drift signal)
+- `eval_hashes_ledger_sha256` (snapshot of contamination ledger at run time)
+
+#### B. Hawaiian orthography (distributional, not n=1)
+
+Computed over **every** generation and over the dev slice references, reported separately:
+
+- `is_nfc` — boolean per sample; aggregate `nfc_violation_rate` over all generations (must be 0.0 at Stage 0)
+- `wrong_okina` — per-sample integer; aggregate `wrong_okina_rate` and `wrong_okina_total` (must both be 0 at Stage 0)
+- `okina` — per-sample count; aggregate `okina_per_1k_chars`
+- `kahako` — per-sample count; aggregate `kahako_per_1k_chars`
+- `combining_macron` — per-sample count (NFD detector); aggregate `combining_macron_total` (must be 0)
+- `diacritic_density` and `diacritic_density_bin` per sample
+- **Generation vs reference deltas** on the dev slice: `okina_survival_rate`, `kahako_retention_rate`, reported as distribution mean + min
+- **Per-bin breakdown** for every orthography metric across `none / low / medium / high` density bins
+
+#### C. Fixed prompt suite shape (frozen Stage 0 → Stage 1)
+
+- **≥5–10 prompts**, deterministic ordering, content-frozen, NFC-normalized, hashed in `prompt_set_sha256`
+- Spans `low / medium / high` diacritic density bins (≥1 prompt per bin; ≥2 in `high`)
+- Mix of registers: contemporary + period/biblical + governmental/educational
+- At least one open-ended Hawaiian prompt for generation-sanity
+- At least one English prompt for English-PPL / forgetting baseline
+- Suite stored under version control with the suite SHA pinned in the report
+
+#### D. Perplexity reporting (drift signal)
+
+- Global `hawaiian_ppl`
+- **Per-source / per-register slice PPL** — needed before Stage 1 starts (currently TODO)
+- **Per-length bin PPL** (short / medium / long)
+- **English-PPL baseline** on a small frozen English slice
+- Token-weighted *and* record count reported
+
+#### E. Tokenizer behavior on outputs (drift signal)
+
+- `tokens_per_word` on generations (and on dev references for delta)
+- `explicit_byte_fallback_rate` on generations
+- `byte_fallback_or_proxy_rate` on generations, **with byte-level-BPE caveat** (Llama-3 is tiktoken-family; raw proxy is a known false positive)
+- `roundtrip_lossless` boolean over generations; must be `true`
+- Same metrics on the high-diacritic prompt subset
+
+#### F. W1 / manual micro-eval status (must be reported, even when not live)
+
+W1 is not live at Stage 0 (only draft rows; not accepted). The Stage 0 summary must still carry the wiring so its absence is auditable:
+
+- `manual_w1.status` ∈ {`absent`, `draft_only`, `accepted_subset`, `live`}
+- `manual_w1.tsv_sha256` (or `null`)
+- `manual_w1.row_counts.{draft, reviewed, accepted}`
+- `manual_w1.eval_consumable_count` — only `accepted` rows count; current Stage 0 must report `0`
+- If `eval_consumable_count == 0`: `manual_w1.metrics = null` and the summary explicitly says "W1 not used as Stage 0 benchmark"
+
+#### G. Slice fields (mandatory on every reported metric block)
+
+Every metric in B / D / E must be reported with the following slice keys:
+
+- `source` / `register` (period-biblical / contemporary / governmental-educational / unknown)
+- `diacritic_density_bin` (`none` / `low` / `medium` / `high`)
+- `length_bin` (`short` / `medium` / `long`)
+- `tokenizer_behavior_bin` (binned by input tokens/word + byte-fallback rate)
+- `split` (`dev` / `holdout`)
+- `w1_category` (once W1 live; `null` until then)
+
+#### H. Tripwire harness (machine-checked, not just reported)
+
+Serialize the tripwire predicates so checkpoint comparison is a pure function over two summaries:
+
+- `tripwires.okina_collapse` — true if any generation contains U+2018 or U+0027 where ʻokina expected
+- `tripwires.nfd_or_combining_macron` — true if `is_nfc=false` or `combining_macron > 0` anywhere
+- `tripwires.wrong_okina_nonzero`
+- `tripwires.high_density_slice_regression` (cross-checkpoint; `null` at Stage 0)
+- `tripwires.tokens_per_word_up` / `tripwires.byte_fallback_up` (cross-checkpoint)
+- `tripwires.english_ppl_up_gt_20pct` (cross-checkpoint)
+- `tripwires.generation_sha_unchanged` (cross-checkpoint; identical SHA = stuck)
+- `tripwires.degeneracy_detected` (repetition loop / English collapse / register collapse)
+- `tripwires.contamination_overlap_up` (n-gram overlap vs contamination ledger)
+
+### Bottom line
+
+Current `20260430T063118Z__stage0_base_eval_summary.json` satisfies A partially (missing tokenizer SHA, eval-suite SHA, eval dtype, prompt-set SHA, ledger SHA), B only at n=1, none of C beyond a single prompt, only the global PPL of D, none of E, none of F as structured fields, none of G as slice keys, and none of H as serialized tripwires. It is a usable PPL anchor (`7.9152`) and nothing more.
+
+---
+
+## Decision: Rusty — Stage 0 prompt suite review (Hawaiian phrasing + tripwire)
+
+**Date:** 2026-04-30
+**Owner:** Rusty (NLP Researcher)
+**Verdict:** **APPROVED for freeze as `stage0.v1` baseline.**
+
+### What I checked
+
+For each of the 7 prompts, verified mechanically:
+
+- **NFC**: every prompt is already in NFC (no combining macron).
+- **ʻokina codepoint**: every ʻokina is **U+02BB** — never ASCII `'`, never U+2018/U+2019, never U+02BC.
+- **Wrong-ʻokina detector**: 0 hits per prompt (a Stage 0 baseline cannot ship a suite that itself trips `wrong_okina_nonzero`).
+- **Density-bin coverage**: counts match the bin labels.
+
+Diacritic counts per prompt (U+02BB ʻokina + ā/ē/ī/ō/ū):
+
+| id            | bin    | ʻokina | kahakō | total |
+|---------------|--------|--------|--------|-------|
+| haw_low_1     | low    | 0      | 1      | 1     |
+| haw_low_2     | low    | 0      | 2      | 2     |
+| haw_medium_1  | medium | 2      | 1      | 3     |
+| haw_medium_2  | medium | 1      | 2      | 3     |
+| haw_high_1    | high   | 6      | 7      | 13    |
+| haw_high_2    | high   | 5      | 7      | 12    |
+
+### Hawaiian phrasing — per-prompt sign-off
+
+- **`en_control_1`** — English is grammatical, no diacritics expected. ✓
+- **`haw_low_1` "Aloha mai kākou."** — standard formal greeting. Natural, grammatical. ✓
+- **`haw_low_2` "Aloha kāua i kēia kakahiaka."** — "greetings to us two this morning". Grammatical, common register. ✓
+- **`haw_medium_1` "He aha ka mōʻaukala o Hawaiʻi?"** — "what is the history of Hawaiʻi?". Grammatical. ✓
+- **`haw_medium_2` "Pehea ʻoe i kēia lā?"** — "how are you today?", textbook conversational form. ✓
+- **`haw_high_1`** — instructional prompt on ʻohana with explicit kahakō/ʻokina instruction. Grammatical, self-referential design is exactly what we want. ✓
+- **`haw_high_2`** — "show me a short story in Hawaiian about the first day of the year, with all the ʻokina and kahakō." Grammatical, self-referential. ✓
+
+No phrase needs rewording.
+
+### Tripwire `kahako_collapse_on_high_diacritic`
+
+**Definition:** for each suite item whose `diacritic_density_bin == "high"`, if the matching sample orthography report has `kahako == 0`, increment the counter. Reported as an integer (0–N high-density items).
+
+**Approved as a Stage 0 drift signal.** The Hawaiian-quality risk being detected is real: a model that drops kahakō on high-density Hawaiian prompts is ʻōlelo-Hawaiʻi-broken in a way the global PPL number won't surface. In `stage0.v1` specifically, both high-bin prompts explicitly instruct the model to use kahakō. So zero kahakō in a non-trivial Hawaiian generation is a legitimate failure signal.
+
+### Suite-design invariant (now documented in code/README.md and docs/eval_pipeline.md)
+
+Any prompt placed in the `high` diacritic-density slot of the Stage 0 suite must explicitly instruct the model to use kahakō (and, where it makes sense, ʻokina). The `kahako_collapse_on_high_diacritic` tripwire's interpretive weight depends on this.
+
+### Follow-up notes (non-blocking)
+
+1. **Symmetric `okina_collapse_on_high_diacritic` is cheap.** Both high prompts request ʻokina too. A sibling counter would catch the dual failure mode. Suggest as Stage 1 follow-up (additive, no SHA churn).
+2. **`mōʻaukala` vs `moʻolelo`.** Both are valid; they represent distinct registers. Fine as-is.
+
+---
+
+## Decision: Linus — Stage 0 summary shape review (cross-checkpoint aggregator consumability)
+
+**Date:** 2026-04-30
+**Owner:** Linus (Data Engineer)
+**Status:** APPROVED. No critical data-contract issues. No file changes requested at review time.
+
+### What I checked
+
+1. **Hash-only summary projection** ✅ — no raw generation text, no raw prompt text, full artifact under ignored `data/` with sha256 pointer
+2. **Stable keys** ✅ — every top-level key always present; missing fields use `{"status":"absent"}` instead of dropping
+3. **Schema/version fields** ✅ — `schema_version`, `prompt_suite.suite_id`, `prompt_suite.suite_sha256` all present for aggregator gating
+4. **No raw text in tracked summaries** ✅ — confirmed across 5 surfaces (prompt_suite, eval_set, orthography_metrics, orthography_aggregate, tripwires)
+5. **Placeholders for not-yet-configured probes** ✅ — uniform `{"status":"not_configured","reason":"..."}` shape
+6. **Cross-checkpoint fairness** ✅ — all confounds captured: identity, decoding, ppl_config, eval_set, provenance
+
+### Confirmed fair comparison patterns the aggregator can rely on
+
+- **PPL diff is comparable** iff `identity.tokenizer_name_or_path`, `identity.tokenizer_vocab_size`, `ppl_config.max_length`, and `eval_set.sha256` all match. All four present.
+- **Orthography/tripwires diff is comparable** iff `prompt_suite.suite_sha256` matches. Present.
+- **Per-sample drift is comparable** by joining on `prompt_suite.items[i].id` and watching `generation_sha256.sample_i` flip. Present.
+
+### Fairness gates the aggregator should enforce on entry
+
+1. `prompt_suite.suite_sha256` equal across rows being compared (else refuse orthography/tripwire diff).
+2. `eval_set.sha256`, `identity.tokenizer_name_or_path`, `identity.tokenizer_vocab_size`, `ppl_config.max_length` equal (else refuse PPL diff).
+3. `schema_version` equal or carry an explicit migration table.
+
+These are guidance for the future aggregator; the current summary already carries every field needed to enforce them.
 
 ---
 
