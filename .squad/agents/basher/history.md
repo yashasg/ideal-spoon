@@ -514,3 +514,26 @@ stays `not_wired`); `harness_error` 5th branch; English PPL;
 `hawaiian_ppl_by_source`. Naming drift (`tsv_sha256` vs
 `input_sha256` etc.) deliberately untouched per Rusty's
 non-blocking note.
+
+---
+
+## 2026-04-30T09:15:54Z — Orchestration checkpoint: Training runner + test fix APPROVED + merged
+
+**Orchestration context:** Scribe merged training runner readiness and test fix decisions into `.squad/decisions.md` and archived orchestration logs.
+
+**Status:** ✅ Stage 1 runner ready for compute.
+- Config-relative path resolution contract established (paths resolve from config file location, not CWD)
+- New CLI flags: `--preflight`, `--resume-from-checkpoint PATH`, `--eval-after-train` (backward compatible)
+- Run report schema `training-run-report.v1`: git commit, file hashes, row counts, no raw text
+- Preflight checks validate config/data/runtime without model download
+- Test fix (`_DummyTokenizer`): unit tests now run without transformers/torch deps; 103 tests pass
+- Orchestration logs: `.squad/orchestration-log/2026-04-30T09-15-54Z-basher-training-runner.md` and `.squad/orchestration-log/2026-04-30T09-15-54Z-basher-test-fix.md`
+
+**Next-run command sequence:**
+```bash
+python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json --preflight
+python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json
+```
+
+**Ready for:** Compute environment Stage 1 CPT/QLoRA run.
+

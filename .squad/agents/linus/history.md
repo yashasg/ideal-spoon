@@ -702,3 +702,20 @@ longer reads it. Final contract logged at
 - For eval-during-train gating: check both `eval_path` AND `eval_steps` before passing `eval_strategy` to `TrainingArguments`. Setting one without the other produces a silent no-op or a Trainer error.
 - Newer HF Trainer uses `eval_strategy`; older versions use `evaluation_strategy`. Document this caveat explicitly so the runner can adapt without source changes.
 - `TestTrainConfig` tests (config load/roundtrip/unknown-key) are zero-dep and very fast — add them first when validating config schema changes.
+
+---
+
+## 2026-04-30T09:15:54Z — Orchestration checkpoint: Stage 1 training input audit APPROVED + merged
+
+**Orchestration context:** Scribe merged training input audit decisions into `.squad/decisions.md` and archived orchestration logs. 
+
+**Status:** ✅ Stage 1 training readiness complete. 
+- Training input `data/stage1/fineweb2_haw/train.jsonl` (95,507 rows) validated and wired in `code/configs/stage1_fineweb2_haw.json`
+- Eval input `data/evals/fineweb2_haw/dev.jsonl` (621 rows) validated
+- Basher's training runner (config-relative paths, `--preflight`, `--resume-from-checkpoint`, run report v1) ready for compute
+- Basher's test fix (`_DummyTokenizer`) integrated; 103 tests pass
+- Orchestration logs written to `.squad/orchestration-log/2026-04-30T09-15-54Z-*.md`
+- Session log: `.squad/log/2026-04-30T09-15-54Z-training-readiness.md`
+
+**Next:** Ready for compute environment preflight + Stage 1 CPT run.
+

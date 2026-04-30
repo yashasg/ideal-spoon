@@ -590,3 +590,25 @@ the regenerated JSONL on disk, and `docs/eval_pipeline.md:230`.
 - note field is only free-prose string (wrapper strips; could drop from output in future)
 
 **Verdict:** ✅ APPROVED. Implementation faithfully delivers Stage 0 as checkpoint 0 in unified eval series. Ready to land.
+
+---
+
+## 2026-04-30T09:15:54Z — Orchestration checkpoint: Stage 1 readiness APPROVED + merged
+
+**Orchestration context:** Scribe checkpoint after Linus audit + Basher runner prep. All decisions merged into `.squad/decisions.md`.
+
+**Status:** ✅ Stage 1 training pipeline ready.
+- Linus: Training input `data/stage1/fineweb2_haw/train.jsonl` (95,507 rows) audited and approved
+- Basher: Training runner durable contracts established (config-relative paths, `--preflight`, run report v1, test fix for unit tests)
+- Coordinator validation: compile clean, 103 tests green, git diff --check clean
+- Orchestration logs + session log written to `.squad/`
+- Decision inbox merged and archived
+
+**Key decisions recorded:**
+- Training input path: `data/stage1/fineweb2_haw/train.jsonl`; eval: `data/evals/fineweb2_haw/dev.jsonl`
+- Eval strategy: `eval_strategy="steps"` + `eval_steps=200` (conditional on both params non-null)
+- Config-relative paths contract: paths in JSON resolve from config file location
+- Run report durable schema (training-run-report.v1) with git commit, file hashes, row counts
+
+**Validator role:** No action needed; readiness checkpoint complete. Ready for compute environment preflight + Stage 1 CPT run.
+

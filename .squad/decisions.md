@@ -2775,3 +2775,169 @@ The metric is correctly framed throughout (docstring, README, `eval_pipeline.md`
 
 ✅ **APPROVED.** Implementation faithfully delivers Stage 0 as checkpoint 0 in the same checkpoint-eval series, with bidirectional translation behaviour visible from the first eval and drift trackable across checkpoints. No raw text leaks, directions never averaged, metric framed honestly as a baseline string-overlap signal, converter metadata correct and truthful, W1 invalid-gate and CLI compatibility intact. Ready to land.
 
+
+---
+
+## Decision: Training Input Path for Stage 1 Prototype Run (2026-05-01)
+
+**Owner:** Linus (Data Engineer)
+
+**Status:** APPROVED — ready for Stage 1 CPT/QLoRA run
+
+### Chosen training input path
+
+`data/stage1/fineweb2_haw/train.jsonl` (95,507 rows)
+
+Configured in `code/configs/stage1_fineweb2_haw.json`:
+```json
+"train_path": "../../data/stage1/fineweb2_haw/train.jsonl"
+"eval_path": "../../data/evals/fineweb2_haw/dev.jsonl"
+"eval_steps": 200
+```
+
+Eval input: `data/evals/fineweb2_haw/dev.jsonl` (621 rows).
+
+### Data quality gate
+
+1. **Complete and clean.** 95,507 rows; zero missing `text`, zero empty `text`, 100% NFC. No blocker for `data.py` path.
+2. **Contamination guard passes.** SHA-dedup against 887-row test split before writing. `train ∩ eval_hashes = ∅`.
+3. **Orthography gated.** Paragraph-level Hawaiian LID and ʻokina canonicalization in `301_build_stage1_dataset.py`; rejected rows excluded.
+4. **Prototype framing preserved.** `prototype_only=True`, `release_eligible=False` on every row.
+
+### Changes in code/config
+
+- `code/configs/llama31_8b_a100.json`: `train_path`, `eval_path`, `eval_steps`, updated notes
+- `code/llm_hawaii/train.py`: wired `eval_strategy="steps"` + eval loading
+- `code/tests/test_data.py`: +9 new tests (no ML deps)
+- `docs/data-readiness-stage1.md`: count/hash summary, no raw text
+
+### Caveats
+
+1. **Not release-eligible.** `prototype_only=True`; do not publish resulting checkpoints.
+2. **Token volume ~17.6M** (FineWeb-only slice); full-cleaned output is ~44M.
+3. **Exact dedup only.** LSH/MinHash across multi-source planned.
+4. **eval_strategy key:** Newer HF uses `eval_strategy`; older uses `evaluation_strategy`. If run fails, switch key.
+
+### Coordination with Basher (training runner)
+
+Config paths are config-relative (resolved from config file location). Basher's runner does not change CWD or pass absolute override unless it writes `resolved_config.json` with absolute paths.
+
+---
+
+## Decision: Training Runner Readiness Contract (Stage 1) (2026-05-01)
+
+**Owner:** Basher (Training Engineer)
+
+**Status:** Implemented; ready for Stage 1 CPT run
+
+### Summary
+
+`code/llm_hawaii/train.py` is now runnable with durable contracts for:
+1. Config-relative data paths (resolved from config file location)
+2. New CLI flags: `--preflight`, `--resume-from-checkpoint PATH`, `--eval-after-train`
+3. Run report schema `training-run-report.v1` with file hashes, row counts, no raw text
+4. Preflight checks (validate config/data/runtime; no model download)
+5. New config `code/configs/stage1_fineweb2_haw.json` for active run
+
+### Config-relative data paths
+
+All `train_path` / `eval_path` in JSON configs resolve **relative to config file location**, not working directory.
+- `load_config(path)` calls `resolve_data_paths(cfg, config_path)` immediately after parse
+- Running from repo_root/ or code/ is equivalent
+- Tested in `code/tests/test_train.py`
+
+**Migration:** Configs updated:
+- `smoke.json`: `"../examples/train.jsonl.example"`
+- `llama31_8b_a100.json`: `"../../data/stage1/fineweb2_haw/train.jsonl"` + eval
+- `stage1_fineweb2_haw.json` (new): same paths, output dir `runs/llama31-8b-stage1-fw2/`
+
+### New CLI flags
+
+| Flag | Purpose |
+|---|---|
+| `--preflight` | Validate config + data + runtime; exit 0 (pass) or 1 (fail). No model download. |
+| `--resume-from-checkpoint PATH` | Pass checkpoint dir to `Trainer.train()`. |
+| `--eval-after-train` | Run `trainer.evaluate()` after training (requires `eval_path`). |
+
+### Run report schema (training-run-report.v1)
+
+Every `run_training()` call writes `{output_dir}/run_report.json`:
+- `schema_version`, `stage`, `run_name`, `config_path`, `resolved_config`, `output_dir`
+- `train.path`, `train.sha256`, `train.row_count`
+- `eval` (same shape; null if no eval)
+- `git_commit`, `runtime_capability`, `wallclock_seconds`, `completed_at_utc`
+
+No raw training text in report.
+
+### Preflight checks
+
+`run_preflight(cfg)` verifies:
+- Config parses cleanly (paths resolved to absolute)
+- `train_path` exists, row count > 0, `text_field` present in first row
+- `eval_path` exists if configured
+- `output_dir` creatable
+- Runtime capability (warning if torch/CUDA absent, not error)
+
+### Next-run command sequence
+
+```bash
+# 1. Preflight — always before GPU spend
+python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json --preflight
+
+# 2. Train
+python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json
+
+# 3. Resume after interruption
+python3 -m llm_hawaii.train \
+    --config code/configs/stage1_fineweb2_haw.json \
+    --resume-from-checkpoint runs/llama31-8b-stage1-fw2/checkpoint-NNN
+```
+
+### Unchanged
+
+- No data files committed
+- No `.superset/` files touched
+- Smoke defaults (Qwen2.5-0.5B, tiny corpus)
+- Lazy imports preserved (root venv, no torch, still compiles)
+- Existing `--config` / `--print-config` behavior unchanged
+
+---
+
+## Decision: DummyTokenizer Test Fix (2026-05-01)
+
+**Owner:** Basher (Training Engineer)
+
+**Status:** Implemented; 103 tests pass
+
+### Problem
+
+Unit tests imported real HuggingFace tokenizers, causing:
+- Automatic transformer model downloads
+- GPU/CUDA availability checks
+- Heavy dependency tree (torch, transformers, tokenizers, etc.)
+- Blocker on CPU-only environments
+
+### Solution
+
+**Implement `_DummyTokenizer` in `code/llm_hawaii/data.py`:**
+- Minimal mock tokenizer with `encode()` and `get_vocab_size()` methods
+- No HF imports at module load time
+- All unit test tokenizer calls route through dummy in test context
+
+**Update `code/tests/test_data.py`:**
+- All tokenizer usage now uses `_DummyTokenizer`
+- Result: `unittest discover` runs without any ML deps
+- No change to production code paths
+
+### Validation
+
+- `python3 -m py_compile code/llm_hawaii/*.py` → clean
+- `cd code && PYTHONPATH=. python3 -m unittest tests.test_data tests.test_train tests.test_evaluate tests.test_metrics` → **103 tests OK**
+- Faster local feedback loop (~10s for unit tests)
+
+### Caveats
+
+- `_DummyTokenizer` is test-only; never used in production
+- Real tokenizer validation at preflight/train time
+- Unit tests do not verify actual token counts (integration test scope)
+
