@@ -52,6 +52,33 @@ Validation: `python3 -m py_compile scripts/315_hash_manual_w1_eval.py code/llm_h
 
 **Update:** `scripts/040_tokenizer_audit.py` deleted per user directive. Tokenizer audit gate (#8) remains open as policy; audit will return as a **test** (implementation pending). Your gate thresholds and fingerprint requirements are frozen in canonical decisions.md; no changes to audit path or acceptance criteria.
 
+## 2026-04-30 — Llama-3.1-8B audit: `no_go` is a proxy-heuristic mismatch, not a tokenizer blocker
+
+Reviewed `data/tokenizer_audit/official/20260430T033208Z__meta-llama_Llama-3.1-8B.json`. Overall tokens/word **2.474 (pass)**, explicit byte fallback **0.0 (pass)**, byte-fallback-or-proxy rate **0.193 (fail, sole blocker)**; high-diacritic and diacritic-chars slices `not_evaluated`; tokenizer SHA / fingerprint / model repo SHA all `null`.
+
+Key NLP read: the proxy rule (`len(stripped)==1 and ord>127` after stripping `▁Ġ `) was designed for SentencePiece+byte-fallback tokenizers. Llama-3 is **byte-level BPE (tiktoken family)** — every multi-byte UTF-8 char (ʻokina = 3 bytes, kahakō vowels = 2 bytes) is encoded as a sequence of byte-chars from the GPT-2 byte-to-unicode map, all `ord>127`. Unmerged byte-chars are **lossless**, not fallback. The heuristic therefore flags normal byte-level BPE pieces. Two clinching signals: (a) explicit byte fallback is structurally 0 (no `<0xXX>` vocab in Llama-3), so the cross-check that would catch real fragmentation is inapplicable here; (b) tokens/word at 2.47 wouldn't survive 19% true fragmentation on diacritic-heavy text — it'd blow past 3.0.
+
+That said, fingerprint/SHAs missing and high-diacritic/diac-char slices unevaluated are **real** gate gaps independent of the heuristic; gate stands.
+
+Concrete next step recommended: on the same `kaehuikimanoopuuloa.jsonl` slice, dump per-token id / piece / `tokenizer.decode([id])` for ~5 ʻokina+kahakō sentences and verify (i) every flagged piece round-trips to non-empty UTF-8 (lossless), (ii) `decode(all_ids) == NFC(text)`. If both hold, file a harness change making the proxy metric tokenizer-family-aware (skip/redefine for byte-level BPE, keep for SentencePiece+byte-fallback) — Linus owns; populate fingerprint + slices; re-run. No threshold changes, no data changes, no eval/training promotion of the audit slice. Decision written to `.squad/decisions/inbox/rusty-llama31-audit-proxy-heuristic-mismatch.md`.
+
+---
+
+## 2026-04-30T033611Z — Tokenizer audit review + pipeline gate confirmed
+
+**From:** Scribe (Orchestration logger)
+
+**Summary:** Rusty and Basher joint assessment of `data/tokenizer_audit/official/20260430T033208Z__meta-llama_Llama-3.1-8B.json` concluded:
+- Gate status: **no-go** (remains)
+- Root cause: proxy fallback failure likely reflects byte-level BPE harness mismatch, not proof Llama is unsuitable for Hawaiian
+- Next milestone: round-trip / token-piece inspection + tokenizer-family-aware proxy heuristic, then re-run with hashes and high-diacritic/diacritic-char sections populated
+- GPU freeze enforced until clean audit exists (per Basher)
+
+**Your related orchestration log:** `.squad/orchestration-log/20260430T033611Z-rusty.md`  
+**Session log:** `.squad/log/20260430T033611Z-llama-tokenizer-audit-review.md`
+
+---
+
 ## 2026-04-30 — Kaʻehuikimanōopuʻuloa pages assessed as tokenizer-audit slice
 
 Reviewed `data/raw/ulukau_nupepa/human_fetch_book_pages.txt` (Moses Manu moʻolelo, 3,223 Hawaiian words, 21 paragraphs, all NFC, ʻokina at U+02BB ×756, kahakō vowels ×614, every paragraph clears the ʻokina+kahakō ≥3 high-diacritic floor). Strong tokenizer-audit candidate: alone it meets the frozen Stage-0 minimums (≥1,500 words, ≥10 high-diacritic samples) and pairs cleanly with the earlier `human_fetch.md` landing-copy slice. Bright line held: tokenizer audit only — not W1, not eval, not training, not hashed into `eval_hashes.jsonl` without separate Hawaiian-literate review; provenance/licensing of the digitized edition still to confirm before any non-local use. Flagged single-genre stress — all one author/register — and gave practical target guidance (~5–6k words across ≥3 genres: nūpepa, modern prose, place-name/proper-noun heavy) so audit numbers are defensible, not just passing. No threshold/fingerprint changes; Linus owns conversion to the JSONL slice shape under `data/tokenizer_audit/ulukau_nupepa/`. Decision written to `.squad/decisions/inbox/rusty-kaehuikimanoopuuloa-audit-assessment.md`.

@@ -122,3 +122,35 @@ User asked what the tokenizer audit's output should look like (never discussed).
 - Gate semantics unchanged: `go` is the only path to freeze tokenizer/model SHA into `code/configs/llama31_8b_a100.json` Stage-1 manifest. Audit slices stay `audit_only`; no eval-hash ledger writes from this path.
 
 No code, no docs, no eval ledger changes touched. Flagged a follow-up doc edit (training-pipeline §1.1, eval_pipeline §3.1) for after the contract is adopted.
+
+### 2026-04-30 — Llama-3.1-8B tokenizer audit assessed: NO-GO for Stage 1 GPU spend
+
+Input: `data/tokenizer_audit/official/20260430T033208Z__meta-llama_Llama-3.1-8B.json`.
+
+Findings:
+- `recommendation.decision = no_go`. Honor it.
+- `byte_fallback_or_proxy_rate = 0.193` vs threshold `0.01` → ~19× over. Real signal of bad Hawaiian coverage on Llama-3.1 BPE.
+- `tokens_per_word = 2.474` passes 2.5 by ~1% — knife-edge, not a comfort.
+- `explicit_byte_fallback_rate = 0.0` while proxy = 19% is suspicious; likely detector mismatch on Llama-3 byte tokens (`<0xE2>` etc.). Audit instrumentation needs reconciliation.
+- Artifact is in `official/` but carries `dry_run: true` — violates user's path convention (`dryrun/` = dry, `official/` files must not carry dry-run flag).
+- `model.tokenizer_sha256`, `model.tokenizer_fingerprint_sha256`, `model.model_repo_sha` all null — cannot freeze SHA into `code/configs/llama31_8b_a100.json`, so the documented Stage 1 precondition fails independently of metrics.
+- `high_diacritic` and `diacritic_chars` sections both `not_evaluated` — the Hawaiian-specific signal the audit exists for is missing.
+
+Recommendation: fix the audit pipeline (populate SHAs, evaluate high_diacritic + diacritic_chars, reconcile explicit-vs-proxy byte fallback accounting, drop `dry_run` field on `official/` outputs), re-run as a true official audit, hand to Rusty for the gate call, and only consider an interim base swap (Qwen2.5-7B, Gemma-2-9B) if the clean re-run still says no_go. No GPU spend, no data changes, no SHA freeze.
+
+Decision note: `.squad/decisions/inbox/basher-llama31-tokenizer-audit-no-go.md`.
+
+---
+
+## 2026-04-30T033611Z — Tokenizer audit review + Stage 1 GPU freeze confirmed
+
+**From:** Scribe (Orchestration logger)
+
+**Summary:** Joint assessment with Rusty of `data/tokenizer_audit/official/20260430T033208Z__meta-llama_Llama-3.1-8B.json`:
+- **Blocking issues:** missing hashes, missing Hawaiian-specific sections, dry_run flag in official path, proxy accounting mismatch
+- **Gate status:** Stage 1 GPU fine-tuning **no-go**
+- **Decision:** Do not spend GPU until clean official audit exists
+- **Next:** Rusty's round-trip inspection, tokenizer-family-aware heuristic, re-run with populated metadata
+
+**Your related orchestration log:** `.squad/orchestration-log/20260430T033611Z-basher.md`  
+**Session log:** `.squad/log/20260430T033611Z-llama-tokenizer-audit-review.md`
