@@ -20,6 +20,32 @@ from llm_hawaii.config import TrainConfig
 #    - confirms `build_train_dataset` returns >0 rows.
 
 
+class _DummyTokenizer:
+    """Minimal tokenizer stub — no torch/transformers needed.
+
+    Splits on whitespace and maps each token to its index in a tiny vocab.
+    Implements the same call-signature as HF AutoTokenizer so
+    tokenize_example / build_train_dataset work without any HF downloads.
+    """
+
+    pad_token = "<pad>"
+    eos_token = "<eos>"
+
+    def __call__(
+        self,
+        text: str,
+        max_length: int = 1024,
+        truncation: bool = False,
+        padding=False,
+        return_tensors=None,
+    ) -> dict:
+        tokens = text.split()
+        ids = [abs(hash(t)) % 1000 for t in tokens]
+        if truncation:
+            ids = ids[:max_length]
+        return {"input_ids": ids, "attention_mask": [1] * len(ids)}
+
+
 class TestData(unittest.TestCase):
     def test_iter_jsonl(self):
         with self.assertRaises(FileNotFoundError):
@@ -66,7 +92,7 @@ class TestData(unittest.TestCase):
             data.normalize_text("text", form="INVALID")
 
     def test_tokenize_example_missing_text(self):
-        _tokenizer = data.load_tokenizer("Qwen/Qwen2.5-0.5B")
+        _tokenizer = _DummyTokenizer()
         self.assertIsNotNone(_tokenizer)
         with self.assertRaises(KeyError):
             list(data.tokenize_example(
@@ -77,7 +103,7 @@ class TestData(unittest.TestCase):
             normalization="NFC"))
 
     def test_tokenize_example(self):
-        _tokenizer = data.load_tokenizer("Qwen/Qwen2.5-0.5B")
+        _tokenizer = _DummyTokenizer()
         self.assertIsNotNone(_tokenizer)
         self.assertIsNotNone(data.tokenize_example(
             {"text": "ha\u0304lau"},
