@@ -196,9 +196,27 @@ def build_train_dataset(
 
 
 def make_collator(tokenizer) -> Callable:
-    """Standard causal-LM collator. Pads to the longest in the batch."""
+    """Causal-LM collator that handles variable-length pre-tokenized labels.
+
+    tokenize_example() stores labels=input_ids on each record for inspection
+    and tests.  DataCollatorForLanguageModeling.pad() tries to tensorize every
+    feature key — including labels — *before* creating padded labels, which
+    raises ValueError when batch size > 1 and sequences have different lengths.
+
+    Fix: strip pre-existing labels before passing to the HF CLM collator, which
+    then creates correct labels (with -100 at padding positions) from the padded
+    input_ids.
+    """
     transformers = _require("transformers", "pip install transformers")
-    return transformers.DataCollatorForLanguageModeling(
+    _inner = transformers.DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm=False,
     )
+
+    def _collate(features):
+        # Strip pre-tokenized labels so HF CLM collator builds them from
+        # padded input_ids (-100 at padding positions).
+        stripped = [{k: v for k, v in f.items() if k != "labels"} for f in features]
+        return _inner(stripped)
+
+    return _collate

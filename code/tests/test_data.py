@@ -122,6 +122,52 @@ class TestData(unittest.TestCase):
             max_length=10,
             normalization="NFC"))
     
+    def test_collator_strips_labels_before_inner(self):
+        """make_collator must strip pre-tokenized labels before calling the inner CLM collator.
+
+        Reproduces the batch_size=2 failure: if labels are not stripped, the HF
+        DataCollatorForLanguageModeling raises
+          ValueError: expected sequence of length X at dim 1 (got Y)
+        because tokenizer.pad tries to tensorize variable-length labels.
+
+        No HF model download needed — transformers is monkeypatched.
+        """
+        import unittest.mock as mock
+        import llm_hawaii.data as data_mod
+
+        captured = []
+
+        def _fake_inner_call(feats):
+            captured.extend(feats)
+            return {"input_ids": [[0, 0]], "labels": [[-100, 0]]}
+
+        fake_transformers = mock.MagicMock()
+        fake_transformers.DataCollatorForLanguageModeling.return_value = _fake_inner_call
+
+        with mock.patch.object(data_mod, "_require", return_value=fake_transformers):
+            collator = data_mod.make_collator(_DummyTokenizer())
+
+        # Two features with *different* label lengths — this is what broke batch_size=2.
+        features = [
+            {"input_ids": [1, 2, 3], "attention_mask": [1, 1, 1], "labels": [1, 2, 3]},
+            {
+                "input_ids": [4, 5, 6, 7, 8],
+                "attention_mask": [1, 1, 1, 1, 1],
+                "labels": [4, 5, 6, 7, 8],
+            },
+        ]
+        collator(features)
+
+        self.assertEqual(len(captured), 2, "Inner collator should receive exactly 2 features")
+        for feat in captured:
+            self.assertNotIn(
+                "labels",
+                feat,
+                "labels must be stripped before inner CLM collator sees the batch",
+            )
+            self.assertIn("input_ids", feat)
+            self.assertIn("attention_mask", feat)
+
     def smoke_test_build_train_dataset(self):
         """Manual smoke: run explicitly, never auto-discovered by unittest (no test_ prefix)."""
         repo_root = Path(__file__).resolve().parents[2]
