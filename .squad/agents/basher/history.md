@@ -1,5 +1,26 @@
 # Basher — History
 
+## 2026-05-01 — Maximize T4x2: bump max_seq_len + halve accumulation steps
+
+**User Directive:** "we should being conservative then, we should try to maximize the x2"
+
+**Deliverables:**
+- `code/configs/stage1_fineweb2_haw_kaggle_t4x2.json` — `max_seq_len` 1024→**2048**, `gradient_accumulation_steps` 32→**16**; notes updated to drop "conservative" language, explain memory rationale, and document explicit OOM fallback.
+- `.squad/decisions/inbox/basher-maximize-t4x2.md` — decision drop with token-budget math and fallback ladder.
+
+**Key Design Decisions:**
+- Prior config was written for single 16GB T4 defensively. With `device_map="auto"` addressing ~32GB across both T4s, the memory budget supports seq_len=2048.
+- Halving gradient_accumulation_steps preserves the same ~32K tokens/gradient-update (1024×32 = 2048×16), so gradient signal density is unchanged — we just train with richer context and fewer accumulation micro-steps per optimizer step.
+- No code changes required. `device_map="auto"` already handles placement; no `max_memory` config field needed.
+
+**Validation:**
+- ✅ JSON parse clean
+- ✅ `load_config()` asserts: max_seq_len=2048, gradient_accumulation_steps=16, fp16=True, bf16=False
+
+**Status:** Implemented. Ready for Kaggle T4x2 run.
+
+---
+
 ## 2026-04-30 — QLoRA bitsandbytes compute dtype fix
 
 **User Directive:** Fix QLoRA bitsandbytes compute dtype wiring to follow TrainConfig bf16/fp16 flags.
@@ -587,3 +608,17 @@ QLoRA + bitsandbytes 4-bit cannot use DDP: bitsandbytes wraps parameters in cust
 
 **Status:** Recommendation — no implementation required. First Kaggle T4x2 run ready to proceed with single-process model placement.
 
+
+---
+
+## 2026-05-01 — T4x2 Config Finalized + Green Light for Stage 1
+
+**Scribe orchestration checkpoint:** Decision `basher-maximize-t4x2` merged to decisions.md. Rusty Stage 0 eval baseline confirmed (Hawaiian PPL 7.92); all orthography tripwires green.
+
+**T4x2 Config Outcome:**
+- `max_seq_len`: 1024 → 2048 (exploit ~32GB addressable VRAM across device_map="auto" model placement)
+- `gradient_accumulation_steps`: 32 → 16 (preserve 32K tokens/update, faster wall-clock)
+- OOM fallback strategy documented
+- All validation passed
+
+**Status:** Ready for Stage 1 training launch on Kaggle T4x2. Monitor for OOM; fallback plan ready.

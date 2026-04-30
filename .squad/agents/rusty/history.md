@@ -612,3 +612,19 @@ the regenerated JSONL on disk, and `docs/eval_pipeline.md:230`.
 
 **Validator role:** No action needed; readiness checkpoint complete. Ready for compute environment preflight + Stage 1 CPT run.
 
+
+---
+
+## 2026-05-01 — Stage 0 Baseline Confirmed + T4x2 Ready
+
+**Scribe orchestration checkpoint:** Stage 0 eval summary reviewed and finalized. Team approved for Stage 1 launch.
+
+**Eval Outcome:**
+- Hawaiian PPL: 7.92 (clean, reproducible baseline)
+- Orthography tripwires: ✅ all green
+- W1/English/per-source metrics: not yet reportable
+- Future eval summaries should pin immutable HF revision
+
+**Baseline Quality:** Sufficient for proceeding to Stage 1. Hawaiian text modeling established as baseline; launch with T4x2 config from Basher.
+
+**Status:** Ready for Stage 1 training. Monitor checkpoint evals; cross-reference future metrics against this baseline (7.92 Hawaiian PPL).

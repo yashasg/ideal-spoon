@@ -3078,3 +3078,58 @@ Unit tests imported real HuggingFace tokenizers, causing:
 - Real tokenizer validation at preflight/train time
 - Unit tests do not verify actual token counts (integration test scope)
 
+
+---
+
+## Decision: Maximize T4x2 — Bump max_seq_len and Reduce Accumulation Steps (2026-05-01)
+
+**Owner:** Basher (Training Engineer)
+
+**Status:** IMPLEMENTED — Validation passed
+
+### Context
+
+User directed: "we should try to maximize the x2."
+
+Prior decision (2026-04-30) established that `device_map="auto"` is single-process model sharding — **not DDP** — and QLoRA + bitsandbytes 4-bit cannot use DDP. With that settled, the question was: given both T4s are addressable as ~32GB total via `device_map="auto"`, was the original conservative config (max_seq_len=1024, gradient_accumulation_steps=32) leaving memory on the table?
+
+**Answer:** Yes. The original config was written defensively for a single 16GB T4. With device_map="auto" spanning both T4s, we can push max_seq_len to 2048.
+
+### Changes Applied
+
+**File:** `code/configs/stage1_fineweb2_haw_kaggle_t4x2.json`
+
+| Field | Before | After | Rationale |
+|---|---|---|---|
+| `max_seq_len` | 1024 | **2048** | Exploit ~32GB addressable VRAM across T4x2; longer context = better CPT signal on Hawaiian text |
+| `gradient_accumulation_steps` | 32 | **16** | seq_len 2× → 2× tokens per micro-step; halving accumulation steps keeps ~32K tokens/update (1024×32 = 32768 = 2048×16), fewer micro-steps per update = faster wall-clock |
+
+Notes in the config were also updated:
+- "hardware" note: removed "conservative for a single T4" language; now states this config exploits the full ~32GB budget
+- "memory" note: explains the token-per-update equivalence math
+- "device_placement" note: clarifies QLoRA cannot use DDP (explicit)
+- "oom_fallback" note: clear fallback path — reduce max_seq_len to 1024, gradient_accumulation_steps to 32
+
+**No code changes.** `device_map="auto"` already handles model sharding across both GPUs without any config field for `max_memory`. No new TrainConfig fields required.
+
+### Token Budget Math
+
+```
+Old: max_seq_len=1024 × batch=1 × accum_steps=32 = 32,768 tokens/update
+New: max_seq_len=2048 × batch=1 × accum_steps=16 = 32,768 tokens/update  ← same
+```
+
+Effective gradient signal density is unchanged. We just train with richer context windows and do fewer accumulation steps per optimizer step.
+
+### OOM Fallback Strategy
+
+If Kaggle session OOMs at max_seq_len=2048:
+1. Revert `max_seq_len=1024`, `gradient_accumulation_steps=32` (original conservative values)
+2. If still OOM: reduce `lora_rank=16`, `lora_alpha=32`
+3. Quick plumbing test only: `max_seq_len=512`
+
+### Validation
+
+- ✅ JSON parses without error
+- ✅ `load_config()` returns `max_seq_len=2048`, `gradient_accumulation_steps=16`, `fp16=True`, `bf16=False`
+- ✅ All assertions pass
