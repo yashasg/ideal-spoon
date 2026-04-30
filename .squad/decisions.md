@@ -1,6 +1,53 @@
 # Decisions
 
+> Updated 2026-04-30T21:36:58Z: Merged Basher Kaggle venv robustness + docs idempotency and Copilot W1 eval skip directive. Outcome: `scripts/setup_training.py` now probes venv pip health and auto-recreates broken envs; `docs/kaggle-t4x2-setup.md` uses absolute cd paths; W1 provisional micro-eval skipped per directive.
+>
 > Updated 2026-04-30T10:06:39Z: Merged Basher QLoRA bitsandbytes compute dtype fix. Outcome: `_bnb_4bit_config()` now correctly derives compute dtype from TrainConfig `bf16`/`fp16` flags. Kaggle T4x2 config (fp16=true, bf16=false) now uses torch.float16 instead of unsupported torch.bfloat16.
+
+---
+
+## Decision: Basher — Kaggle venv robustness + docs idempotency (2026-04-30)
+
+**Owner:** Basher (Training Engineer)
+
+**Status:** IMPLEMENTED — All validation passed
+
+### Summary
+
+Two failure modes on Kaggle notebook reruns:
+1. Broken `.venv-training` (pyvenv.cfg existed but pip was corrupt) → setup_training.py failed mid-run.
+2. Non-idempotent `cd ideal-spoon` in docs → re-running notebook cells failed.
+
+### Fixes Applied
+
+**`scripts/setup_training.py`**
+- Added `venv_is_healthy(venv_dir)` → runs `python -m pip --version` inside venv.
+- Updated `ensure_venv()`: healthy venv reused; broken venv (pip missing/error) auto-deleted and recreated with clear warning.
+- Dry-run unaffected.
+
+**`docs/kaggle-t4x2-setup.md`**
+- Changed relative `cd ideal-spoon` → absolute `cd /kaggle/working/ideal-spoon` (idempotent).
+- Section 4 bolded `--no-venv --skip-torch` as recommended Kaggle path.
+- Added note: venv unsuitable for Kaggle (PyTorch pre-installed); auto-recovery now handles broken venvs.
+
+### Validation
+
+- ✅ `py_compile scripts/setup_training.py` passed
+- ✅ `setup_training.py --dry-run` correct output
+- ✅ Broken-venv recovery path tested: deleted and recreated healthy venv
+- ✅ `git diff --check` passed
+
+---
+
+## User Directive: W1 provisional micro-eval skipped (2026-04-30T21:32:04Z)
+
+**By:** yashasg (via Copilot)
+
+**What:** Skip the provisional W1 Hawaiian micro-eval data; do not include in Kaggle upload/setup path.
+
+**Why:** User request — captured for team memory
+
+**Status:** Honored in Basher Kaggle venv robustness session; no W1 eval data included in setup guidance.
 
 ---
 

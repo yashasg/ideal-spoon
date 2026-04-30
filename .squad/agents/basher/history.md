@@ -1,5 +1,27 @@
 # Basher — History
 
+## 2026-05-01 — Kaggle venv robustness + docs idempotency
+
+**User Directive:** Diagnose `[Errno 2] No such file or directory: 'ideal-spoon'` and `No module named pip` failures on Kaggle.
+
+**Deliverables:**
+- `scripts/setup_training.py` — added `venv_is_healthy()` (probes `python -m pip --version` inside the venv); updated `ensure_venv()` to auto-delete and recreate a broken venv instead of failing mid-run.
+- `docs/kaggle-t4x2-setup.md` — changed `cd ideal-spoon` → `cd /kaggle/working/ideal-spoon` (both git and curl paths); bolded `--no-venv --skip-torch` in section 4; added explanatory note about the default venv path and the new auto-recovery behaviour.
+- `.squad/decisions/inbox/basher-kaggle-venv-robustness.md` — team-relevant decision drop.
+
+**Key Design Decisions:**
+- `venv_is_healthy()` uses `capture_output=True` so health-probe stderr does not pollute normal script output.
+- Dry-run mode skips the health probe (no side effects in dry-run).
+- No W1 / Hawaiian micro-eval data touched or added to Kaggle guidance (standing directive honoured).
+
+**Validation:**
+- `python3 -m py_compile scripts/setup_training.py` ✅
+- `python3 scripts/setup_training.py --dry-run` ✅
+
+**Status:** Implemented.
+
+---
+
 ## 2026-05-01 — Maximize T4x2: bump max_seq_len + halve accumulation steps
 
 **User Directive:** "we should being conservative then, we should try to maximize the x2"
