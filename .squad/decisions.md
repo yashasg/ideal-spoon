@@ -3331,3 +3331,62 @@ If Kaggle session OOMs at batch=2, gradient_accum=8:
 
 On shared provider environments like Kaggle, the base image often contains pre-installed packages with unresolved dependency conflicts. These conflicts are not caused by this project's setup and should not block training setup. Local/managed venv installs should be stricter to catch genuine issues in the project's dependency tree.
 
+
+## Decision: Basher — CLM collator wraps to strip pre-tokenized labels
+
+**Owner:** Basher (Training Engineer)  
+**Date:** 2026-05-01  
+**Status:** IMPLEMENTED — All tests pass
+
+### Problem
+
+`per_device_train_batch_size=2` in `stage1_fineweb2_haw_kaggle_t4x2.json` caused:
+
+```
+ValueError: expected sequence of length 196 at dim 1 (got 519)
+ValueError: Unable to create tensor ... features (`labels`) have excessive nesting
+```
+
+**Root cause:** `tokenize_example()` stores `labels = list(input_ids)` on each
+record. `DataCollatorForLanguageModeling` calls `tokenizer.pad()` on all feature
+keys — including `labels` — *before* creating its own padded label tensor. With
+batch size 1, no cross-sequence tensorization happens; with batch size 2, the
+variable-length `labels` lists collide and raise.
+
+### Fix
+
+**`code/llm_hawaii/data.py` — `make_collator()`:**
+
+Replace the bare `DataCollatorForLanguageModeling` return with a thin wrapper
+`_collate()` that strips `labels` from each feature before calling the inner HF
+collator. The CLM collator then derives labels from the padded `input_ids`,
+correctly setting -100 at padding positions.
+
+`tokenize_example()` is **unchanged** — its `labels` output is still present for
+inspection and unit tests; the collator just doesn't forward them to the HF pad
+call.
+
+### New test
+
+`test_collator_strips_labels_before_inner` in `code/tests/test_data.py`:
+- Monkeypatches `_require` to inject a fake `DataCollatorForLanguageModeling`.
+- Feeds two features with different-length `labels` (the exact pattern that failed).
+- Asserts the inner collator receives features with `labels` stripped and
+  `input_ids`/`attention_mask` intact.
+- No HF model download required.
+
+### Validation
+
+- ✅ `py_compile code/llm_hawaii/data.py`
+- ✅ `py_compile code/tests/test_data.py`
+- ✅ All 16 `test_data.py` tests pass (including new `test_collator_strips_labels_before_inner`)
+- ✅ Full test suite: 147 tests, 0 new failures (pre-existing torch-missing error unrelated)
+
+### Kaggle retry command
+
+From `/kaggle/working/ideal-spoon`:
+
+```bash
+PYTHONPATH=code python -m llm_hawaii.train \
+  --config code/configs/stage1_fineweb2_haw_kaggle_t4x2.json
+```
