@@ -200,3 +200,22 @@ Recommended treating `proofread_status=4` ("Validated") Wikisource as W1 _candid
   as note, not verification.
 - Did NOT touch raw source (SHA verified pre/post), Stage 1, eval hashes, W1,
   or prior tokenizer_audit artifacts. Did not commit.
+
+## Learnings
+
+- 2026-04-30: Tokenizer audit harness has a path/body split-brain — the `dry_run` JSON field can disagree with the parent directory (`official/` vs `dry_run/`). Fix is to drop the body field, make the directory the source of truth, and echo `run_kind` from the caller validated against the path at write time. Schema bump to `tokenizer_audit_report.v2`.
+- 2026-04-30: Rusty's Stage-0 gate has three dimensions (overall, high-diacritic slice, standalone diacritic chars) but the current harness only computes overall and emits `"not_evaluated"` for the other two — so any `go` it prints today is a partial. Llama re-run must wait until all three sections are wired and the three identity fields (model_repo_sha, tokenizer_sha256, tokenizer_fingerprint_sha256) are non-null in `official/`.
+
+## 2026-04-30T03:47:33Z — Tokenizer audit harness cleanup planning
+
+**From:** Scribe (session logger + orchestration)
+
+**Sync task:** Planned tokenizer audit harness cleanup to fix internal inconsistencies in schema/path/identity fields and prepare for Llama-3.1-8B re-run.
+
+**Summary:** Coordinated cleanup with Rusty (NLP lead). Linus scope: schema v2 (remove dry_run, add run_kind contract), populate model/tokenizer identity fields (model_repo_sha, tokenizer_sha256, tokenizer_fingerprint_sha256), add high-diacritic evaluator (minimum coverage gates: 10 samples / 1,500 words), add diacritic-char evaluator (per-character tokenization), add debug artifacts (samples_summary, debug.jsonl gitignored), convert one-shot test to parametrized unit+integration suite.
+
+**Order of operations:** Schema/path/identity first (no model needed); unit tests on synthetic encodings; high-diacritic+diacritic-char sections; then Llama-3.1-8B re-run. Do not re-run while sections are `not_evaluated`.
+
+**Decision:** `.squad/decisions/inbox/linus-tokenizer-audit-harness-cleanup.md` (now merged to decisions.md).
+
+---

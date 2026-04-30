@@ -1,6 +1,245 @@
 # Decisions
 
-> Updated 2026-04-30T01:42:25Z: Added Basher tokenizer audit script removal (user directive; gate remains). Prior: Frank quality-4 scan and Linus eval-safety contract. Recent batch below.
+> Updated 2026-04-30T03:47:33Z: Added Linus tokenizer audit harness cleanup (schema v2, identity fields, high-diacritic/diacritic-char evaluators, debug artifacts, unit tests) and Rusty tokenizer-family-aware proxy handling (byte-level BPE round-trip instead of proxy, family detection, debug dump). Prior: Basher tokenizer audit script removal and Frank quality-4 scan. Recent batch below.
+
+---
+
+## Decision: Linus — Tokenizer audit harness cleanup (schema/identity/evaluators)
+
+# Linus — Tokenizer audit harness cleanup plan (pre-Llama re-run)
+
+**Date:** 2026-04-30T03:43Z
+**Owner:** Linus (Data Engineer)
+**Status:** Proposed — data-engineering / reporting side; needs Rusty sign-off on threshold semantics and Basher sign-off on manifest consumers before re-running Llama-3.1-8B.
+
+## Why now
+
+The current Llama report at `data/tokenizer_audit/official/20260430T033208Z__meta-llama_Llama-3.1-8B.json` is internally inconsistent with the harness:
+
+- File lives under `official/` but the JSON body says `"dry_run": true`. Two sources of truth for the same flag, both wrong half the time.
+- `model.model_repo_sha`, `tokenizer_sha256`, `tokenizer_fingerprint_sha256` all `null`. Per Rusty's Stage-0 gate (decisions.md, 2026-04-29), the Stage-1 manifest must freeze these. We currently can't.
+- `high_diacritic` and `diacritic_chars` are `"not_evaluated"`. Two of three Rusty gate dimensions are silently absent — the `go` / `no_go` line in the report only reflects overall metrics.
+- `byte_fallback_or_proxy_rate = 0.193` — the `no_go` is real, but the proxy heuristic flags every non-ASCII char as fallback (see Rusty's inbox note). Reporting is muddying the signal.
+- The harness is one `unittest` smoke that hardcodes model id, single eval file, and write path. Not reusable, not parameterizable, not committable as a gate.
+
+## Cleanup contract
+
+### 1. Path convention (single source of truth)
+
+- `official/` ↔ real model load, real tokenizer fingerprint, real corpus pass. Body MUST NOT carry `dry_run`. Drop the field.
+- `dryrun/` (one word, no underscore — match `data/tokenizer_audit/` siblings; rename existing `dry_run/` → `dryrun/` in a follow-up) ↔ harness-self-test runs with stub tokenizer or trimmed sample. Body carries `"run_kind": "dryrun"`.
+- The directory is the contract. The body field `dry_run` is removed from the schema. Replace with `run_kind ∈ {"official","dryrun"}` echoed from the caller, validated against the parent directory at write time.
+
+### 2. Function boundaries
+
+Split `tokenizer_audit_output_from_encoding` into three pure functions plus one orchestrator:
+
+1. `compute_overall_metrics(ids, pieces, word_count) -> dict` — overall block only. No I/O, no thresholds.
+2. `compute_high_diacritic_metrics(samples, tokenizer) -> dict` — per Rusty's definition (`ʻokina + kahakō ≥ 3` AND `diacritics/word ≥ 0.25`). Returns `status ∈ {"evaluated","insufficient_samples"}` and metrics. Minimum sample requirement (≥10 high-diacritic samples, ≥1,500 words total per Rusty) enforced here, not at the gate.
+3. `compute_standalone_diacritic_chars(tokenizer, charset) -> dict` — encodes each of the Hawaiian diacritic chars (`ʻ`, `ā`, `ē`, `ī`, `ō`, `ū` + uppercase) standalone and reports tokens-per-char. `status ∈ {"evaluated","tokenizer_unavailable"}`.
+4. `build_audit_report(model_id, tokenizer, samples, run_kind, thresholds) -> dict` — orchestrator. Owns `model.*` fingerprint resolution, calls the three pure metric functions, applies thresholds once at the end, emits `recommendation`.
+
+The harness test then becomes: build report → write to `official/` or `dryrun/` based on `run_kind` → schema-assert. Nothing more.
+
+### 3. Model / tokenizer identity (must be filled before Llama re-run)
+
+- `model.model_repo_sha`: resolve from `huggingface_hub.HfApi().repo_info(model_id).sha`. If unauthenticated/gated, fail loudly, do not silently null.
+- `model.tokenizer_sha256`: SHA-256 over the resolved local `tokenizer.json` bytes (or concatenated tokenizer files if `tokenizer.model` only). Pin which file(s) define the hash.
+- `model.tokenizer_fingerprint_sha256`: SHA-256 over a deterministic projection — sorted vocab pairs + merges + special tokens + `add_bos_token`/`add_eos_token` + normalizer/pre-tokenizer config. Independent of file layout so it survives format upgrades.
+- All three null ⇒ report MUST set `recommendation.decision = "no_go"` with `blocking_reasons += ["model_identity_unresolved"]`. No more silent nulls in `official/`.
+
+### 4. High-diacritic section
+
+Currently `"not_evaluated"`. Required for the gate. Before Llama re-run:
+
+- Source samples from `data/tokenizer_audit/ulukau_nupepa/kaehuikimanoopuuloa/kaehuikimanoopuuloa.jsonl` paragraph-split, plus any other ingested nūpepa/Baibala slices once available (per Rusty's Stage-0 note, my eval-safety contract).
+- Filter to high-diacritic per the formula above.
+- Emit: `tokens_per_word`, `explicit_byte_fallback_rate`, `byte_fallback_or_proxy_rate`, `sample_count`, `word_count`, plus `status`.
+- If `sample_count < 10` or `word_count < 1500`: `status = "insufficient_samples"` and gate is `no_go` with reason `high_diacritic_coverage`.
+
+### 5. Standalone diacritic section
+
+Currently `"not_evaluated"`. Required for the gate. Per Rusty: each Hawaiian diacritic char must tokenize to ≤ 2 tokens standalone.
+
+- `diacritic_chars.items[]` rows: `{ "char": "ʻ", "codepoint": "U+02BB", "ids": [...], "pieces": [...], "token_count": N, "passed": bool }`.
+- Section-level `passed = all(item.passed)` feeds the gate.
+
+### 6. Sample / debug dumps
+
+- Add an optional `samples_summary` block: `{ "source_paths": [...], "row_count": N, "word_count": N, "char_count": N, "normalization": "NFC", "okina_canonicalization": "U+02BB" }`. No raw text in the report (corpus stays under ignored `data/`; report is committable metadata).
+- Keep an off-report debug dump under `data/tokenizer_audit/<run_kind>/<timestamp>__<model>__debug.jsonl`, gitignored, one row per sample with `text_sha256`, `token_count`, `pieces` — for forensics. Decision report does not include it.
+
+### 7. Manifest / schema shape
+
+- Bump `schema_version` to `tokenizer_audit_report.v2` once these changes land. v1 stays parseable as historical only.
+- v2 top-level keys (ordered): `schema_version`, `run_kind`, `generated_at`, `model`, `thresholds`, `samples_summary`, `overall`, `high_diacritic`, `diacritic_chars`, `checks`, `recommendation`, `errors`. Drop `dry_run`.
+- `recommendation.blocking_reasons` becomes a closed enum: `{ overall_tokens_per_word, explicit_byte_fallback_rate, byte_fallback_or_proxy_rate, high_diacritic_tokens_per_word, high_diacritic_byte_fallback_or_proxy_rate, high_diacritic_coverage, standalone_diacritic_chars, model_identity_unresolved }`.
+- Stage-1 manifest pin (Basher's contract) reads `model.model_repo_sha` + `model.tokenizer_fingerprint_sha256` directly from the chosen `official/` report path.
+
+### 8. Testability
+
+- Convert `code/tests/test_tokenizer_audit.py` from a one-shot writer into:
+  - **unit tests** that hit the four functions with synthetic encodings (no model load, no network) — these run in CI.
+  - **one integration test** behind an env gate (`HF_TOKEN` present + `RUN_TOKENIZER_AUDIT=1`) that loads the real Llama tokenizer, evaluates the local Hawaiian sample set, writes to `official/`. Skipped by default.
+  - Schema assertion runs on both: every emitted report must match v2 keys/types.
+- Replace hardcoded `_model_id` and `_dry_run` locals with parametrization (env vars or pytest params) so re-running for a fallback tokenizer does not require code edits.
+
+### 9. Proxy heuristic — flagged, not owned by me
+
+The 19% `byte_fallback_or_proxy_rate` is dominated by `▁<diacritic-char>` patterns that aren't real byte fallback. That's Rusty's call (see his inbox note). My ask: keep `explicit_byte_fallback_rate` and `byte_fallback_or_proxy_rate` as separate checks with separate thresholds in v2 so the heuristic can be tightened without re-cutting the schema.
+
+## Order of operations before the Llama re-run
+
+1. Land schema v2 + the four-function split + path/run_kind contract (no model needed).
+2. Land the unit tests against synthetic encodings.
+3. Wire the three identity fields. Verify against any model first (Qwen tokenizer is fine for plumbing).
+4. Wire high-diacritic + standalone-diacritic sections. Verify via Qwen dryrun.
+5. Re-run Llama-3.1-8B against `official/` with all sections evaluated and identity pinned. The `go`/`no_go` then reflects the full Stage-0 gate, not a partial.
+
+## Out of scope this pass
+
+- Choice of fallback tokenizer (Rusty owns).
+- Tightening the proxy heuristic (Rusty owns).
+- Adding a standalone `scripts/040_tokenizer_audit.py` — decisions.md keeps it as a test, not a script.
+- Hawaiian-literacy review of sample selection (#7 territory).
+
+## Asks
+
+- **Rusty:** confirm v2 `blocking_reasons` enum and the high-diacritic minimum coverage numbers (10 samples / 1,500 words) are still the right floor.
+- **Basher:** confirm the Stage-1 manifest will read from `model.model_repo_sha` + `model.tokenizer_fingerprint_sha256` of a specific `official/` filename, and that pinning that filename in the Stage-1 manifest is acceptable.
+- **Coordinator:** sequence — schema/path/identity first, then Llama re-run; do not re-run while sections are still `not_evaluated`.
+
+
+---
+
+## Decision: Rusty — Tokenizer audit harness cleanup (tokenizer-family-aware proxy + round-trip)
+
+# Decision: Rusty — Tokenizer audit harness cleanup (tokenizer-family-aware proxy + round-trip)
+
+**Date:** 2026-04-30
+**Owner:** Rusty (NLP Researcher)
+**Status:** Proposed — implementation owner: Linus (test/harness code)
+
+## Direction
+
+Clean the tokenizer audit harness so that "byte fallback" means what it says by tokenizer family. Do not change thresholds. Add round-trip as the ground-truth check. Make the proxy decision auditable.
+
+## Why
+
+The Llama-3.1-8B run in `data/tokenizer_audit/official/20260430T033208Z__meta-llama_Llama-3.1-8B.json` returned `no_go` solely on `byte_fallback_or_proxy_rate = 0.193`, while `tokens_per_word = 2.474` (pass) and `explicit_byte_fallback_rate = 0.0` (pass). The proxy rule (`len(stripped)==1 and ord(stripped)>127` after stripping `▁Ġ `) was authored for SentencePiece+byte-fallback tokenizers. Llama-3 is byte-level BPE (tiktoken family); every multi-byte UTF-8 char (ʻokina, kahakō vowels) is encoded as a sequence of bytes from the GPT-2 byte-to-unicode map, all `ord>127`. The pieces are **lossless**, not fallback. Tokens/word at 2.47 is itself the disconfirming signal for true 19% fragmentation.
+
+## Plan
+
+### 1. Detect tokenizer family from the tokenizer, not the model id
+
+Compute once per run, store under `model.tokenizer_family`:
+
+- `byte_level_bpe` if the GPT-2 byte-to-unicode map's 256 byte-chars are a subset of the vocab and there are no `<0xXX>` tokens. (Llama-3, GPT-2/4, Qwen2.)
+- `sentencepiece_byte_fallback` if `<0xXX>` byte-fallback tokens are in the vocab or `sp_model` is present with byte_fallback enabled. (Llama-2, Mistral, Gemma, T5 variants.)
+- `wordpiece` / `unigram` / `other` otherwise.
+
+Hard-coding by `model_id` is wrong: Llama-2 vs Llama-3 share a name and not a tokenizer.
+
+### 2. Make `byte_fallback_or_proxy_rate` family-aware
+
+| Family | `explicit_byte_fallback_rate` | `byte_fallback_or_proxy_rate` |
+|---|---|---|
+| `sentencepiece_byte_fallback` | evaluated, threshold = 0 | evaluated, threshold ≤ 0.01 (current) |
+| `byte_level_bpe` | evaluated (structurally 0; informational) | **`status: not_evaluated`** + reason `"byte-level BPE: byte-pieces are lossless, not fallback"` |
+| `wordpiece` / `unigram` / `other` | evaluated | evaluated, threshold ≤ 0.01 |
+
+This mirrors how `high_diacritic` already uses a `status` field instead of a fake number. Do not silently pass; explicitly mark not-evaluated and exclude it from `blocking_reasons`.
+
+### 3. Add round-trip as ground truth (all families)
+
+Two cheap invariants, both must hold for `go`:
+
+- **Slice round-trip:** `tokenizer.decode(all_ids, skip_special_tokens=True) == NFC(text)` (or differs only by documented whitespace/special-token policy — record diffs verbatim if any).
+- **Per-piece round-trip:** `decode([id])` returns non-empty UTF-8 for every id; for byte-level BPE, the concatenation of `decode([id])` over consecutive byte-pieces reproduces the original UTF-8 substring.
+
+Add a check `roundtrip_lossless` with threshold "must be true". For byte-level BPE this **replaces** the proxy check as the structural integrity gate. For SentencePiece+byte-fallback it is an additional cross-check (catches normalizer surprises, NFC drift, special-token leakage).
+
+### 4. Debug dump (auditable proxy decision)
+
+Always write, alongside `report.json`:
+
+`samples.debug.jsonl` — one row per sample, fields:
+
+```
+{
+  "sample_id": "...",
+  "sentence": "...",                       // NFC text
+  "ids": [int, ...],
+  "pieces": [str, ...],                    // convert_ids_to_tokens
+  "piece_decoded": [str, ...],             // decode([id]) per piece
+  "piece_byte_lens": [int, ...],           // len(decode([id]).encode("utf-8"))
+  "is_byte_level_bpe_piece": [bool, ...],  // every char in byte-to-unicode map
+  "is_explicit_byte_fallback": [bool, ...],// matches <0xXX>
+  "is_legacy_proxy_flag": [bool, ...],     // current heuristic, retained for diff
+  "roundtrip_ok": bool,
+  "decoded_equals_nfc_text": bool
+}
+```
+
+Plus a `tokenizer.fingerprint.json` aggregate:
+
+```
+{
+  "tokenizer_family": "byte_level_bpe" | "sentencepiece_byte_fallback" | ...,
+  "byte_to_unicode_coverage": 256/256,
+  "has_0xXX_vocab": false,
+  "sp_model_present": false,
+  "vocab_size": int,
+  "tokenizer_sha256": "...",
+  "tokenizer_fingerprint_sha256": "..."
+}
+```
+
+The current report's null `tokenizer_sha256` / `tokenizer_fingerprint_sha256` / `model_repo_sha` must be populated; that is part of the cleanup, not optional.
+
+Minimum live debug coverage: ≥5 sentences with both ʻokina (U+02BB) and kahakō vowels from `kaehuikimanoopuuloa.jsonl`.
+
+### 5. Reporting changes
+
+- `checks[*]` for non-evaluated metrics must use `passed: null` and `status: "not_evaluated"`, and must **not** appear in `blocking_reasons`. Current code adds `passed is None` to `blocking_reasons` (`test_tokenizer_audit.py:118-122`); fix that — `None` means "not evaluated", not "failed".
+- `recommendation.blocking_reasons` must list only checks with `passed is False`.
+- Add `recommendation.notes` capturing the family-aware decision (e.g. `"byte_fallback_or_proxy_rate not evaluated: byte-level BPE; round-trip lossless verified instead"`).
+
+## Thresholds — do **not** change
+
+Frozen per canonical decisions.md (Rusty / Issue #8):
+
+- `overall_tokens_per_word_max = 2.50`
+- `high_diacritic_tokens_per_word_max = 3.25`
+- `explicit_byte_fallback_rate_max = 0.0` (where applicable)
+- `byte_fallback_or_proxy_rate_max = 0.01` (SentencePiece+byte-fallback / unigram / wordpiece only)
+- standalone diacritic chars ≤ 2 tokens
+- minimum input: ≥1,500 words, ≥10 high-diacritic samples
+
+The Llama-3.1-8B `no_go` is a harness bug, not a threshold problem. Loosening `byte_fallback_or_proxy_rate_max` would also hide real fragmentation on a future SentencePiece run; that is exactly the wrong fix.
+
+## Owners / Boundaries
+
+- **Linus:** owns harness/test code changes (`code/tests/test_tokenizer_audit.py`, any helper module). Round-trip + family detection + debug dump + `not_evaluated`-vs-`False` fix.
+- **Rusty (me):** family-detection rules, round-trip semantics, threshold stance, debug-dump field list — above.
+- **Basher:** keeps `code/configs/llama31_8b_a100.json` blocked until a clean re-run reports `go` with populated tokenizer/model SHAs.
+- **Coordinator:** route the harness change to Linus; do not route it back to me for revision unless an NLP question reopens.
+
+## Acceptance
+
+A re-run of `test_smoke_tokenizer_audit` against `meta-llama/Llama-3.1-8B` on `kaehuikimanoopuuloa.jsonl` should produce:
+
+- `tokenizer_family: "byte_level_bpe"`
+- `explicit_byte_fallback_rate: 0.0` (passed)
+- `byte_fallback_or_proxy_rate: status=not_evaluated` (excluded from blockers)
+- `roundtrip_lossless: true` (passed)
+- `overall_tokens_per_word: ~2.47` (passed)
+- `recommendation.decision: go` (high-diacritic + diacritic-chars slices still need to be populated separately before final go; that's a slice-coverage task, not a tokenizer-family task)
+- `tokenizer_sha256`, `tokenizer_fingerprint_sha256`, `model_repo_sha` all non-null
+- `samples.debug.jsonl` written with ≥5 ʻokina+kahakō sentences
+
+If round-trip fails on Llama-3 against the Hawaiian slice, that is a real `no_go` and I want to see the debug dump before recommending anything else.
+
 
 ---
 
