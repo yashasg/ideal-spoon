@@ -241,6 +241,60 @@ class TestRunReportMetadata(unittest.TestCase):
             self.assertNotIn("Mahalo", report_text)
 
 
+class TestTrainingArgumentsCompatibility(unittest.TestCase):
+    """TrainingArguments eval strategy arg changed across transformers versions."""
+
+    def test_new_eval_strategy_keyword_is_used_when_supported(self):
+        import sys
+        import types
+        from unittest import mock
+
+        from llm_hawaii.config import TrainConfig
+
+        class FakeTrainingArguments:
+            def __init__(self, eval_strategy=None, **kwargs):
+                self.kwargs = dict(kwargs)
+                self.kwargs["eval_strategy"] = eval_strategy
+
+        fake_transformers = types.SimpleNamespace(
+            TrainingArguments=FakeTrainingArguments
+        )
+
+        with mock.patch.dict(sys.modules, {"transformers": fake_transformers}):
+            from llm_hawaii.train import build_training_args
+
+            args = build_training_args(TrainConfig(eval_steps=100), has_eval=True)
+
+        self.assertEqual(args.kwargs["eval_strategy"], "steps")
+        self.assertEqual(args.kwargs["eval_steps"], 100)
+        self.assertNotIn("evaluation_strategy", args.kwargs)
+
+    def test_legacy_evaluation_strategy_keyword_is_used_when_supported(self):
+        import sys
+        import types
+        from unittest import mock
+
+        from llm_hawaii.config import TrainConfig
+
+        class FakeTrainingArguments:
+            def __init__(self, evaluation_strategy=None, **kwargs):
+                self.kwargs = dict(kwargs)
+                self.kwargs["evaluation_strategy"] = evaluation_strategy
+
+        fake_transformers = types.SimpleNamespace(
+            TrainingArguments=FakeTrainingArguments
+        )
+
+        with mock.patch.dict(sys.modules, {"transformers": fake_transformers}):
+            from llm_hawaii.train import build_training_args
+
+            args = build_training_args(TrainConfig(eval_steps=100), has_eval=True)
+
+        self.assertEqual(args.kwargs["evaluation_strategy"], "steps")
+        self.assertEqual(args.kwargs["eval_steps"], 100)
+        self.assertNotIn("eval_strategy", args.kwargs)
+
+
 class TestResumeFlagWiring(unittest.TestCase):
     """CLI flags are parsed and routed without running actual training."""
 

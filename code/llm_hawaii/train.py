@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import hashlib
+import inspect
 import json
 import subprocess
 import time
@@ -237,6 +238,23 @@ def write_run_report(
 def build_training_args(cfg: TrainConfig, has_eval: bool = False):
     transformers = _require("transformers", "pip install transformers")
     eval_strategy = "steps" if (has_eval and cfg.eval_steps) else "no"
+    try:
+        training_args_params = inspect.signature(
+            transformers.TrainingArguments
+        ).parameters
+    except (TypeError, ValueError):
+        training_args_params = inspect.signature(
+            transformers.TrainingArguments.__init__
+        ).parameters
+    if "eval_strategy" in training_args_params:
+        eval_strategy_key = "eval_strategy"
+    elif "evaluation_strategy" in training_args_params:
+        eval_strategy_key = "evaluation_strategy"
+    else:
+        raise RuntimeError(
+            "Unsupported transformers.TrainingArguments signature: expected "
+            "'eval_strategy' or 'evaluation_strategy'."
+        )
     kwargs: dict = dict(
         output_dir=cfg.output_dir,
         num_train_epochs=cfg.num_train_epochs,
@@ -253,9 +271,9 @@ def build_training_args(cfg: TrainConfig, has_eval: bool = False):
         fp16=cfg.fp16,
         gradient_checkpointing=cfg.gradient_checkpointing,
         seed=cfg.seed,
-        evaluation_strategy=eval_strategy,
         report_to=[],  # add "wandb"/"tensorboard" later if you want
     )
+    kwargs[eval_strategy_key] = eval_strategy
     if has_eval and cfg.eval_steps:
         kwargs["eval_steps"] = cfg.eval_steps
     return transformers.TrainingArguments(**kwargs)
