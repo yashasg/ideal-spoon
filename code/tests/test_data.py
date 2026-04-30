@@ -168,6 +168,76 @@ class TestData(unittest.TestCase):
             self.assertIn("input_ids", feat)
             self.assertIn("attention_mask", feat)
 
+    def test_collator_end_to_end_variable_length_padding(self):
+        """make_collator end-to-end: variable-length batch → correctly padded output.
+
+        Stronger regression than test_collator_strips_labels_before_inner:
+        verifies the *output* has padded same-length input_ids and -100 at
+        every padded label position.  No HF model download needed — the inner
+        collator is replaced with a minimal fake that implements the real
+        DataCollatorForLanguageModeling pad-then-label semantics.
+
+        Batch:
+          feature[0]: length 3  → gets 2 pad tokens appended
+          feature[1]: length 5  → no padding needed
+
+        Expected:
+          output['input_ids'][0]  == length 5 (padded with PAD_ID=0)
+          output['labels'][0][-2] == -100   (padded positions)
+          output['labels'][0][-1] == -100
+          output['labels'][1]     contains no -100 (full-length, no padding)
+        """
+        import unittest.mock as mock
+        import llm_hawaii.data as data_mod
+
+        PAD_ID = 0
+
+        def _fake_inner_collator(feats):
+            """Minimal stand-in for DataCollatorForLanguageModeling (mlm=False).
+
+            Pads input_ids to max length with PAD_ID; sets -100 at padding
+            positions in labels, matching HF CLM collator behaviour.
+            """
+            max_len = max(len(f["input_ids"]) for f in feats)
+            input_ids_out, labels_out = [], []
+            for f in feats:
+                seq = list(f["input_ids"])
+                pad_len = max_len - len(seq)
+                input_ids_out.append(seq + [PAD_ID] * pad_len)
+                labels_out.append(seq + [-100] * pad_len)
+            return {"input_ids": input_ids_out, "labels": labels_out}
+
+        fake_transformers = mock.MagicMock()
+        fake_transformers.DataCollatorForLanguageModeling.return_value = _fake_inner_collator
+
+        with mock.patch.object(data_mod, "_require", return_value=fake_transformers):
+            collator = data_mod.make_collator(_DummyTokenizer())
+
+        features = [
+            {"input_ids": [1, 2, 3], "attention_mask": [1, 1, 1], "labels": [1, 2, 3]},
+            {
+                "input_ids": [4, 5, 6, 7, 8],
+                "attention_mask": [1, 1, 1, 1, 1],
+                "labels": [4, 5, 6, 7, 8],
+            },
+        ]
+        batch = collator(features)
+
+        # Both rows padded to the same length (5)
+        self.assertEqual(len(batch["input_ids"][0]), 5)
+        self.assertEqual(len(batch["input_ids"][1]), 5)
+
+        # Short row: padded tokens are PAD_ID in input_ids
+        self.assertEqual(batch["input_ids"][0][3], PAD_ID)
+        self.assertEqual(batch["input_ids"][0][4], PAD_ID)
+
+        # Short row: label positions at padding must be -100
+        self.assertEqual(batch["labels"][0][3], -100)
+        self.assertEqual(batch["labels"][0][4], -100)
+
+        # Long row: real tokens only, no -100 in labels
+        self.assertNotIn(-100, batch["labels"][1])
+
     def smoke_test_build_train_dataset(self):
         """Manual smoke: run explicitly, never auto-discovered by unittest (no test_ prefix)."""
         repo_root = Path(__file__).resolve().parents[2]

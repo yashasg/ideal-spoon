@@ -9,6 +9,7 @@
 - **CPU torch trap:** Running `setup_training.py` without `--skip-torch` on Kaggle installs the default PyPI CPU wheel (`+cpu`) on top of Kaggle's CUDA torch. The `+cpu` suffix in `torch.__version__` is the definitive signal. Fix: `pip uninstall torch -y && pip install torch --index-url https://download.pytorch.org/whl/cu121`. Always use `--skip-torch` on Kaggle.
 - **GPU-attached vs wrong-wheel:** `nvidia-smi` present + returning rows = GPU attached; `torch.cuda.is_available() == False` with `+cpu` wheel = wheel problem, not hardware. `nvidia-smi` absent = accelerator not attached — fix in notebook settings.
 - **Bash heredoc in Kaggle cells:** `<<TERM` heredocs passed as a one-shot string to bash (e.g. via `%%bash` magic) emit EOF-before-terminator warnings if the terminator has trailing whitespace or the cell is `cat`'d into bash. Use `%%python` cells or plain `!` lines instead.
+- **Fake inner collator pattern:** When testing a collator wrapper end-to-end (output correctness, not just call interception), replace the inner collator with a minimal fake that *implements* the real pad+label semantics (pad input_ids to max length, set -100 at pad positions in labels). A plain `MagicMock` returning hardcoded values only verifies the wrapper calls through; the semantic fake verifies the wrapper correctly strips pre-tokenized labels so the inner can produce valid output. See `test_collator_end_to_end_variable_length_padding` in `code/tests/test_data.py`.
 
 ---
 
