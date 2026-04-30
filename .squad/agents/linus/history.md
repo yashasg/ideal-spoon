@@ -666,3 +666,39 @@ longer reads it. Final contract logged at
 **Decision inbox status:** `copilot-directive-20260430T083706Z.md`, `linus-human-fetch-translation-eval.md`, `rusty-human-fetch-translation-review.md` → merged and deleted.
 
 **Key archival:** Stage 0 is checkpoint 0 in a unified eval series; human_fetch is the trusted parallel source for baseline+drift tracking (en→haw, haw→en bidirectional, char-F1 baseline, safe-to-miss, never averaged, hash-only output, eval_eligible=True training_eligible=False).
+
+---
+
+## 2026-05-01 — Stage 1 training data readiness audit
+
+**User directive:** Prepare and verify training input data for the next Stage 1 run. Config paths should be unambiguous and compatible with the runner.
+
+**Implementation summary:**
+
+- **Audit:** `data/stage1/fineweb2_haw/train.jsonl` — 95,507 rows, zero missing/empty `text`, 100% NFC, all `prototype_only=True`, `release_eligible=False`, source `fineweb2_haw`. Eval `data/evals/fineweb2_haw/dev.jsonl` — 621 rows, same provenance flags.
+
+- **`code/configs/llama31_8b_a100.json`:** `train_path` updated from stale `../data/stage1/stage1.jsonl.gz` to `../data/stage1/fineweb2_haw/train.jsonl`; `eval_path` wired to `../data/evals/fineweb2_haw/dev.jsonl`; `eval_steps` set to 200; notes updated.
+
+- **`code/llm_hawaii/train.py`:** `build_training_args` now wires `eval_strategy="steps"` + `eval_steps` when both `cfg.eval_path` and `cfg.eval_steps` are non-null. `run_training` loads `eval_dataset` when `eval_path` is set and passes it to `Trainer`.
+
+- **`code/tests/test_data.py`:** +9 new tests (no ML deps for config tests): `test_iter_jsonl_bad_json`, `test_iter_jsonl_empty_lines_skipped`, `test_normalize_text_nfc_idempotent`, `test_normalize_text_unknown_form`; new `TestTrainConfig` class with 5 tests covering config load, unknown-key rejection, eval pairing, roundtrip. Total suite 111 → 120, same 3 pre-existing ML-dep errors.
+
+- **`docs/data-readiness-stage1.md`:** New doc — counts/hashes/status only, no raw text.
+
+- **`.squad/decisions/inbox/linus-training-data-readiness.md`:** Decision record with chosen path, rationale, caveats, and Basher coordination note.
+
+**Key patterns established:**
+
+- `stage1.jsonl.gz` is the post-cleaning multi-source canonical trainer output (81,117 rows, 6-field slim schema); `fineweb2_haw/train.jsonl` is the pre-cleaning FineWeb-only input (95,507 rows, 22-field rich schema). Both are off-git. Switch between them by changing `train_path` in the config — `data.py` handles `.gz` transparently.
+- Eval-during-train is safe-no-op: wired only when BOTH `eval_path` AND `eval_steps` are non-null. No silent skips.
+- Config tests (`TestTrainConfig`) require no ML deps — fast to run anywhere without GPU environment.
+- Paths in JSON configs are relative to `code/` (run convention: `python -m llm_hawaii.train --config configs/<name>.json`).
+
+**Validation:** ✅ py_compile clean on all modified files, ✅ 120/120 non-ML tests pass, ✅ 3 pre-existing ML-dep errors unchanged.
+
+## Learnings
+
+- `data/` is gitignored. Audit results belong in `docs/` (counts/status/hashes only) or the decision inbox, never as committed JSONL/text.
+- For eval-during-train gating: check both `eval_path` AND `eval_steps` before passing `eval_strategy` to `TrainingArguments`. Setting one without the other produces a silent no-op or a Trainer error.
+- Newer HF Trainer uses `eval_strategy`; older versions use `evaluation_strategy`. Document this caveat explicitly so the runner can adapt without source changes.
+- `TestTrainConfig` tests (config load/roundtrip/unknown-key) are zero-dep and very fast — add them first when validating config schema changes.

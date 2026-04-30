@@ -1,9 +1,12 @@
 import itertools
 import json
+import os
+import tempfile
 from pathlib import Path
 import unittest
 
 import llm_hawaii.data as data
+from llm_hawaii.config import TrainConfig
 
 
 # DO-NOW checklist (keep these changes in Stage-1 scope):
@@ -28,8 +31,39 @@ class TestData(unittest.TestCase):
 
         self.assertIsNotNone(data.iter_jsonl(dev_path))  # smoke test; more detailed tests in test_data.py
 
+    def test_iter_jsonl_bad_json(self):
+        """Bad JSON line must raise, not silently skip."""
+        repo_root = Path(__file__).resolve().parents[2]
+        bad_file = repo_root / "code" / "examples" / "bad_json_test.jsonl"
+        bad_file.write_text('{"text": "ok"}\nnot-json-at-all\n', encoding="utf-8")
+        try:
+            with self.assertRaises(ValueError):
+                list(data.iter_jsonl(bad_file))
+        finally:
+            bad_file.unlink(missing_ok=True)
+
+    def test_iter_jsonl_empty_lines_skipped(self):
+        """Empty lines between records must not cause errors."""
+        repo_root = Path(__file__).resolve().parents[2]
+        sparse_file = repo_root / "code" / "examples" / "sparse_test.jsonl"
+        sparse_file.write_text('\n{"text": "a"}\n\n{"text": "b"}\n', encoding="utf-8")
+        try:
+            rows = list(data.iter_jsonl(sparse_file))
+            self.assertEqual(len(rows), 2)
+        finally:
+            sparse_file.unlink(missing_ok=True)
+
     def test_normalize_text(self):
         self.assertEqual(data.normalize_text("ha\u0304lau", form="NFC"), "hālau")  # smoke test; more detailed tests in test_data.py
+
+    def test_normalize_text_nfc_idempotent(self):
+        """NFC normalization must be idempotent on already-NFC input."""
+        already_nfc = "hālau"  # precomposed ā = U+0101
+        self.assertEqual(data.normalize_text(already_nfc, form="NFC"), already_nfc)
+
+    def test_normalize_text_unknown_form(self):
+        with self.assertRaises(ValueError):
+            data.normalize_text("text", form="INVALID")
 
     def test_tokenize_example_missing_text(self):
         _tokenizer = data.load_tokenizer("Qwen/Qwen2.5-0.5B")
@@ -53,6 +87,7 @@ class TestData(unittest.TestCase):
             normalization="NFC"))
     
     def smoke_test_build_train_dataset(self):
+        """Manual smoke: run explicitly, never auto-discovered by unittest (no test_ prefix)."""
         repo_root = Path(__file__).resolve().parents[2]
         dev_path = repo_root / "code" / "examples" / "train.jsonl.example"
         self.assertTrue(dev_path.exists(), f"Missing eval file: {dev_path}")
@@ -67,6 +102,77 @@ class TestData(unittest.TestCase):
         )
         self.assertGreater(len(dataset), 0, "Expected build_train_dataset to return >0 records")
 
+
+class TestTrainConfig(unittest.TestCase):
+    """Config loading tests — no ML deps required."""
+
+    def _repo_root(self) -> Path:
+        return Path(__file__).resolve().parents[2]
+
+    def test_smoke_config_loads(self):
+        """smoke.json must parse without errors."""
+        cfg = TrainConfig.from_json(self._repo_root() / "code" / "configs" / "smoke.json")
+        self.assertEqual(cfg.stage, "smoke")
+        self.assertIsNone(cfg.eval_path)
+
+    def test_llama31_config_loads(self):
+        """llama31_8b_a100.json must parse and have correct train/eval paths."""
+        cfg = TrainConfig.from_json(
+            self._repo_root() / "code" / "configs" / "llama31_8b_a100.json"
+        )
+        self.assertEqual(cfg.stage, "stage1-cpt")
+        self.assertIn("fineweb2_haw/train.jsonl", cfg.train_path)
+        self.assertIsNotNone(cfg.eval_path)
+        self.assertIn("fineweb2_haw/dev.jsonl", cfg.eval_path)
+
+    def test_llama31_config_load_config_resolves_paths(self):
+        """load_config must resolve relative paths to absolute paths."""
+        from llm_hawaii.config import load_config
+        cfg = load_config(self._repo_root() / "code" / "configs" / "llama31_8b_a100.json")
+        self.assertTrue(
+            cfg.train_path.startswith("/"),
+            f"Expected absolute train_path, got: {cfg.train_path}",
+        )
+        self.assertIn("fineweb2_haw/train.jsonl", cfg.train_path)
+        self.assertIn("fineweb2_haw/dev.jsonl", cfg.eval_path)
+
+    def test_unknown_key_raises(self):
+        """from_json must raise on unknown keys, not silently drop them."""
+        repo_root = self._repo_root()
+        bad_cfg_path = repo_root / "code" / "examples" / "bad_config_test.json"
+        bad_cfg_path.write_text(
+            '{"base_model": "x", "UNKNOWN_KEY_XYZ": 1}', encoding="utf-8"
+        )
+        try:
+            with self.assertRaises(ValueError, msg="Expected ValueError for unknown key"):
+                TrainConfig.from_json(bad_cfg_path)
+        finally:
+            bad_cfg_path.unlink(missing_ok=True)
+
+    def test_eval_path_and_eval_steps_paired(self):
+        """llama31 config: eval_path and eval_steps must both be set for eval-during-train."""
+        cfg = TrainConfig.from_json(
+            self._repo_root() / "code" / "configs" / "llama31_8b_a100.json"
+        )
+        if cfg.eval_path:
+            self.assertIsNotNone(
+                cfg.eval_steps,
+                "eval_path is set but eval_steps is None — eval-during-train will be a no-op",
+            )
+
+    def test_config_roundtrip(self):
+        """to_json / from_json roundtrip must preserve all fields."""
+        repo_root = self._repo_root()
+        out_path = repo_root / "code" / "examples" / "roundtrip_test.json"
+        original = TrainConfig.from_json(repo_root / "code" / "configs" / "smoke.json")
+        try:
+            original.to_json(out_path)
+            reloaded = TrainConfig.from_json(out_path)
+            self.assertEqual(original.base_model, reloaded.base_model)
+            self.assertEqual(original.train_path, reloaded.train_path)
+            self.assertEqual(original.stage, reloaded.stage)
+        finally:
+            out_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
