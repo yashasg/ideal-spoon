@@ -503,3 +503,90 @@ Lesson: when writing contracts that prefer JSONL but allow TSV fallback, spell o
 
 Linus is locked out of the next revision cycle on this scope (verdict is
 APPROVE; no rejection-driven re-spawn needed).
+
+## 2026-04-30 — human_fetch bidirectional translation probe review [APPROVED]
+
+**Subject:** Linus's `human_fetch_translation_probe` (en→haw + haw→en) wired
+into every checkpoint eval as part of the Stage-0-as-checkpoint-0 series.
+
+**Verdict:** ✅ APPROVED. Re-ran 73/73 tests, py_compile + sh -n clean.
+Spot-checked all 10 review criteria against `evaluate.py:502-743,1089-1135,1295-1326`,
+`scripts/_convert_ulukau_human_fetch.py:30-125`, `scripts/run_stage0_eval.sh:33-131,143-266`,
+the regenerated JSONL on disk, and `docs/eval_pipeline.md:230`.
+
+**Durable learnings:**
+
+- **"Safe-to-miss" probe contract is now skill-codified** at
+  `.squad/skills/eval-probe-safe-to-miss/SKILL.md` — apply the same
+  status enum (`not_configured` | `missing` | `invalid` | `ready` |
+  `evaluated`), early-return on missing, hash-only report shape, stable
+  top-level `report[<probe>]` key even when disabled, and explicit
+  `eval_eligible` / `training_eligible` policy fields to every future
+  off-git probe. Missing-key vs. `not_configured`-status disambiguation
+  is what lets the cross-checkpoint aggregator stay honest.
+
+- **Direction separation is a property of the report shape, not of
+  the metric.** Even a baseline char-F can be made misleading by
+  averaging en→haw and haw→en into a single number; the contract is to
+  emit `directions.en_to_haw` and `directions.haw_to_en` as sibling
+  dicts so an asymmetric collapse (e.g. checkpoint forgets to copy
+  English back, or starts producing English when asked for Hawaiian) is
+  immediately visible. Future bidirectional probes (Stage 1+) must
+  preserve this shape.
+
+- **Metric honesty matters more than metric sophistication for a
+  Stage 0 baseline.** `char_ngram_f1_baseline` is a string-overlap drift
+  signal, not translation quality, and the docstring/README/eval_pipeline
+  all say so explicitly. A pure-stdlib char-bigram F is the right
+  abstraction here: deterministic, dependency-free, checkpoint-comparable,
+  and orthography-sensitive (a kahakō collapse or wrong-ʻokina
+  substitution will visibly drop the score). Production translation
+  metrics (chrF++, BLEU, COMET) are a Stage 1+ concern when we have a
+  larger eval set; any future swap must keep the baseline visible
+  alongside, not replace it silently.
+
+- **NFC + U+02BB enforcement belongs upstream at the converter, not
+  inline at every probe.** The converter folds U+2018/U+2019/U+02BC/`
+  to U+02BB and NFC-normalizes once; downstream probes can NFC-normalize
+  defensively but should not silently re-fold ʻokina variants — that
+  would mask a hand-edited JSONL that introduced a wrong codepoint.
+  Future hardening: probes loading off-git Hawaiian JSONL should
+  *assert* `wrong_okina_count == 0` on `haw` rows and flip to
+  `status="invalid"` if not, mirroring the W1 accepted-row gate. Logged
+  as a non-blocking follow-up.
+
+- **`note` (free-prose advisory) is the one weak point in a hash-only
+  contract.** It's harmless today (no corpus text), but the tracked
+  summary projection has to defensively strip it. The cleaner long-run
+  shape is to push advisory prose into a sibling registry (e.g.
+  `eval_pipeline.md` §8.1 already carries it) and keep the in-report
+  dict literally hash-only. Non-blocking.
+
+## 2026-04-30T08:55:56Z — human_fetch bidirectional translation probe review [APPROVED]
+
+**Subject:** human_fetch bidirectional translation probe for checkpoint evals (Linus).
+
+**Reviewer role:** Sync reviewer gate (10-point checklist, approves or requires revision).
+
+**Review scope:** Verified Stage 0 = checkpoint 0 (no special case), safe-to-miss semantics, bidirectional direction separation (no averaging), honest baseline metric framing, no raw text leaks, Hawaiian orthography appropriate, converter metadata truthful, W1 invalid-gate intact, CLI/env compatibility preserved, tests/validation sufficient and reproducible.
+
+**10-point checklist:** All PASS
+1. ✅ Stage 0 = checkpoint 0 (wired in `evaluate_checkpoint()` every call, no if-stage-0 branches)
+2. ✅ Safe to disable/miss (missing → status="missing", no exit-code flip)
+3. ✅ Directions strictly separate (en_to_haw and haw_to_en distinct keys, never averaged)
+4. ✅ Metric honestly framed ("baseline char-bigram F1", not "translation quality")
+5. ✅ No raw text leaks (sha256 hashes only, test `test_hash_only_fields_no_raw_text` recursive-scans)
+6. ✅ Hawaiian orthography appropriate (NFC + U+02BB-only ʻokina, kahakō retained, drift signal asymmetric)
+7. ✅ Converter metadata truthful (eval_eligible: true, training_eligible: false, translation_probe_eligible: true)
+8. ✅ W1 invalid-gate intact (exit 2 only on manual_w1.status == "invalid", not probe)
+9. ✅ CLI/env compatibility preserved (new flags additive, env vars follow W1 pattern)
+10. ✅ Tests/validation sufficient (73/73 green, 23 new tests covering all status states and edge cases)
+
+**Validation re-run:** ✅ py_compile clean, ✅ sh -n clean, ✅ 73/73 tests green, ✅ git diff --check clean.
+
+**Non-blocking observations:**
+- Probe does not re-enforce single-ʻokina codepoint at probe time (fine for now, future hardening could add wrong-ʻokina-count assertion)
+- hawaiian_ppl null-handling pre-existing wart
+- note field is only free-prose string (wrapper strips; could drop from output in future)
+
+**Verdict:** ✅ APPROVED. Implementation faithfully delivers Stage 0 as checkpoint 0 in unified eval series. Ready to land.

@@ -1,6 +1,6 @@
 # Decisions
 
-> Updated 2026-04-30T08:29:53Z: Merged inbox directives and decisions. W1 Stage 0 JSONL-only approved by Rusty; user model preferences captured; Linus W1 JSONL-only implementation complete. Batch below.
+> Updated 2026-04-30T08:55:56Z: Merged human_fetch translation probe decisions. Stage 0 is checkpoint 0 in unified eval series. Linus implemented bidirectional en→haw / haw→en probe with char-bigram F1 baseline (73/73 tests green). Rusty approved all 10-point checklist. Batch below.
 
 ---
 
@@ -2638,4 +2638,140 @@ The four blockers from `rusty-w1-implementation-review.md` are addressed and the
 ### Outcome
 
 ✅ **Lift the W1 revision.** Linus is locked out of the next revision cycle on this scope by standard rule; no rejection-driven re-spawn needed because the verdict is APPROVE.
+
+---
+
+## User Directive: human_fetch as checkpoint eval probe (2026-04-30T08:37:06Z)
+
+**By:** yashasg (via Copilot)
+
+**What:** Use `human_fetch.jsonl` / `human_fetch.txt` as the trusted parallel source for checkpoint evals. Stage 0 is checkpoint 0 in the same checkpoint-eval series. Every checkpoint (including Stage 0 with no training) should evaluate English-to-Hawaiian and Hawaiian-to-English translation behavior to gauge baseline and drift over time.
+
+**Why:** User request — captured for team memory
+
+**Status:** Implemented by Linus; reviewed and APPROVED by Rusty.
+
+---
+
+## Decision: Linus — human_fetch bidirectional translation probe for checkpoint evals
+
+**Date:** 2026-04-30
+
+**Owner:** Linus (Data Engineer)
+
+**Status:** APPROVED by Rusty (sync reviewer gate)
+
+### Summary
+
+`human_fetch.jsonl` (the Ulukau English/Hawaiian parallel pair) is now the trusted local source for a bidirectional translation probe (`en→haw`, `haw→en`) that runs on every checkpoint eval, including the Stage 0 no-training baseline. The probe is `eval_eligible = True`, `training_eligible = False`.
+
+### What changed
+
+**`scripts/_convert_ulukau_human_fetch.py`**
+- Fixed stale `source_path` field (`human_fetch.md` → `human_fetch.txt`) by centralising the path in a `SOURCE_PATH_FIELD` constant.
+- Updated policy: `eval_eligible: True`, `training_eligible: False`, `translation_probe_eligible: True`. `audit_only: False`.
+- Updated `audit_use`: `"tokenizer_audit_candidate,translation_probe"`.
+- Regenerated `data/tokenizer_audit/ulukau_nupepa/human_fetch.jsonl`.
+
+**`code/llm_hawaii/evaluate.py`**
+- New constants: `DEFAULT_HUMAN_FETCH_JSONL`, `HUMAN_FETCH_PROBE_SCHEMA`, `HUMAN_FETCH_EN_TO_HAW_TEMPLATE`, `HUMAN_FETCH_HAW_TO_EN_TEMPLATE`.
+- New `_char_ngram_f1(reference, hypothesis, n=2)` — pure-Python baseline char-bigram F1. Documented as a *baseline string-overlap/character-F score*; no new dependencies. Directions always separate (en→haw ≠ haw→en; never averaged).
+- New `human_fetch_translation_probe(jsonl_path, *, enabled, model, tokenizer, max_new_tokens)` — reads the parallel JSONL, validates the en+haw pair, builds prompts from the baked-in templates, runs greedy generation when model is provided, and computes char-bigram F1 per direction. Status enum: `not_configured` | `missing` | `invalid` | `ready` | `evaluated`. Safe to miss (missing → probe reports status=missing, eval continues). No raw source/reference/generation text in return value; only hashes and numeric metrics.
+- Updated `evaluate_checkpoint()` to accept `human_fetch_jsonl` and `use_human_fetch` params and to emit `report["human_fetch_translation"]` on every call (parallel to `manual_w1` and `english_ppl`).
+- Updated `main()` CLI: `--human-fetch-jsonl` and `--no-human-fetch`.
+
+**`scripts/run_stage0_eval.sh`**
+- Added `HUMAN_FETCH_JSONL` and `USE_HUMAN_FETCH` env vars with defaults.
+- Threaded through to `evaluate.py` argv.
+- Summary Python heredoc: adds `metrics.human_fetch_translation` (hash/numeric fields only) to the tracked summary; strips `note` field defensively. Heredoc now passes two additional positional args.
+
+**`code/tests/test_evaluate.py`**
+- `TestCharNgramF1`: 7 tests covering identical strings (F1=1), empty hypothesis/reference (F1=0), partial overlap, Hawaiian NFC text.
+- `TestHumanFetchTranslationProbe`: 13 tests covering disabled, missing, invalid JSON, missing haw row (valid two-row pair path), ready-state, bidirectional directions presence, hash-only fields, no raw text in summary-like structures, policy fields, mock-model evaluated path, bidirectional scores separate, schema constant, default path constant, CLI args wired, `evaluate_checkpoint` signature, and Stage 0 report includes the probe.
+
+**`code/README.md`**
+- Added human_fetch translation probe bullet to "Stage 0 drift signal bundle".
+- Added `HUMAN_FETCH_JSONL`, `USE_HUMAN_FETCH` to wrapper overrides list.
+
+**`docs/eval_pipeline.md` §8.1**
+- Added human_fetch translation probe paragraph before CLI exit posture. Describes: prototype/learning probe, source, safe-to-miss posture, hash-only direction fields, char-bigram F1 metric, direction separation, `eval_eligible`/`training_eligible` policy.
+
+**`data-sources/manual-eval/README.md`**
+- Added "Relationship to the human_fetch bidirectional translation probe" section clarifying separation from W1.
+
+### Key design decisions
+
+1. **JSONL-only input** — preserves the existing W1 JSONL-only direction. TSV is never used as eval input.
+2. **Safe-to-miss** — missing JSONL reports `status="missing"`, never fails the eval or flips the exit code.
+3. **Directions strictly separate** — en→haw and haw→en carry separate `char_f1` / `char_precision` / `char_recall`; never averaged.
+4. **No new dependencies** — `_char_ngram_f1` is pure Python (stdlib only), documented as a *baseline character-F score*, not a production chrF.
+5. **No raw text in reports** — all direction dicts contain only sha256 hashes and numeric metrics.
+6. **eval_eligible = True, training_eligible = False** — the converter policy is updated to reflect that the pair is now eval-eligible for the translation probe but remains off-limits for training.
+
+### Validation
+
+- ✅ `python3 -m py_compile code/llm_hawaii/evaluate.py scripts/315_hash_manual_w1_eval.py scripts/_convert_ulukau_human_fetch.py`
+- ✅ `sh -n scripts/run_stage0_eval.sh`
+- ✅ `cd code && PYTHONPATH=. python3 -m unittest tests.test_evaluate tests.test_metrics` — **73/73 green** (was 50; +23 new tests)
+- ✅ `git --no-pager diff --check`
+
+---
+
+## Decision: Rusty — review of Linus's human_fetch bidirectional translation probe
+
+**Date:** 2026-04-30
+
+**Reviewer:** Rusty (NLP Researcher)
+
+**Subject under review:** `linus-human-fetch-translation-eval.md`
+
+**Verdict:** ✅ **APPROVED**
+
+### Scope
+
+Reviewer gate against the 10-point checklist for the Stage-0-as-checkpoint-0 bidirectional translation probe (en→haw, haw→en) wired into every checkpoint eval. Read-only review; no source files modified.
+
+### Spot checks (all pass)
+
+1. **Stage 0 = checkpoint 0, not a special case.** The probe is wired in `evaluate_checkpoint()` (`code/llm_hawaii/evaluate.py:1129`) on every call, parallel to `manual_w1` and `english_ppl`. No "if stage == 0" branch anywhere. Confirmed by `test_stage0_report_includes_probe_key` and the `evaluate_checkpoint` signature test.
+
+2. **Safe to disable/miss.** `enabled=False` → `status="not_configured"`; missing JSONL → `status="missing"` with regenerate hint, returns early. `_cli_exit_code` (`evaluate.py:1230`) only flips on `manual_w1.status == "invalid"`; human_fetch never affects exit code. Wrapper `scripts/run_stage0_eval.sh` echoes "missing" cleanly and proceeds.
+
+3. **Directions strictly separate.** `out["directions"]` carries `en_to_haw` and `haw_to_en` as distinct keys, each with its own `char_f1` / `char_precision` / `char_recall` / `prompt_sha256` / `generation_sha256` / `reference_sha256`. No averaging anywhere. `test_bidirectional_scores_are_separate` asserts the two F1s diverge under different mock generations. Docstring on `_char_ngram_f1` and §8.1 of `docs/eval_pipeline.md` both call out the no-averaging rule.
+
+4. **Metric honestly documented as baseline.** `metric = "char_ngram_f1_baseline"`, `ngram_order = 2`. Docstring says "simple string-overlap drift metric, **not** a production chrF". README and `docs/eval_pipeline.md` §8.1 use the phrasing "baseline char-bigram F1", not "translation quality". Pure stdlib, no new deps.
+
+5. **No raw text leaks.** Probe return dict carries only sha256 hashes (`pair_sha256`, `template_sha256`, `prompt_sha256`, `generation_sha256`, `reference_sha256`) plus numeric metrics, status, schema, path, policy fields, and an advisory `note`. The `note` is advisory boilerplate (no corpus text), and the tracked-summary projection in `scripts/run_stage0_eval.sh:_safe_translation_probe` defensively strips it anyway. `test_hash_only_fields_no_raw_text` recursively scans every string in the output and asserts neither the English nor the Hawaiian source text appears anywhere. `test_no_raw_text_in_summary_like_directions` asserts each direction dict has no `text` / `reference` / `prompt` keys.
+
+6. **Hawaiian orthography handling appropriate for a probe.** Source bodies and generations are both `unicodedata.normalize("NFC", ...)` before n-gram extraction (`evaluate.py:523`, `:661`, `:723-724`). The canonical ʻokina-variant fold to U+02BB is enforced upstream by the converter (`scripts/_convert_ulukau_human_fetch.py:38-43`, `OKINA_VARIANTS = ["\u2018", "\u2019", "\u02bc", "`"]`), and the regenerated JSONL on disk shows `okina_codepoint: "U+02BB"` and `kahako_count: 1` on the Hawaiian row — orthographic state is trustworthy at probe time. Templates are plain ASCII, no orthographic risk.
+
+7. **Converter metadata truthful.** `SOURCE_PATH_FIELD = "data/raw/ulukau_nupepa/human_fetch.txt"` (`.txt`, not the stale `.md`). Policy on every record: `eval_eligible: true`, `training_eligible: false`, `translation_probe_eligible: true`, `audit_only: false`, `w1_eligible: false`. `audit_use: "tokenizer_audit_candidate,translation_probe"`. Verified directly against `data/tokenizer_audit/ulukau_nupepa/human_fetch.jsonl`.
+
+8. **W1 JSONL-only and invalid-gate semantics intact.** `DEFAULT_MANUAL_W1_JSONL` constant unchanged. `manual_w1_status()` path untouched. `_cli_exit_code` still flips to 2 *only* on `manual_w1.status == "invalid"` and emits the report first. Wrapper still echoes the W1-invalid warning. The new probe's `status="invalid"` correctly does **not** flip exit code (matches "safe-to-miss" probe semantics — this is a drift signal, not a gate).
+
+9. **CLI / env compatibility preserved.** Existing flags (`--manual-w1-jsonl`, `--no-manual-w1`, `--prompt`, `--no-prompt-suite`, `--eval-file`, `--max-length`, `--max-new-tokens`) unchanged; new flags `--human-fetch-jsonl` / `--no-human-fetch` are purely additive. Wrapper env vars `HUMAN_FETCH_JSONL` / `USE_HUMAN_FETCH` follow the same pattern as the W1 vars and have sensible defaults plus a "(missing — translation probe will report 'missing')" diagnostic line. Tracked summary heredoc receives the extra positional args without breaking existing fields.
+
+10. **Tests / validation sufficient and reproducible.** Re-ran focused validation:
+    - `python3 -m py_compile code/llm_hawaii/evaluate.py scripts/_convert_ulukau_human_fetch.py` → clean.
+    - `sh -n scripts/run_stage0_eval.sh` → clean.
+    - `cd code && PYTHONPATH=. python3 -m unittest tests.test_evaluate tests.test_metrics` → **73/73 green** (matches Linus's count).
+    The 23 new tests cover: char-F edge cases (identical, empty hyp/ref, partial overlap, NFC Hawaiian), all five status states, hash-only output, direction separation under mock generation, policy fields, schema/path constants, CLI-arg wiring, `evaluate_checkpoint` signature, and probe-key presence on every checkpoint run.
+
+### Hawaiian-language correctness
+
+NFC + U+02BB-only ʻokina normalization is enforced at converter time and re-asserted via NFC at probe time — appropriate for a baseline char-overlap metric. The Hawaiian reference text retains its kahakō (`stats.kahako_count = 1`) and ʻokina (`stats.okina_count = 2`) on the regenerated JSONL, so high-diacritic survival is part of the score's signal: a checkpoint that strips kahakō or substitutes a wrong ʻokina codepoint will see its char-F drop relative to the Stage 0 baseline. That is exactly the asymmetric drift signal the directive asked for.
+
+### Posture / framing
+
+The metric is correctly framed throughout (docstring, README, `eval_pipeline.md` §8.1) as a **baseline character-overlap signal**, not as "translation quality". The probe is labelled a "prototype/learning checkpoint eval probe". Anyone reading the tracked summary will not mistake `char_f1` for chrF++/BLEU/COMET. Good honesty about what this probe can and cannot tell us.
+
+### Non-blocking observations (do not gate this revision)
+
+- The probe NFC-normalizes input bodies but does not re-enforce single-ʻokina-codepoint at probe time. Today this is fine because the converter is the canonical regeneration path and folds variants to U+02BB. If a future caller hand-passes a non-canonical `--human-fetch-jsonl`, the score will silently be against a non-canonical reference. Not blocking — but a future hardening could add a wrong-ʻokina-count assertion on the loaded `haw_text` and flip the probe to `status="invalid"` if found, mirroring the W1 strictness on the accepted set.
+- When `eval-file` is omitted, `hawaiian_ppl` is absent from the report and the summary projection currently emits `null` for that field rather than a `{"status": "absent"}` shape. Pre-existing wart, not introduced by this change.
+- The probe's `note` field, while harmless, is the only free-prose string on the probe output. The wrapper strips it from the tracked summary; consider dropping it from the in-report dict in a future pass to make the "hash-only" contract literal. Non-blocking.
+
+### Verdict
+
+✅ **APPROVED.** Implementation faithfully delivers Stage 0 as checkpoint 0 in the same checkpoint-eval series, with bidirectional translation behaviour visible from the first eval and drift trackable across checkpoints. No raw text leaks, directions never averaged, metric framed honestly as a baseline string-overlap signal, converter metadata correct and truthful, W1 invalid-gate and CLI compatibility intact. Ready to land.
 

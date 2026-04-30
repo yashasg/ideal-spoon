@@ -1,6 +1,42 @@
 # Linus — History
 
-## 2026-04-30T08:29:53Z — W1 Stage 0 JSONL-only implementation [APPROVED]
+## 2026-04-30 — human_fetch bidirectional translation probe
+
+**User directive:** Use `human_fetch.jsonl` / `human_fetch.txt` as the trusted local parallel source for checkpoint evals — every checkpoint (including Stage 0 no-training baseline) should run English→Hawaiian and Hawaiian→English translation so we can gauge baseline and drift.
+
+**Implementation summary:**
+
+- **`scripts/_convert_ulukau_human_fetch.py`** — Fixed stale `source_path` field (`.md` → `.txt`) by centralising it in `SOURCE_PATH_FIELD`; updated policy to `eval_eligible: True`, `training_eligible: False`, `translation_probe_eligible: True`; regenerated `data/tokenizer_audit/ulukau_nupepa/human_fetch.jsonl`.
+
+- **`code/llm_hawaii/evaluate.py`** — Added `DEFAULT_HUMAN_FETCH_JSONL`, `HUMAN_FETCH_PROBE_SCHEMA`, `HUMAN_FETCH_EN_TO_HAW_TEMPLATE`, `HUMAN_FETCH_HAW_TO_EN_TEMPLATE` constants; `_char_ngram_f1()` pure-Python baseline char-bigram F1 (no new deps); `human_fetch_translation_probe()` that reads the JSONL, validates the en+haw pair, runs greedy generation for both en→haw and haw→en, and returns hash-only summary with numeric metrics (never raw text). Wired into `evaluate_checkpoint()` as `report["human_fetch_translation"]` on every call. Added `--human-fetch-jsonl` / `--no-human-fetch` CLI flags.
+
+- **`scripts/run_stage0_eval.sh`** — Added `HUMAN_FETCH_JSONL` / `USE_HUMAN_FETCH` env vars; threaded through to Python argv; added `metrics.human_fetch_translation` to the tracked summary projection (hash-only).
+
+- **Tests** — 23 new tests in `TestCharNgramF1` and `TestHumanFetchTranslationProbe` covering: missing source, valid two-row pair, bidirectional directions, hash-only fields, no raw text, policy, mock-model evaluated path, separate direction scores, CLI wiring, and Stage 0 report includes probe.
+
+- **Docs** — Updated `code/README.md`, `docs/eval_pipeline.md` §8.1, `data-sources/manual-eval/README.md`.
+
+**Key patterns established:**
+- "Safe to miss" probe: missing JSONL → `status="missing"`, eval continues.
+- Directions always separate: en→haw ≠ haw→en, never averaged.
+- `audit_only` in converter policy is not the same as `eval_eligible`; they are orthogonal.
+- Template strings are hashed and included in the descriptor so cross-checkpoint comparators can detect template drift.
+
+**Validation:** ✅ py_compile clean, ✅ sh -n clean, ✅ 73/73 tests green (+23 new), ✅ git diff --check clean.
+
+---
+
+## Learnings
+
+- When a JSONL converter has a hard-coded path string that can drift from reality (e.g., file renamed `.md` → `.txt`), centralise it as a named constant at the top of the file. This makes regeneration idempotent.
+- `eval_eligible` and `audit_only` are independent policy dimensions; a tokenizer audit candidate can also be eval-eligible for a specific probe without being general training data.
+- For a "safe to miss" probe pattern: check file existence first, return early with `status="missing"`, never raise. The eval framework tolerates this — only `status="invalid"` on W1 triggers an exit code change.
+- Pure-Python char-bigram F1 is a reasonable baseline string-overlap drift signal when no sacrebleu/nltk is available. Document it explicitly as a *baseline character-F score* so consumers don't mistake it for a production chrF metric.
+- For tests involving callable mocks on module-level functions (like `sample_generations`), `unittest.mock.patch("llm_hawaii.evaluate.sample_generations")` is the right pattern — patch the name as used in the module under test.
+
+---
+
+
 
 **User directive:** W1 Stage 0 input is JSONL-only; do not use TSV for W1 eval consumption.
 
@@ -618,3 +654,15 @@ longer reads it. Final contract logged at
   a native bool but a hand-edited JSONL would naturally stringify it;
   rejecting hand-edits at the type level is friction with no safety
   payoff (the orthographic gate catches the actual NFC violations).
+
+## 2026-04-30T08:55:56Z — Scribe session log + orchestration + decision merge
+
+**Team update:** Linus's human_fetch probe implementation (73/73 tests, full Stage-0-as-checkpoint-0 integration) + Rusty's approval gate have been transcribed into:
+- `.squad/orchestration-log/2026-04-30T08-55-56Z-linus.md` (this work summary)
+- `.squad/orchestration-log/2026-04-30T08-55-56Z-rusty.md` (Rusty's 10-point review)
+- `.squad/log/2026-04-30T08-55-56Z-human-fetch-translation-eval.md` (session log)
+- `.squad/decisions.md` (merged from inbox; added full decision + approval + user directive)
+
+**Decision inbox status:** `copilot-directive-20260430T083706Z.md`, `linus-human-fetch-translation-eval.md`, `rusty-human-fetch-translation-review.md` → merged and deleted.
+
+**Key archival:** Stage 0 is checkpoint 0 in a unified eval series; human_fetch is the trusted parallel source for baseline+drift tracking (en→haw, haw→en bidirectional, char-F1 baseline, safe-to-miss, never averaged, hash-only output, eval_eligible=True training_eligible=False).
