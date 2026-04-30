@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,10 @@ def load_checkpoint(checkpoint_dir: str):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    model_kwargs = {"dtype": torch.float16}
+    if torch.cuda.is_available():
+        model_kwargs["device_map"] = "auto"
+
     # If the checkpoint contains a peft adapter, load it on top of its
     # recorded base model. Otherwise treat it as a plain causal LM.
     adapter_cfg_path = Path(checkpoint_dir) / "adapter_config.json"
@@ -62,13 +67,11 @@ def load_checkpoint(checkpoint_dir: str):
         with adapter_cfg_path.open("r", encoding="utf-8") as f:
             adapter_cfg = json.load(f)
         base_id = adapter_cfg["base_model_name_or_path"]
-        base = transformers.AutoModelForCausalLM.from_pretrained(
-            base_id, torch_dtype=torch.float16
-        )
+        base = transformers.AutoModelForCausalLM.from_pretrained(base_id, **model_kwargs)
         model = peft.PeftModel.from_pretrained(base, checkpoint_dir)
     else:
         model = transformers.AutoModelForCausalLM.from_pretrained(
-            checkpoint_dir, torch_dtype=torch.float16
+            checkpoint_dir, **model_kwargs
         )
     model.eval()
     return model, tokenizer
@@ -89,7 +92,7 @@ def perplexity(model, tokenizer, eval_file: str, max_length: int = 1024) -> floa
     device = next(model.parameters()).device
 
     with torch.no_grad():
-        for ex in iter_jsonl(eval_file):
+        for idx, ex in enumerate(iter_jsonl(eval_file), start=1):
             text = normalize_text(ex.get("text", ""), form="NFC")
             if not text:
                 continue
@@ -105,6 +108,12 @@ def perplexity(model, tokenizer, eval_file: str, max_length: int = 1024) -> floa
             n_tokens = int(input_ids.numel())
             total_loss += float(out.loss) * n_tokens
             total_tokens += n_tokens
+            if idx == 1 or idx % 25 == 0:
+                print(
+                    f"[eval] scored {idx} records ({total_tokens} tokens)",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
     if total_tokens == 0:
         raise ValueError(f"No eval tokens scored from {eval_file}")

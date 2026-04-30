@@ -122,6 +122,23 @@ under tracked `docs/eval-runs/stage0/` for GitHub. The wrapper accepts
 `CHECKPOINT=...`, `EVAL_FILE=...`, `PROMPT=...`, `OUTPUT_DIR=...`, and
 `SUMMARY_DIR=...` overrides.
 
+### Pulling Stage 0 results back from the compute box
+
+After running `run_stage0_eval.sh` on a remote GPU machine, mirror the
+artifacts into the local repo over SSH/SCP:
+
+```
+./scripts/download_stage0_eval.sh user@gpu-box ~/ideal-spoon
+```
+
+The first arg is the SSH destination, the second (optional) is the remote
+repo root (defaults to `~/ideal-spoon`). It pulls full reports into
+`data/eval_runs/stage0/` (gitignored) and the hash-only summaries into
+`docs/eval-runs/stage0/` (tracked). Existing local files are skipped unless
+`OVERWRITE=1`. Useful overrides: `SSH_PORT=...`, `SSH_OPTS="-i ~/.ssh/key"`,
+`ONLY=full|summary|both`, `DRY_RUN=1`. The script is read-only on the
+remote.
+
 ## What this skeleton intentionally does NOT do
 
 - Ship real Hawaiian training data. None checked in. The
