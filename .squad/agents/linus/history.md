@@ -247,3 +247,29 @@ Recommended treating `proofread_status=4` ("Validated") Wikisource as W1 _candid
 **Related decision:** Merged to `.squad/decisions.md` under "Added 2026-04-30: Linus — Tokenizer audit helper metadata extraction (landed)"
 
 **Next:** Full smoke test on CI/full environment with `transformers` installed. Ready for integration with tokenizer audit pipeline.
+
+## 2026-04-30T04:20:10Z — Tokenizer audit cleanup: 7-phase implementation plan finalized
+
+**From:** Scribe (session logger)
+
+**Summary:** Linus mapped Rusty's NLP-side cleanup semantics into concrete implementation phases. Concrete plan now in decisions.md.
+
+**Merged to decisions.md — 7 phases:**
+
+1. **Module split** (prep, no behavior change): `code/tokenizer_audit.py` + helpers; `code/tests/test_tokenizer_audit.py` imports
+2. **Family-aware proxy detector** (**gated on Rusty sign-off**): `detect_tokenizer_family()`, family-aware `_is_byte_fallback_or_proxy()`, echo family in report
+3. **`high_diacritic` evaluator**: Selection rule (≥3 diacritics + ≥0.25 ratio), min 10 samples / 1,500 words for evaluated status
+4. **`diacritic_chars` evaluator**: Standalone encoding for ʻ ā ē ī ō ū + uppercase; pass ≤2 tokens each
+5. **Report-shape updates** (additive, schema stays v1): `model.tokenizer_family` + high_diacritic populated + diacritic_chars.items[] + 3 new checks
+6. **Test coverage** (synthetic + smoke): 4 family detection + 3 proxy + 3 high_diacritic + 2 diacritic_chars + 1 report + smoke
+7. **Execute in order**: §1 → §2 (**Rusty approval**) → §3–4 → smoke re-run vs. 20260430T041606Z
+
+**Out of scope (deferred):** Schema v2, `run_kind`, identity SHAs, `samples_summary`, pytest parametrization.
+
+**Phase 2 gate:** Will not implement §2 without Rusty sign-off on family table + thresholds per family. Coordinator to route through Rusty.
+
+**Orchestration log:** `.squad/orchestration-log/2026-04-30T04-20-10Z-linus-tokenizer-cleanup.md`  
+**Session log:** `.squad/log/2026-04-30T04-20-10Z-tokenizer-cleanup-plan.md`
+
+**Next steps:** Rusty confirms family table; Coordinator gates; Linus implements.
+

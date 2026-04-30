@@ -145,3 +145,31 @@ Produced the NLP-side cleanup plan for the tokenizer audit harness in response t
 - "Added 2026-04-30: Rusty — Llama-3.1-8B audit no_go is proxy-heuristic mismatch, not tokenizer blocker (analysis)"
 
 **Key ask:** Linus round-trip inspection + tokenizer-family-aware proxy heuristic for harness cleanup.
+
+## 2026-04-30T04:20:10Z — Tokenizer-cleanup semantics finalized (harness, not thresholds)
+
+**From:** Scribe (session logger)
+
+**Summary:** Rusty produced the NLP-side cleanup plan for tokenizer audit harness in response to Llama-3.1-8B proxy-heuristic false positive. Core insight unchanged: proxy rule is SentencePiece-shaped and misfires on byte-level BPE. Cleanup is **harness logic + reporting**, not threshold relaxation.
+
+**Merged to decisions.md:**
+- `tokenizer_family` detection (byte_level_bpe / sentencepiece_byte_fallback / wordpiece / unknown)
+- Per-check `applicability` field (byte_fallback_or_proxy_rate is `not_applicable` for byte-level BPE, excluded from blocking)
+- `roundtrip_lossless` check (structural integrity gate for all families; replaces proxy for byte-level BPE)
+- Fix `not_evaluated` vs `not_applicable` vs `insufficient_samples` distinctions; `passed=null` must not appear in `blocking_reasons`
+- No threshold changes (all current limits **stand unchanged**)
+
+**Expected outcome on Llama-3.1-8B re-run:**
+- `tokenizer_family = "byte_level_bpe"`
+- `byte_fallback_or_proxy_rate = 0.193` with `applicability=not_applicable, passed=null` (excluded from blocking)
+- `roundtrip_lossless = true` (expected; must verify)
+- `overall_tokens_per_word = 2.47` ✅
+- `recommendation = "go"` IFF high-diacritic/diacritic-chars clear; else `no_go` with **correct** reasons (coverage/fragmentation), not phantom proxy failure
+
+**Key asks:**
+- Linus to implement harness (7-phase plan now in decisions.md)
+- Coordinator to route Phase 2 (family-aware proxy) back through Rusty for sign-off before Linus codes
+
+**Orchestration log:** `.squad/orchestration-log/2026-04-30T04-20-10Z-rusty-tokenizer-cleanup.md`  
+**Session log:** `.squad/log/2026-04-30T04-20-10Z-tokenizer-cleanup-plan.md`
+

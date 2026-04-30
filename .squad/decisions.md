@@ -1389,3 +1389,263 @@ If round-trip **not** clean → picture changes, no_go becomes real tokenizer bl
 
 - **Linus:** Ownership of harness change + round-trip dump
 - **Coordinator:** Route harness to Linus; fingerprint/slice-population to audit-runner owner
+
+---
+
+## Added 2026-04-30T04:20:10Z: Rusty — Tokenizer-audit cleanup semantics (harness logic + reporting, not threshold change)
+
+**Owner:** Rusty (NLP Researcher)  
+**Status:** Proposal — gates Linus harness implementation (Phase 2 family-detector)  
+**Date:** 2026-04-30
+
+### Problem Statement
+
+The `byte_fallback_or_proxy_rate ≤ 0.01` gate was designed for SentencePiece-with-byte-fallback tokenizers (Llama-2, Mistral, Gemma, Qwen) where single non-ASCII pieces reliably signal fallback. Llama-3 uses byte-level BPE (tiktoken/GPT-2 family): multi-byte UTF-8 chars decompose into sequences of byte-chars (all `ord>127`), and unmerged single-byte pieces are **structurally lossless**, not fallback. The heuristic produces 19% false positives on Hawaiian text — not evidence of tokenizer damage.
+
+### Solution: Tokenizer-family-aware cleanup
+
+Five core changes:
+
+#### 1. Add `tokenizer_family` detection (new, required)
+
+Detect from tokenizer object at audit time, not `model_id` (Llama-2 = SentencePiece; Llama-3 = byte-level BPE; same family name, different tokenization math). Detection priority:
+
+1. **byte_level_bpe**: GPT-2 byte-to-unicode map in vocab covering 256 byte codepoints (high-ordinal Latin-1-Supplement / Latin-Extended-A), OR `backend_tokenizer.model.__class__` ∈ {`BPE`}, OR class ∈ {`GPT2Tokenizer*`, `LlamaTokenizerFast`} + GPT-2 probe.
+2. **sentencepiece_byte_fallback**: `▁`-prefixed vocab AND `<0xXX>` byte-fallback tokens present (Llama-2, Mistral, Gemma), OR `sp_model` attribute.
+3. **unigram / wordpiece**: `backend_tokenizer.model.__class__` ∈ {`Unigram`, `WordPiece`}.
+4. **unknown**: fallback (treated as sentencepiece_byte_fallback for safety).
+
+Report: `model.tokenizer_family = "byte_level_bpe"` (forensics).
+
+#### 2. Per-check `applicability` + `passed` semantics
+
+Each check carries `{value, threshold, passed, applicability, reason}`:
+- `applicability ∈ {"applicable", "not_applicable"}`
+- `passed ∈ {true, false, null}`; `null` iff `applicability="not_applicable"` or `insufficient_samples`
+- **Critical:** `passed=null` must **NOT** appear in `recommendation.blocking_reasons`
+
+| Check | byte_level_bpe | sentencepiece_byte_fallback | wordpiece/unigram |
+|---|---|---|---|
+| `overall_tokens_per_word ≤ 2.50` | applicable, BLOCKING | applicable, BLOCKING | applicable, BLOCKING |
+| `explicit_byte_fallback_rate = 0` | applicable, BLOCKING (trivially pass; audit trail) | applicable, BLOCKING | not_applicable |
+| `byte_fallback_or_proxy_rate ≤ 0.01` | **not_applicable** (proxy is SentencePiece-shaped) | applicable, BLOCKING | not_applicable |
+| `roundtrip_lossless = true` (new) | applicable, BLOCKING | applicable, BLOCKING | applicable, BLOCKING |
+| `high_diacritic.tokens_per_word ≤ 3.25` | applicable, BLOCKING | applicable, BLOCKING | applicable, BLOCKING |
+| `high_diacritic.byte_fallback_or_proxy_rate ≤ 0.01` | not_applicable | applicable, BLOCKING | not_applicable |
+| `diacritic_chars: all ≤ 2 tokens` | applicable, BLOCKING | applicable, BLOCKING | applicable, BLOCKING |
+| `model_identity_resolved` (3 SHAs) | applicable, BLOCKING | applicable, BLOCKING | applicable, BLOCKING |
+
+#### 3. Add `roundtrip_lossless` check (structural integrity gate)
+
+Replaces proxy as the byte-level BPE fallback gate. For all families:
+- Compute `decode(all_ids) == NFC(text)` over each evaluated slice (overall + high_diacritic)
+- Per-piece: for every piece flagged by any detector, `decode([id])` returns non-empty UTF-8 and concatenated decodes of contiguous flagged pieces reproduce the original source substring (NFC-normalized)
+- `passed=false` is unconditionally blocking — actual data loss
+
+Byte-level BPE **requires** round-trip true; SentencePiece uses it as belt-and-suspenders.
+
+#### 4. Fix status field distinctions
+
+Three distinct states:
+- **`not_applicable`**: Family-inappropriate (never blocks). Reason cites family. Example: proxy check on byte_level_bpe.
+- **`insufficient_samples`**: Corpus didn't meet Stage-0 minimums (≥10 high-diac samples, ≥1,500 words). **Blocks** with reason `high_diacritic_coverage`.
+- **`not_evaluated`**: Harness didn't run the section. **Blocks** with reason `<section>_unevaluated` until wired.
+
+Current Llama-3.1-8B report should have:
+```json
+"recommendation": {
+  "blocking_reasons": [
+    "high_diacritic_unevaluated",
+    "diacritic_chars_unevaluated"
+  ],
+  "decision": "no_go"
+}
+```
+
+NOT `["byte_fallback_or_proxy_rate"]`.
+
+#### 5. `recommendation.blocking_reasons` = closed enum
+
+Only checks with:
+- `passed=false` AND `applicability="applicable"`, OR
+- `status="insufficient_samples"` OR `status="not_evaluated"`
+
+contribute. All other entries must be excluded (e.g., `passed=null` from `not_applicable` checks).
+
+### Bright Lines Held
+
+- **No threshold changes.** All current limits (≤2.50, ≤3.25, =0, ≤0.01, ≤2) **stand unchanged**.
+- **Not an exemption for Llama.** Same semantics apply to any byte-level BPE tokenizer; SentencePiece family retains proxy gate.
+- **Not a substitute for high_diacritic / diacritic_chars sections.** Both remain required, blocking, and must be populated via multi-slice evaluation (Kaʻehuikimanōopuʻuloa + ≥2 varied genres).
+
+### Expected Outcome on Llama-3.1-8B Re-run
+
+- `tokenizer_family = "byte_level_bpe"` ✅
+- `overall_tokens_per_word = 2.47` ✅
+- `explicit_byte_fallback_rate = 0.0` ✅
+- `byte_fallback_or_proxy_rate = 0.193`, `applicability=not_applicable, passed=null` (excluded from blocking)
+- `roundtrip_lossless = true` (expected; must verify on the slice)
+- `high_diacritic` / `diacritic_chars`: populated via Kaʻehuikimanōopuʻuloa + additional slices
+- `recommendation = "go"` IFF diacritic sections clear; otherwise `no_go` with **correct** reasons (coverage/fragmentation), not phantom proxy failure
+
+### Coordination
+
+**Linus owns harness implementation.** This decision gates §2 (family-aware proxy + roundtrip) in his concrete plan. **Will not land §2 without this sign-off.**
+
+---
+
+## Added 2026-04-30T04:20:10Z: Linus — Tokenizer audit cleanup—concrete implementation steps
+
+**Owner:** Linus (Data Engineer)  
+**Status:** Step plan; no code yet  
+**Date:** 2026-04-30T04:20Z  
+**Driver report:** `data/tokenizer_audit/official/20260430T041606Z__meta-llama_Llama-3.1-8B.json`
+
+### Implementation Roadmap
+
+Seven phases, executed in order:
+
+#### Phase 1: Module split (prep, no behavior change)
+
+Move pure helpers out of `code/tests/test_tokenizer_audit.py`:
+- **New:** `code/llm_hawaii/tokenizer_audit.py` — exports `tokenizer_metadata_from_model_and_tokenizer`, `tokenizer_audit_output_from_encoding`, `_is_byte_fallback`, `BYTE_FALLBACK_RE`, `DEFAULT_THRESHOLDS`, plus new functions (see §2–4).
+- **Keep:** `code/tests/test_tokenizer_audit.py` for tests; import from new module. Smoke test continues to write report.
+- **Unblocks:** Reuse from future CLI / `build_audit_report` orchestrator without circular imports.
+
+#### Phase 2: Fix `byte_fallback_or_proxy_rate` — family-aware detector (**GATED ON RUSTY SIGN-OFF**)
+
+**Problem:** `_is_byte_fallback_or_proxy(piece)` flags `len(stripped)==1 and ord>127` (after stripping `▁Ġ `) as proxy. On Hawaiian text in Llama-3 (byte-level BPE), produces 19% false positives because diacritic chars often merge to single byte-char pieces (lossless, not fallback).
+
+**Function-level changes:**
+
+1. **Add** `detect_tokenizer_family(tokenizer) -> str` (cheap, no network):
+   - `byte_level_bpe`: GPT-2 byte-to-unicode map in vocab, OR `Ġ`-prefixed entries, OR class ∈ {`GPT2Tokenizer*`, `LlamaTokenizerFast`} with byte-map probe
+   - `sentencepiece_byte_fallback`: `▁`-prefixed vocab AND `<0x00>..<0xFF>` byte tokens (Llama-2, Mistral, Gemma)
+   - `wordpiece`: `##`-prefixed vocab
+   - `unknown`: fallback (conservative)
+
+2. **Replace** `_is_byte_fallback_or_proxy(piece)` with `_is_byte_fallback_or_proxy(piece, family)`:
+   - `byte_level_bpe`: only `BYTE_FALLBACK_RE` matches (literal `<0xNN>` tokens; vanishingly rare). Multi-byte UTF-8 encoded via GPT-2 byte-alphabet = normal vocab, not proxies.
+   - `sentencepiece_byte_fallback`: keep current heuristic — `<0xNN>` OR single non-ASCII after stripping `▁` (thresholds calibrated for this family)
+   - `wordpiece`: `<0xNN>` OR `[UNK]`
+   - `unknown`: same as sentencepiece_byte_fallback (conservative)
+
+3. **Plumb** family through `tokenizer_audit_output_from_encoding` → compute once at top, pass to counter.
+
+4. **Echo** detected family in report: `model.tokenizer_family` in output (add to `tokenizer_metadata_from_model_and_tokenizer` so `model` block is single home for tokenizer identity).
+
+**Expected outcome on Llama-3.1-8B:** `byte_fallback_or_proxy_rate` drops from 0.193 → ≈0.0; `overall_tokens_per_word` and `explicit_byte_fallback_rate` unchanged; decision flips from `no_go` to `go` for overall section (high-diacritic gate then becomes binding constraint).
+
+**Coordination:** Rusty confirms family table (above) and thresholds per family. **Will not land this phase without his sign-off.** Flag this section for Coordinator review gate.
+
+#### Phase 3: Implement `high_diacritic` evaluator
+
+**New function:** `compute_high_diacritic_metrics(samples, tokenizer, *, family, min_samples=10, min_words=1500) -> dict`
+
+**Inputs:** `samples` = iterable of `{"text": str, ...}` rows (harness loads from `data/tokenizer_audit/ulukau_nupepa/.../*.jsonl`; will accept multiple paths once Rusty's nūpepa/Baibala slices land).
+
+**Selection rule (Rusty's spec):** Sample qualifies when:
+- Count of `ʻ` (U+02BB) + kahakō vowels (`ā ē ī ō ū` + uppercase) ≥ 3, AND
+- Ratio diacritic_chars / words ≥ 0.25
+
+Apply NFC normalization + ʻokina canonicalization before counting.
+
+**Outputs (block `high_diacritic`):**
+```json
+{
+  "status": "evaluated" | "insufficient_samples",
+  "sample_count": int,
+  "word_count": int,
+  "tokens_per_word": float | null,
+  "explicit_byte_fallback_rate": float | null,
+  "byte_fallback_or_proxy_rate": float | null,
+  "selection": {
+    "min_diacritics_per_sample": 3,
+    "min_diacritics_per_word_ratio": 0.25,
+    "min_samples_required": 10,
+    "min_words_required": 1500
+  }
+}
+```
+
+**Gate wiring:** Append two new checks to report:
+- `high_diacritic_tokens_per_word` (threshold reuses overall max for now; Rusty may want tighter)
+- `high_diacritic_byte_fallback_or_proxy_rate` (threshold reuses overall max)
+- If `status == "insufficient_samples"`: append `high_diacritic_coverage` to `blocking_reasons`
+
+#### Phase 4: Implement `diacritic_chars` evaluator
+
+**New function:** `compute_standalone_diacritic_chars(tokenizer, charset=None) -> dict`
+
+**Charset (default):** `["ʻ", "ā", "ē", "ī", "ō", "ū", "Ā", "Ē", "Ī", "Ō", "Ū"]` (pre-NFC-normalize).
+
+**Rule:** Encode each char standalone (`tokenizer(char, add_special_tokens=False)`); pass when `token_count ≤ 2`. Return per-item rows:
+```json
+{ "char": "ʻ", "codepoint": "U+02BB", "ids": [...], "pieces": [...], "token_count": N, "passed": bool }
+```
+
+Section-level `passed = all(item.passed)`. `status = "evaluated"` when tokenizer not None, else `"tokenizer_unavailable"`.
+
+**Gate wiring:** Add check `standalone_diacritic_chars` (`value = pass_count / total`, `threshold = 1.0`). Failures append `standalone_diacritic_chars` to `blocking_reasons`.
+
+#### Phase 5: Report-shape changes (additive, schema stays v1)
+
+Keep `tokenizer_audit_report.v1` this pass (schema-v2 + `run_kind` deferred). Additive changes only:
+- `model.tokenizer_family` (new key)
+- `high_diacritic` body filled per §3 (keys unchanged; `status` flips from `not_evaluated` to `evaluated` / `insufficient_samples`)
+- `diacritic_chars.items[]` populated per §4; `status` flips from `not_evaluated`
+- `checks[]` gains up to 3 new entries: `high_diacritic_tokens_per_word`, `high_diacritic_byte_fallback_or_proxy_rate`, `standalone_diacritic_chars`
+- `recommendation.blocking_reasons` may contain new check names + `high_diacritic_coverage`
+
+**Out of scope:** Schema-v2, `run_kind`, directory contract, identity SHAs, `samples_summary` (deferred; existing decisions.md queued them).
+
+#### Phase 6: Tests (synthetic, except smoke)
+
+**Family detection (4):**
+- `_FakeTokenizerByteLevel` (vocab with `Ġhello`) → `"byte_level_bpe"`
+- `_FakeTokenizerSentencePieceBF` (vocab with `▁hello`, `<0x00>`, `<0xFF>`) → `"sentencepiece_byte_fallback"`
+- `_FakeTokenizerWordPiece` (vocab with `##ing`) → `"wordpiece"`
+- Empty/None → `"unknown"`
+
+**Proxy detector (3):**
+- `byte_level_bpe`: `["Ġaloha", "ʻ", "ā"]` → count == 0
+- `sentencepiece_byte_fallback`: `["▁aloha", "ʻ", "<0xC4>"]` → count == 2
+- `wordpiece`: `["aloha", "##ʻ", "[UNK]"]` → count == 1
+
+**high_diacritic (3):**
+- 12 qualifying samples, 2,000 words → `status == "evaluated"`, metrics non-null
+- 5 qualifying samples → `status == "insufficient_samples"`, `blocking_reasons` contains `high_diacritic_coverage`
+- No diacritics → 0 qualifying, `insufficient_samples`
+
+**diacritic_chars (2):**
+- Stub where every char → 1 token → all items `passed=true`
+- Stub where ʻ → 3 tokens → `passed=false`, `blocking_reasons` contains `standalone_diacritic_chars`
+
+**Report shape (1):**
+- Build end-to-end with synthetic encodings; assert `model.tokenizer_family` present, all new check names, `blocking_reasons` is closed enum
+
+**Smoke test:** Leave as-is (still HF/transformers env-dependent); after §2–4 land should produce Llama report with `byte_fallback_or_proxy_rate ≈ 0` + two sections populated.
+
+#### Phase 7: Execution sequence
+
+1. §1 module split (lands first; existing tests still pass)
+2. §2 family detector + proxy fix + tests — **gated on Rusty sign-off**
+3. §3 + §4 evaluators + tests
+4. Smoke re-run against Llama-3.1-8B → write fresh `official/<ts>__meta-llama_Llama-3.1-8B.json`
+5. Compare new report vs. `20260430T041606Z` line-by-line in next decision update
+
+### Out of Scope (deferred to existing decisions.md)
+
+- Schema v2 / `run_kind` / `dry_run` removal / `dryrun/` directory rename
+- `model.model_repo_sha` / `tokenizer_sha256` / `tokenizer_fingerprint_sha256` (orchestrator-owned, Hub-aware)
+- `samples_summary` block + gitignored `debug.jsonl`
+- Pytest parametrization of model_id / `run_kind` for smoke
+
+These remain queued in harness-cleanup decision (2026-04-30T03:43Z) and will land after Llama gate unblocks.
+
+### Coordination Asks
+
+- **Rusty:** Confirm family table in §2 and whether high-diacritic thresholds in §3 should differ from overall
+- **Basher:** Ack schema stays v1 this pass (additive); manifest pin work waits
+- **Coordinator:** Route §2 decision back through Rusty before Linus implements
+
