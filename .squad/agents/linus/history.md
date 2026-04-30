@@ -380,3 +380,144 @@ Recommended treating `proofread_status=4` ("Validated") Wikisource as W1 _candid
 **Orchestration log:** `.squad/orchestration-log/2026-04-30T04:44:24Z-linus-tokenizer-audit-cleanup-implementation.md`
 
 **Session log:** `.squad/log/2026-04-30T04:44:24Z-tokenizer-audit-cleanup-implementation.md`
+
+## 2026-04-30 — W1 Stage 0 summary review (Basher's wiring) — REJECT
+
+**Reviewed:** `code/llm_hawaii/evaluate.py:manual_w1_status` + Stage 0
+dispatcher + `scripts/run_stage0_eval.sh` projection +
+`code/tests/test_evaluate.py` (7 W1 tests) + decisions
+`basher-w1-stage0-status.md` and `rusty-w1-stage0-contract.md`.
+
+**Verdict:** Reject — two blocking fixes required.
+
+**What's clean:**
+- Raw-text exclusion is enforced and pinned by a leak-check test.
+- Status enum is stable and documented in 3 places (decision, README,
+  `eval_pipeline.md` §11).
+- `accepted_count == eval_consumable_count` alias is the right call
+  for single-field summary diffs.
+- Wrapper projection passes `manual_w1` through unflattened and
+  always lands the resolved TSV path / `--no-manual-w1` flag in the
+  tracked `command` field.
+- `scoring_status: "not_wired"` is on every shape — metadata-evaluated
+  vs task-scored is unambiguous in every artifact.
+
+**Blocking #1 — `invalid` does not fail the run.** Rusty's contract
+required non-zero exit on `invalid` (same posture as a failed hash
+audit). Implementation returns the dict and the CLI exits 0; a
+header drift / UTF-8 corruption silently lands in
+`docs/eval-runs/stage0/` as a "successful" Stage-0 run. Required fix:
+`sys.exit(2)` after report write when `manual_w1.status == "invalid"`.
+
+**Blocking #2 — no accepted-suite hash.** Contract specified
+`w1_suite_sha256` (sha over sorted accepted `(item_id,
+sha256_normalized)` pairs) and `accepted_item_hashes` (sorted hash
+list). Neither is emitted. Whole-file `tsv_sha256` conflates
+draft-row churn with accepted-set identity changes — the cross-
+checkpoint aggregator cannot answer "did the *accepted* eval set
+change?" without these. Required fix: read `sha256_normalized` from
+accepted rows (column is already in `MANUAL_W1_HEADER`), emit both
+fields on the `evaluated` shape.
+
+**Acknowledged non-blocking divergences:**
+- `tsv_sha256` (Basher) vs `input_sha256` (contract) — three docs
+  agree on `tsv_sha256`; don't rename.
+- `missing` vs `not_configured` split (Basher) is more informative
+  than contract's single `absent` — keep the split.
+- `harness_error` shape deferred until row-level scoring lands.
+- `nfc_normalized_false_count` is whole-file, not accepted-only —
+  honest field name; if a tripwire boolean is ever surfaced it must
+  be accepted-scoped.
+- `MANUAL_W1_HEADER` duplicated from `315_hash_manual_w1_eval.py` —
+  deliberate (`llm_hawaii/` stays import-light); track as follow-up.
+
+**Recommended next agent:** Basher (implementation-side, contract-
+compliance work; both fixes mechanical and contained).
+**Rusty re-review:** not required unless naming diverges further.
+
+**Verdict file:** `.squad/decisions/inbox/linus-w1-summary-review.md`.
+
+## Learnings
+
+- 2026-04-30: When reviewing tracked-summary safety, check three
+  axes independently and don't let "no raw text" carry the whole
+  review. (1) Raw-text exclusion: assert via leak-check test.
+  (2) Cross-checkpoint comparability: ask "what change to the
+  underlying inputs is *not* visible in this summary?" — whole-file
+  hashes silently conflate eval-relevant edits (accepted rows) with
+  irrelevant churn (draft edits, whitespace). Require an accepted-
+  set-scoped hash whenever the summary will be diffed across runs.
+  (3) Failure posture: an "error" status that produces a zero exit
+  is a silent-breakage vector — a Stage-0 run with a quietly broken
+  probe block is worse than a noisy failure, because the broken
+  artifact lands in the tracked dir and pollutes diffs going
+  forward. Match contract posture exactly: `invalid`/`harness_error`
+  must trip a non-zero exit; `missing`/`draft_only`/`not_configured`
+  are zero-exit expected states.
+
+## 2026-04-30 — W1 revision ownership (Stage 0)
+
+**Action:** Took ownership of the rejected Stage 0 W1 / `manual_w1` artifact
+after Basher's in-flight patch. The four contract gaps Rusty flagged
+(`accepted_item_hashes`, `w1_suite_sha256`, `schema_version_seen`,
+strict orthographic gate on accepted rows) were already addressed in the
+worktree; I confirmed the code, then layered the Linus-side asks on top
+and corrected the source directive.
+
+**What I changed (mine, not Basher's):**
+
+1. **CLI exit-2 posture** — added `_cli_exit_code(report)` in
+   `code/llm_hawaii/evaluate.py` and wired it into `main()`. The report
+   JSON is still printed first (so the failing artifact is inspectable),
+   then the process exits 2 when `manual_w1.status == "invalid"`. Other
+   states (`missing` / `not_configured` / `draft_only` / `evaluated`,
+   absent block) stay at 0. Six unit tests in
+   `TestCliExitCode` pin the matrix.
+2. **Shell propagation** — `scripts/run_stage0_eval.sh` now captures the
+   evaluate.py exit code via `… && EVAL_RC=0 || EVAL_RC=$?`, still writes
+   the tracked summary projection in the failing case so the bad
+   artifact is on disk for inspection, then propagates the non-zero exit.
+   `set -eu` is preserved.
+3. **Corrected source directive** — `scripts/_convert_ulukau_human_fetch.py`
+   was pointing at a non-existent `human_fetch.md`. Per user directive,
+   the trusted source is `data/raw/ulukau_nupepa/human_fetch.txt`
+   (sectioned `# English` / `# Hawaiian`). Updated `SRC`,
+   `source_path`, and the module docstring to make explicit that the
+   converter is a *parser/normalizer*, not the source of truth. The
+   raw `.txt` file stays under ignored `data/` (it is now `data/raw/…`,
+   which is a tracked path, but the populated W1 TSVs derived from it
+   remain off-git under `data/evals/manual_w1/`).
+4. **Doc updates** — `code/README.md` and `docs/eval_pipeline.md` §8.1
+   now spell out: the new `evaluated`-path fields
+   (`accepted_item_hashes`, `w1_suite_sha256`, `schema_version_seen`),
+   the strict orthographic gate trigger conditions, the
+   `error_count` / `first_errors` shape on the `invalid` branch (line +
+   field labels only, no row contents), the CLI exit-2 posture, and the
+   corrected `human_fetch.txt` source directive.
+
+**What I deliberately left alone:**
+
+- The pass-through projection of `manual_w1` in `scripts/run_stage0_eval.sh`
+  is correct as-is — the underlying dict already contains only safe
+  fields (status/hashes/counts/errors-by-line), so verbatim forwarding
+  preserves raw-data safety without an explicit allowlist. Adding an
+  allowlist would silently drop new safe fields the next time we
+  extend the contract.
+- `scoring_status: "not_wired"` stays put. This revision is metadata
+  and orthography validation; row-level scoring is still a follow-up.
+
+**Validation:**
+
+- `python3 -m py_compile code/llm_hawaii/evaluate.py scripts/315_hash_manual_w1_eval.py scripts/_convert_ulukau_human_fetch.py` — clean.
+- `sh -n scripts/run_stage0_eval.sh` — clean.
+- `cd code && PYTHONPATH=. python3 -m unittest tests.test_evaluate tests.test_metrics` — 42/42 green (was 36/36; +6 from `TestCliExitCode`).
+- `git --no-pager diff --check` — clean.
+
+**Why this matters:**
+
+A W1 TSV with an orthographically broken accepted row is a contract
+violation by the human reviewer, not a benign config issue. Without the
+exit-2 posture, the failing report could land in the tracked summary
+dir as a "successful" Stage 0 run and pollute checkpoint-to-checkpoint
+diffs going forward. The shell script still writes the summary so the
+artifact stays inspectable; it just refuses to claim green.

@@ -1,5 +1,62 @@
 # Rusty — History
 
+## 2026-04-30 — W1 Stage 0 contract (pre-rerun)
+
+**Trigger:** yashasg, "let's figure this out before we run Stage 0 again."
+W1/manual TSV validation isn't wired into Stage 0; `manual_w1` is a
+hard-coded `not_configured` placeholder at `evaluate.py:522`; populated/
+accepted off-git rows are invisible to the tracked summary.
+
+**Action:** Read-only pass over `data-sources/manual-eval/README.md`,
+the W1 template, `scripts/315_hash_manual_w1_eval.py`,
+`code/llm_hawaii/evaluate.py`, `scripts/run_stage0_eval.sh`, and
+`docs/eval_pipeline.md`. Approved wiring W1 into Stage 0 via a 5-state
+machine (`absent` / `invalid` / `draft_only` / `evaluated` / `harness_error`)
+keyed off off-git inputs at `data/evals/manual_w1/`. Decision at
+`.squad/decisions/inbox/rusty-w1-stage0-contract.md`. No implementation files
+edited.
+
+**Durable learnings:**
+- A single `not_configured` literal cannot stand in for four real states
+  (file absent, file present-but-draft, file invalid, file evaluated). Drift
+  comparison requires a status discriminator + counts + input SHA; otherwise
+  "we never had W1" and "W1 silently broke" look identical in the summary.
+- Reuse the validator, don't fork it. `scripts/315_hash_manual_w1_eval.py`
+  already enforces NFC, U+02BB-only ʻokina, no combining macron, density
+  consistency, and dup-`item_id`. Stage 0's loader must call into the same
+  rules, not re-implement them; otherwise Stage 0 and the hash ledger can
+  disagree on whether a row is valid.
+- For now the only mechanically-scorable W1 categories are
+  `okina_survival`, `kahako_retention`, `unicode_nfc`, and
+  `tokenizer_survival`. `generation_sanity` stays `not_configured` until a
+  rubric or judge exists — auto-scoring open-ended Hawaiian generations
+  without a Hawaiian-literate human in the loop would be a fabricated
+  benchmark.
+- `tokenizer_survival` does not need model inference: tokenize-decode-NFC
+  round-trip on `reference` is a pure tokenizer probe and runs even when
+  the model load fails. Useful as an independent signal.
+- `overall_pass_rate` must exclude `generation_sanity` rows from the
+  denominator and emit `null` when there are zero mechanically-scorable
+  rows. Do not synthesize a passing rate from a current-run baseline —
+  that's self-referential.
+- Off-Git posture for the tracked summary: status, reason, file path,
+  file SHA, schema version, counts, bins, `item_id`s,
+  `sha256_normalized`s, mechanical pass counts, tripwires. Never raw
+  prompt/reference/notes/author. Apply the same redaction to error
+  strings ("line N: prompt is not NFC", not the prompt itself).
+- Recommend a `w1_suite_sha256` over the sorted (item_id, sha256_normalized)
+  pairs of the *accepted* set — independent of file SHA, so we detect
+  "different accepted items, same file size" and "same accepted items, file
+  resaved with different bytes" as distinct events.
+
+**Hand-off:** Basher implements `_load_w1` + `_evaluate_w1` and
+`code/tests/test_evaluate.py` cases for all five status values; Linus
+checks the `run_stage0_eval.sh` projection survives unchanged; I (Rusty)
+re-review high-bin items before any row flips to `accepted`, using the
+same audit checklist as the `stage0.v1` prompt-suite review.
+
+---
+
 ## 2026-04-30 — Stage 0 eval reviews: prompt suite + drift-coverage checklist
 
 **Actions:**
@@ -313,3 +370,56 @@ Read-only coverage pass (parallel to Basher's implementation) on whether the Sta
 Verdict: current Stage 0 artifact is a usable **PPL anchor only** (`hawaiian_ppl=7.9152`, `eval_file_sha256` frozen). It is **not** a drift baseline: orthography is n=1 (one prompt, one generation), no eval-suite SHA / tokenizer SHA / eval dtype / prompt-set SHA / ledger SHA, no per-source or English PPL slices, no tokens/word or roundtrip_lossless on outputs, no W1 status fields, no slice keys (source/length/tokenizer-behavior/split/w1_category), and tripwires are not serialized as machine-checkable booleans. Restated the six canonical corrections (fp16 hardcode, missing per-source slice, missing English PPL, single-prompt run script, partial run-report schema, n=1 orthography) as acceptance criteria on the artifact.
 
 Output: full A–H checklist (identity header / orthography distributional / fixed prompt suite shape / PPL slices / tokenizer-on-outputs / W1 status / mandatory slice fields / serialized tripwires) written to `.squad/decisions/inbox/rusty-stage0-drift-coverage.md`. No implementation files modified — corrections reported, not edited, per task scope. Hand-off: Basher's implementation pass picks up the six corrections; W1 status fields stay `draft_only` / `eval_consumable_count=0` until #7 acceptance lands.
+
+## 2026-04-30 — W1 Stage 0 implementation review (verdict: reject, small revision)
+
+Read-only review of Basher's `manual_w1_status()` in `code/llm_hawaii/evaluate.py` against my prior contract (`.squad/decisions/inbox/rusty-w1-stage0-contract.md`). Tests 25/25 green, no raw text leakage, scoring_status=not_wired correctly disclaims accuracy, 5-status enum present (with `not_configured` reserved for the explicit-disable path — an improvement over contract's conflation).
+
+Rejected for four contract gaps that the cross-checkpoint diff posture depends on:
+1. `accepted_item_hashes` missing — sorted sha256_normalized list over accepted rows. Without it, `tsv_sha256` only signals "file changed", not "accepted set changed".
+2. `w1_suite_sha256` missing — sha over sorted (item_id, sha256_normalized) pairs of accepted rows. Discriminator #4 in contract.
+3. `schema_version_seen` missing — hardcode `manual-w1-tsv-v1` for now; reserves the field for JSONL switch.
+4. NFC/ʻokina/combining-macron failures on accepted rows must flip `status=invalid` with `error_count`+line/field-only `first_errors`, not be buried in `nfc_normalized_false_count`. Drafts may stay loose.
+
+Non-blocking: JSONL-first preferred (carries sha256_normalized + schema version natively); harness_error correctly deferred until scoring wires; naming drift (missing↔absent, tsv_sha256↔input_sha256, accepted_*_counts↔accepted_by_*) — pick one document and reconcile.
+
+Recommended Basher to revise (same author justified: additive gaps, not domain misunderstanding) and Linus to re-confirm summary projection. Verdict written to `.squad/decisions/inbox/rusty-w1-implementation-review.md`. No code edited.
+
+Lesson: when writing contracts that prefer JSONL but allow TSV fallback, spell out which contract fields the TSV path must compute itself (here: per-row sha256_normalized via the same formula as `scripts/315_hash_manual_w1_eval.py`). Otherwise the implementer reasonably assumes "TSV does not carry it ⇒ field omitted".
+
+## Learnings
+
+### 2026-04-30 — W1 / Stage 0 revision review (Linus)
+
+**Outcome:** APPROVE. Verdict at
+`.squad/decisions/inbox/rusty-w1-linus-revision-review.md`.
+
+- All four blockers from `rusty-w1-implementation-review.md` are
+  closed: `accepted_item_hashes` (sorted SHA list) + `w1_suite_sha256`
+  (sha256 over sorted `(item_id, sha256_normalized)` pairs) + `schema_version_seen`
+  (`"manual-w1-tsv-v1"` only on TSV-capable statuses) are emitted on
+  the right branches with no raw prompt/reference text leakage.
+- Accepted-row strict gate now flips `manual_w1.status = "invalid"`
+  on NFC failure / U+0304 / wrong-ʻokina / `nfc_normalized != "true"`
+  / empty `item_id`; drafts/reviewed rows stay loose.
+  `first_errors` is line+field-only, capped at 10, with `error_count`
+  carrying the true total.
+- `evaluate._cli_exit_code` returns 2 on invalid W1 (else 0); CLI
+  always prints the report JSON before returning the rc.
+  `scripts/run_stage0_eval.sh` captures rc, writes the tracked
+  summary projection unconditionally (verbatim `manual_w1` pass-through,
+  so new safe fields aren't silently dropped), then propagates non-zero.
+  `set -eu` is preserved by the `&& … || EVAL_RC=$?` capture pattern.
+- Corrected source directive: trusted W1 source is
+  `data/raw/ulukau_nupepa/human_fetch.txt`; the converter
+  `scripts/_convert_ulukau_human_fetch.py` is parser/normalizer
+  context only. File exists on disk with `# English` / `# Hawaiian`
+  sections; `data/` is gitignored, so neither the raw text nor the
+  populated W1 TSV can leak into tracked summaries.
+- Validation (`py_compile`, `sh -n`, `unittest tests.test_evaluate
+  tests.test_metrics`) re-ran clean: 42/42 green, matching Linus's
+  numbers.
+- JSONL switch (read `sha256_normalized` + `MANUAL_W1_JSONL_SCHEMA_VERSION`
+  per row, drop the mirrored hash helper, retire the TSV path) remains
+  the natural follow-up; explicitly reserved-only today, not
+  prematurely implemented.

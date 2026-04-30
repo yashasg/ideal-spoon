@@ -2121,3 +2121,370 @@ Every cheap eval reports the same generations sliced along:
 
 **Orchestration logs:** `.squad/orchestration-log/2026-04-30T07-00-17Z-basher.md`, `.squad/orchestration-log/2026-04-30T07-00-17Z-rusty.md`  
 **Session log:** `.squad/log/2026-04-30T07-00-17Z-eval-checkpoints.md`
+
+---
+
+## Decision Timeline: Stage 0 W1 manual micro-eval metadata + orthography wiring (2026-04-30)
+
+> Updated 2026-04-30T08:08:04Z: Linus W1 revision approved by Rusty (42/42 tests green, four blockers resolved, corrected source directive honored). Basher's prior in-flight work rejected per strict reviewer lockout; Linus performed independent complete rework. User directive corrected: W1 expert-validated source is `data/raw/ulukau_nupepa/human_fetch.txt`; `scripts/_convert_ulukau_human_fetch.py` is parser/normalizer context only, not the source. Orchestration logs written. Decisions merged from inbox with deduplication; superseded directives marked.
+
+---
+
+### User Directive (Superseded): W1 expert-validated source path — Initial statement
+
+**Date/Time:** 2026-04-30T07:52:13Z  
+**By:** yashasg (via Copilot)  
+**Statement:** For W1 eval, use `scripts/_convert_ulukau_human_fetch.py` as the source path for Ulukau human-fetch rows and consider those rows expert-validated.  
+**Status:** **SUPERSEDED** by the correction below (2026-04-30T07:59:13Z).
+
+---
+
+### User Directive (Current): W1 expert-validated source path — Corrected
+
+**Date/Time:** 2026-04-30T07:59:13Z  
+**By:** yashasg (via Copilot)  
+**Statement:** For W1 eval expert-validated Ulukau rows, the data source is `data/raw/ulukau_nupepa/human_fetch.txt` (sections: `# English` / `# Hawaiian`; use Hawaiian section for W1). `scripts/_convert_ulukau_human_fetch.py` is the related parser/normalizer (NFC, ʻokina-folding, basic stats), not the source of truth.  
+**Status:** Current. Supersedes 2026-04-30T07:52:13Z directive.
+
+---
+
+## Decision: Rusty — W1 Stage 0 contract (read-only approved)
+
+**Date:** 2026-04-30  
+**Owner:** Rusty (NLP Researcher)  
+**Status:** Approved as reference contract. Implementation belongs to others; this defines requirements before the next Stage 0 run.
+
+### Why this is needed
+
+`evaluate.py:522` currently hard-codes `manual_w1 = {"status": "not_configured", ...}` unconditionally. A populated, human-accepted off-git W1 TSV at `data/evals/manual_w1/w1-haw-micro-eval.tsv` is invisible to Stage 0 — no accepted rows are counted.
+
+This contract closes that gap without shipping a fabricated benchmark.
+
+### Stage 0 W1 state machine (5 states)
+
+1. **`absent`** — neither JSONL nor TSV exists at `data/evals/manual_w1/`. Stage 0 does not fail.
+2. **`invalid`** — file exists but fails loader checks (NFC, ʻokina codepoint, combining macron, density, header, no duplicate item_id). **Stage 0 exits non-zero.** Raw text never in errors; line/field-only format.
+3. **`draft_only`** — file valid, zero `review_status=accepted` rows. Stage 0 does not fail.
+4. **`evaluated`** — ≥1 accepted row exists and passes orthography checks. Includes mechanical category pass counts (okina_survival, kahako_retention, unicode_nfc, tokenizer_survival), `overall_pass_rate` over mechanically-checkable rows only.
+5. **`harness_error`** — accepted rows exist but inference/tokenizer probe crashed. Stage 0 exits non-zero.
+
+### Fields for `evaluated` shape
+
+- `w1_suite_sha256` — sha256 over sorted `(item_id, sha256_normalized)` pairs of accepted rows only.
+- `accepted_item_hashes` — sorted list of `sha256_normalized` strings (hashes only, no text).
+- `schema_version_seen` — `"manual-w1-tsv-v1"` on TSV-capable branches; `null` otherwise.
+- Row counts: `total_valid`, `draft`, `reviewed`, `accepted`, `scored`.
+- `accepted_by_category` and `accepted_by_diacritic_density_bin` — category/bin name counts.
+- Mechanical pass counts per category + `overall_pass_rate`.
+- Tripwires: `wrong_okina_nonzero`, `nfc_failures`, `combining_macron_nonzero`.
+
+### Off-Git safety constraints
+
+- Read from `data/evals/manual_w1/` only.
+- Tracked summary carries: status, reason, file path, file SHA, schema version, row counts, category/bin counts, `item_id`s, `sha256_normalized`s, mechanical pass counts, tripwires. **Never** raw prompt/reference/notes/author.
+- `first_errors` uses line+field-only format (no row content).
+- No new files written under `data-sources/manual-eval/`. Populated TSVs stay off-git.
+- Generations go through hash-only treatment (no raw Hawaiian in tracked summary).
+
+### Verdict
+
+**Approved.** Wire the loader into Stage 0 per the state machine before the next Stage 0 run.
+
+---
+
+## Decision: Basher — W1 manual micro-eval status wired into Stage 0 (metadata only)
+
+**Date:** 2026-04-30  
+**Author:** Basher (Training Engineer)  
+**Status:** Implementation circulated; review requested from Rusty and Linus.
+
+### Summary
+
+`evaluate.py` now reads the off-git W1 TSV and reports a stable status object on every Stage 0 run. No raw prompts/references are emitted.
+
+### Status enum
+
+| status       | meaning |
+|--------------|---------|
+| not_configured | probe explicitly disabled (`--no-manual-w1`) |
+| missing | TSV file not present at resolved path |
+| invalid | file present, but no header / header mismatch / unreadable; `tsv_sha256` emitted when available |
+| draft_only | parsed cleanly, **zero** `review_status=accepted` rows |
+| evaluated | accepted rows present and validated. **Metadata-evaluated, not task-scored.** |
+
+`scoring_status: "not_wired"` on every output. Row-level model scoring is a follow-up.
+
+### Fields on `evaluated` / `draft_only`
+
+- `path`, `tsv_sha256`, `tsv_size_bytes`
+- `row_count`, `review_status_counts`
+- `accepted_count` = `eval_consumable_count` (alias intentional)
+- `accepted_category_counts`, `accepted_diacritic_density_bin_counts`
+- `nfc_normalized_false_count` (loud but non-blocking; authoritative validator in `scripts/315_hash_manual_w1_eval.py`)
+- `scoring_status`, `scoring_reason`
+
+### Validation
+
+- `python3 -m py_compile code/llm_hawaii/evaluate.py` → clean.
+- `sh -n scripts/run_stage0_eval.sh` → clean.
+- `cd code && PYTHONPATH=. python3 -m unittest tests.test_evaluate tests.test_metrics` → 25/25 green.
+
+---
+
+## Review: Rusty — W1 Stage 0 implementation review (Basher's work)
+
+**Date:** 2026-04-30  
+**Reviewer:** Rusty (NLP Researcher)  
+**Subject:** Basher's W1 metadata/status wiring in `code/llm_hawaii/evaluate.py` + tests + `scripts/run_stage0_eval.sh` projection.
+
+### Verdict
+
+**Reject — request revision.** The submission is close, well-scoped, and honest about scope. Three contract requirements are missing:
+
+1. **`accepted_item_hashes`** (blocking) — sorted list of `sha256_normalized` values for accepted rows. Without it, "did the accepted set change?" cannot be answered from the tracked summary.
+2. **`w1_suite_sha256`** (blocking) — sha256 over sorted `(item_id, sha256_normalized)` pairs of accepted rows. Distinguishes "drafts churned" from "accepted set churned".
+3. **`schema_version_seen`** (blocking, low cost) — hardcode `"manual-w1-tsv-v1"` on TSV-capable branches; `null` otherwise.
+4. **NFC / ʻokina / combining-macron on accepted rows must flip `invalid`** (blocking) — not silently counted. Accepted-row failures are contract violations; must fail loud.
+
+### Non-blocking naming drift
+
+- `missing`/`absent`, `tsv_sha256`/`input_sha256`, `accepted_category_counts`/`accepted_by_category`. Pick one per field; reconcile in one document.
+
+### Recommended next agent
+
+**Basher** — implementation-side, contained, mechanical fixes. All 25 tests to remain green.
+
+---
+
+## Review: Linus — W1 Stage 0 summary review (Basher's wiring)
+
+**Date:** 2026-04-30  
+**Reviewer:** Linus (Data Engineer)  
+**Subject:** Read-only review of Basher's W1 manual TSV → Stage 0 wiring for cross-checkpoint comparability.
+
+### Verdict
+
+**Reject — fixes required.** Two items in Rusty's approved contract are not honored:
+
+1. **`invalid` state must fail the run, not silently report** — Rusty's contract: "Stage 0 must not swallow this. It writes the `invalid` block to the report and exits the eval with a non-zero status." Today the CLI exits 0. Conditional on this fix, `run_stage0_eval.sh` already uses `set -eu` and pipes via temp file, so a non-zero exit will abort the summary writer as desired.
+
+2. **Add `accepted_suite_sha256` and `accepted_item_hashes` on the `evaluated` shape** — required for the cross-checkpoint aggregator to answer "did the *accepted* eval set change between Stage-0 runs A and B?" without re-reading the off-git TSV. `tsv_sha256` covers non-accepted noise; these two fields disambiguate actual accepted-set churn.
+
+### What's good (will not change)
+
+- Raw-text exclusion is solid. No prompt/reference/notes/author.
+- `scoring_status: "not_wired"` is on every shape.
+- `accepted_count == eval_consumable_count` alias is intentional and stable.
+- Draft/reviewed rows are tallied but never counted as benchmark-reportable.
+- `run_stage0_eval.sh` projection is correct.
+- Status enum is downstream-diffable across 5 values.
+
+### Schema diff confirmation (conditional on fixes)
+
+Cross-checkpoint aggregator can switch on:
+
+1. `manual_w1.status` — primary discriminator (5 values).
+2. `manual_w1.tsv_sha256` — did the underlying off-git file change at all?
+3. `manual_w1.accepted_suite_sha256` *(to be added)* — did the *accepted* eval set change identity?
+4. `manual_w1.accepted_count` — did the human-review queue advance numerically?
+5. `manual_w1.accepted_category_counts` / `accepted_diacritic_density_bin_counts` — did the slice distribution shift?
+6. `manual_w1.scoring_status` — flips from `not_wired` to `wired` when row-level scoring lands.
+
+### Required fixes (ordered)
+
+1. **`invalid` → non-zero CLI exit** — one-line `sys.exit(2)` after report write when `report["manual_w1"]["status"] == "invalid"`. Add unit tests (header-mismatch fixture, passing path tests for `draft_only`+`evaluated`).
+2. **Add `accepted_suite_sha256` and `accepted_item_hashes` on `evaluated`** — read `sha256_normalized` from accepted rows; field is already in `MANUAL_W1_HEADER`. Two new unit tests: suite sha deterministic; suite sha changes when accepted set's identities change.
+
+### Recommended next agent
+
+**Basher** — implementation-side contract-compliance work.
+
+---
+
+## Decision: Basher — W1 contract-revision (Stage 0 eval) [In-flight]
+
+**Date:** 2026-04-30  
+**Author:** Basher (Training Engineer)  
+**Subject:** Revision of `manual_w1_status` in `code/llm_hawaii/evaluate.py` to address four blocking gaps from Rusty's review.
+
+### What changed (draft)
+
+1. **`accepted_item_hashes`** — sorted list of canonical `sha256_normalized` values for `review_status=accepted` rows. Empty list when no accepted rows.
+2. **`w1_suite_sha256`** — sha256 over sorted `(item_id, sha256_normalized)` pairs of accepted rows, encoded as `item_id\tsha\n`. `null` when no accepted rows. Stable across row reorder; flips when the accepted set churns.
+3. **`schema_version_seen`** — hardcoded `"manual-w1-tsv-v1"` on `evaluated` and `draft_only`; `null` on `invalid`/`missing`/`not_configured`.
+4. **Strict orthographic gate on accepted rows** — any `review_status=accepted` row whose `nfc_normalized != "true"`, OR fails NFC, OR carries U+0304, OR carries wrong-ʻokina codepoint flips the file to `status=invalid` with `error_count` and `first_errors`.
+
+### Helper-reuse decision
+
+Mirrored the hash formula from `scripts/315_hash_manual_w1_eval.py` into `evaluate._manual_w1_sha256_normalized` with a pinning unit test (script filename is not a legal Python module identifier).
+
+### Validation (draft)
+
+- `python3 -m py_compile …` → clean.
+- `sh -n scripts/run_stage0_eval.sh` → clean.
+- `cd code && PYTHONPATH=. python3 -m unittest tests.test_evaluate tests.test_metrics` → **36/36 green** (+11 covering the four contract gaps).
+
+### Status
+
+Circulated for Rusty re-review and Linus sign-off on run-script projection.
+
+**⚠️ Note:** This work was subsequently rejected by Linus and the coordinator enforced strict reviewer lockout (rejected author cannot revise). Linus performed independent complete rework (see Linus W1 revision below).
+
+---
+
+## Decision: Linus — W1 revision (Stage 0 eval) [APPROVED]
+
+**Date:** 2026-04-30  
+**Author:** Linus (Data Engineer)  
+**Subject:** Final revision of `manual_w1` / Stage 0 W1 wiring after Basher's in-flight patch was rejected. **This decision is the authoritative data contract.**
+
+**Status:** ✅ **APPROVED by Rusty** (42/42 tests green, all four blockers resolved, corrected source directive honored).
+
+### Final data contract — `report["manual_w1"]`
+
+Stable status enum (mutually exclusive, mandatory):
+
+| status       | trigger |
+|--------------|---------|
+| not_configured | probe explicitly disabled (`--no-manual-w1` / `USE_MANUAL_W1=0`) |
+| missing | TSV file absent at resolved path |
+| invalid | unreadable file, no header, header mismatch, **or** any `review_status=accepted` row that fails NFC / carries U+0304 / uses wrong-ʻokina codepoint / has `nfc_normalized != "true"` |
+| draft_only | TSV parsed cleanly, zero `review_status=accepted` rows |
+| evaluated | accepted rows present and orthographically clean. **Metadata-evaluated, not task-scored.** |
+
+`scoring_status: "not_wired"` on every output. This revision is metadata + orthography validation only; W1 row-level model scoring is a follow-up.
+
+### Fields by status
+
+| field | not_configured | missing | invalid | draft_only | evaluated |
+|-------|:-:|:-:|:-:|:-:|:-:|
+| `status` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `scoring_status` (= `"not_wired"`) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `scoring_reason` | — | ✓ | ✓ | ✓ | ✓ |
+| `schema_version_seen` | `null` | `null` | `null` | `"manual-w1-tsv-v1"` | `"manual-w1-tsv-v1"` |
+| `path` | — | ✓ | ✓ | ✓ | ✓ |
+| `tsv_sha256`, `tsv_size_bytes` | — | — | ✓ (when readable) | ✓ | ✓ |
+| `row_count`, `review_status_counts` | — | — | ✓ (when parsed) | ✓ | ✓ |
+| `accepted_count` = `eval_consumable_count` | — | — | `0` on accepted-row-orth fail | `0` | `>0` |
+| `accepted_category_counts` | — | — | (counted for telemetry) | `{}` | populated |
+| `accepted_diacritic_density_bin_counts` | — | — | (counted for telemetry) | `{}` | populated |
+| `nfc_normalized_false_count` | — | — | ✓ | ✓ | ✓ |
+| `accepted_item_hashes` (sorted) | — | — | `[]` * | `[]` | sorted SHA list |
+| `w1_suite_sha256` | — | — | `null` * | `null` | hex SHA |
+| `error_count`, `first_errors` | — | — | accepted-row-orth branch only | — | — |
+
+\* Emitted on the accepted-row-orthographic-failure `invalid` branch only. Header-mismatch / no-header / read-failed `invalid` branches keep their existing minimal shape.
+
+### Hash formula (frozen)
+
+`sha256_normalized = sha256(NFC(prompt) + U+000A + NFC(reference))`
+
+Mirrored verbatim from `scripts/315_hash_manual_w1_eval.py:compute_hash` into `evaluate._manual_w1_sha256_normalized`. The byte-exact match is pinned by unit test.
+
+`w1_suite_sha256 = sha256(join sorted "{item_id}\t{sha256_normalized}\n" over accepted rows only)` — stable under row reorder; flips when the *accepted* set churns even if the file SHA does not.
+
+### `first_errors` safety contract
+
+Every entry is a string `line N: <field> <category>` where `<field> ∈ {prompt, reference}` and `<category>` is one of `is not NFC-normalized`, `contains combining macron U+0304`, `contains wrong ʻokina/apostrophe codepoint`, `nfc_normalized field is not 'true' on accepted row`, `item_id is empty on accepted row`. **No row contents, no prompt/reference text, no notes/author.** Capped at 10 entries; `error_count` carries the true total.
+
+### CLI exit-code posture
+
+`python -m llm_hawaii.evaluate` writes the report JSON first, then:
+
+- exits **2** when `manual_w1.status == "invalid"` (the report dict is still complete and on stdout);
+- exits **0** otherwise (`missing`, `not_configured`, `draft_only`, `evaluated`, or `manual_w1` absent).
+
+Implemented via `_cli_exit_code(report)` (pure, testable, no I/O).
+
+### Shell propagation
+
+`scripts/run_stage0_eval.sh` captures the evaluate.py exit code and writes the tracked summary projection regardless (so the artifact + hash-only summary are both on disk for post-mortem), then propagates the non-zero exit. The tracked summary's `metrics.manual_w1` is a verbatim pass-through.
+
+### Corrected source directive (user correction, 2026-04-30)
+
+The trusted source for W1 expert-validated Hawaiian rows is **`data/raw/ulukau_nupepa/human_fetch.txt`**, sectioned `# English` / `# Hawaiian`. For W1, use the Hawaiian section only.
+
+`scripts/_convert_ulukau_human_fetch.py` is a *parser/normalizer* (NFC, ʻokina-variant folding to U+02BB, basic stats) that informs converting the raw text into the `prompt` / `reference` shape the W1 TSV expects. It is **not** the source of truth.
+
+The previous decision file (`copilot-directive-20260430T075213Z.md`) named the converter script as the source path; that was superseded by `copilot-directive-20260430T075913Z.md`. This decision aligns with the later directive.
+
+Populated W1 TSVs derived from `human_fetch.txt` remain off-git under `data/evals/manual_w1/` per `data-sources/manual-eval/README.md`.
+
+### Validation
+
+- `python3 -m py_compile code/llm_hawaii/evaluate.py scripts/315_hash_manual_w1_eval.py scripts/_convert_ulukau_human_fetch.py` — clean.
+- `sh -n scripts/run_stage0_eval.sh` — clean.
+- `cd code && PYTHONPATH=. python3 -m unittest tests.test_evaluate tests.test_metrics` — **42/42 green**.
+- `git --no-pager diff --check` — clean.
+
+### Out of scope (still)
+
+- Row-level model scoring (`scoring_status` stays `not_wired`).
+- `harness_error` 5th-status branch — re-introduce when scoring lands and there is an inference path that can crash.
+- JSONL-first wiring (read `sha256_normalized` and `MANUAL_W1_JSONL_SCHEMA_VERSION` directly from W1 JSONL). Natural follow-up.
+- English PPL probe and `hawaiian_ppl_by_source` — separate work; both still emit `status: "not_configured"` placeholders.
+
+### Asks
+
+- **Coordinator:** if anyone touches the W1 TSV format or the canonical hash formula, the `evaluate._manual_w1_sha256_normalized` mirror and the unit test that pins it must be updated in the same change.
+
+---
+
+## Review: Rusty — W1 Linus revision review [APPROVED]
+
+**Date:** 2026-04-30  
+**Reviewer:** Rusty (NLP Researcher)  
+**Subject under review:** `.squad/decisions/inbox/linus-w1-revision.md`
+
+### Verdict — **APPROVE**
+
+The four blockers from `rusty-w1-implementation-review.md` are addressed and the corrected source directive is honored throughout. Validation re-runs clean: **42/42 tests green**, matching Linus's claim.
+
+### Item-by-item
+
+1. **Hash + suite metadata, no raw text — PASS.**
+   - `evaluate.py:378-419` collects `(item_id, sha256_normalized)` per accepted row, sorts pairs, emits `accepted_item_hashes` as the sorted SHA list.
+   - Computes `w1_suite_sha256` over sorted `"{item_id}\t{sha256}\n"` pairs.
+   - Hash formula (`NFC(prompt) + LF + NFC(reference)`) mirrors `scripts/315_hash_manual_w1_eval.py:hash_material/compute_hash` byte-for-byte.
+   - Pinned by tests `TestManualW1HashesAndSuite`.
+   - Suite SHA stable under row reorder; flips on accepted-set churn.
+   - No prompt / reference / notes / author text written on any branch.
+
+2. **`schema_version_seen` semantics — PASS.**
+   - `MANUAL_W1_TSV_SCHEMA_VERSION = "manual-w1-tsv-v1"` set only on TSV-capable status branches (`draft_only`, `evaluated`) at `evaluate.py:404`.
+   - `not_configured` / `missing` / `invalid` all emit `None`.
+   - JSONL properly reserved-only; comment block + unused `MANUAL_W1_JSONL_SCHEMA_VERSION` reference make clear the JSONL switch is a follow-up.
+
+3. **Accepted-row strict gate, drafts loose — PASS.**
+   - `evaluate.py:323-376`: drafts/reviewed rows skip strict gate via `if rs != "accepted": continue`.
+   - On accepted rows: each of `nfc_normalized != "true"`, non-NFC `prompt`/`reference`, `count_combining_macron > 0`, `count_wrong_okina > 0`, empty `item_id` appends `f"line {line_no}: <field> <category>"` strings only — no row content.
+   - Tests confirm both strict on accepted and loose on drafts.
+
+4. **CLI exit-2 + shell propagation — PASS.**
+   - `_cli_exit_code` returns `2` iff `report["manual_w1"]["status"] == "invalid"`, else `0`.
+   - `main()` prints JSON report first, then returns exit code.
+   - `scripts/run_stage0_eval.sh:121` captures rc with `… > "$TMP_OUTPUT" && EVAL_RC=0 || EVAL_RC=$?`.
+   - Unconditionally writes tracked summary projection (forwards `report.get("manual_w1", …)` verbatim).
+   - Propagates non-zero exit only at the very end. `set -eu` does not eat rc because of `&& … || EVAL_RC=$?` capture pattern.
+
+5. **Corrected source directive — PASS.**
+   - `data/raw/ulukau_nupepa/human_fetch.txt` exists on disk with expected `# English` / `# Hawaiian` sections.
+   - `scripts/_convert_ulukau_human_fetch.py` now (a) describes itself as "parser/normalizer, not the source of truth", (b) names trusted source path explicitly, (c) has `SRC = REPO / "data/raw/ulukau_nupepa/human_fetch.txt"` (no `.md` typo).
+   - Both `code/README.md` and `docs/eval_pipeline.md` state converter is parser context, not the source.
+   - Linus's revision file mirrors and supersedes earlier directive correctly.
+
+6. **Docs and tests match contract; raw data not committed — PASS.**
+   - `docs/eval_pipeline.md` §8.1 describes all contract fields, NFC invalid trigger, `first_errors` shape, exit-2 posture, wrapper behavior, corrected source directive.
+   - `code/README.md` mirrors same.
+   - `data/` is gitignored; `git check-ignore` confirms both `data/raw/ulukau_nupepa/human_fetch.txt` and `data/evals/manual_w1/w1-haw-micro-eval.tsv` are ignored.
+
+### Notes for follow-up (non-blocking)
+
+- Once row-level model scoring lands, `scoring_status` flips to `wired` and `harness_error` 5th-status branch should be re-introduced.
+- JSONL-first wiring (read `sha256_normalized` and `MANUAL_W1_JSONL_SCHEMA_VERSION` directly per row) would let us delete the mirrored hash helper. Natural follow-up.
+- Coordinator: per Linus's ask, any future change to W1 TSV format or canonical hash formula must touch `evaluate._manual_w1_sha256_normalized` and its pinning unit test in the same change.
+
+### Outcome
+
+✅ **Lift the W1 revision.** Linus is locked out of the next revision cycle on this scope by standard rule; no rejection-driven re-spawn needed because the verdict is APPROVE.
+

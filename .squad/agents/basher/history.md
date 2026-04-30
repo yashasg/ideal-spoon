@@ -350,3 +350,133 @@ Lesson: when a report dict mixes "always-on" probes (PPL) and
 apply it uniformly. Letting one field be `null`/missing while the
 others are status objects creates a quiet diff hole the moment a flag
 flips.
+
+## 2026-04-30 — W1 manual micro-eval status wired into Stage 0 (metadata only)
+
+Closed the "manual_w1 = not_configured forever" gap before re-running
+Stage 0. Surgical, additive within `stage0_eval.v2` — no schema bump.
+
+**`code/llm_hawaii/evaluate.py`:**
+- New `manual_w1_status(path, *, enabled)` reads the off-git W1 TSV
+  (defaults to `data/evals/manual_w1/w1-haw-micro-eval.tsv`,
+  overridable). Strips `#` comments, validates header against the
+  contract duplicated from `scripts/315_hash_manual_w1_eval.py:HEADER`
+  (kept duplicated on purpose so `evaluate.py` doesn't import a
+  scripts/ module).
+- Stable status enum: `not_configured` (probe disabled) | `missing`
+  (no file) | `invalid` (header mismatch / no header / unreadable) |
+  `draft_only` (parsed but zero accepted rows) | `evaluated`
+  (accepted rows present and metadata-validated).
+- Always emits `scoring_status: "not_wired"` + reason — `evaluated`
+  means metadata-evaluated, NOT task-scored. `accepted_count` is not
+  a benchmark number until row-level scoring lands.
+- Aggregates emitted on accepted rows: `tsv_sha256`,
+  `accepted_count` (= `eval_consumable_count` alias),
+  `review_status_counts`, `accepted_category_counts`,
+  `accepted_diacritic_density_bin_counts`,
+  `nfc_normalized_false_count`. **No raw prompt/reference text** in
+  the report.
+- New CLI: `--manual-w1-tsv PATH`, `--no-manual-w1`. Wired into
+  `evaluate_checkpoint(...)` and `main()`.
+
+**`scripts/run_stage0_eval.sh`:**
+- New env vars: `MANUAL_W1_TSV` (default
+  `data/evals/manual_w1/w1-haw-micro-eval.tsv`), `USE_MANUAL_W1=1`.
+- Passes `--manual-w1-tsv` / `--no-manual-w1` through to evaluate.py
+  and into the recorded `command` field of the tracked summary.
+- Banner reports presence/disabled/missing for W1 TSV before the run.
+
+**`code/README.md` + `docs/eval_pipeline.md` §8.1:** documented the
+status enum, the override knobs, and the explicit
+`scoring_status: not_wired` distinction. `manual_w1` removed from the
+"probes not yet wired" placeholder bullet — it's now wired for
+metadata; row-level scoring is the next assignment.
+
+**Tests (`code/tests/test_evaluate.py`):** 7 new cases under
+`TestManualW1Status` covering each status, the NFC-false counter, and
+a leak check that no raw Hawaiian text reaches the status object.
+
+**Validation:**
+- `python3 -m py_compile code/llm_hawaii/evaluate.py` — clean.
+- `sh -n scripts/run_stage0_eval.sh` — clean.
+- `PYTHONPATH=. python3 -m unittest tests.test_evaluate
+  tests.test_metrics` → **25/25 green** (14 evaluate, 11 metrics).
+- Wrapper `DRY_RUN=1` over five matrices (defaults / W1 disabled /
+  suite off / suite off + W1 disabled / custom TSV + ad-hoc prompt)
+  — line continuations and final-flag rules render correctly with no
+  dangling backslashes.
+
+**Decision inbox:**
+`.squad/decisions/inbox/basher-w1-stage0-status.md`.
+
+**Asks:**
+- Rusty: confirm `data/evals/manual_w1/w1-haw-micro-eval.tsv` is the
+  canonical path; if it moves, bump `DEFAULT_MANUAL_W1_TSV`.
+- Linus: schema diff sanity check — `manual_w1` is now a status-keyed
+  object with stable shape across all five enum values. Aggregator
+  should key on `status` + `accepted_count` + `tsv_sha256`.
+- Coordinator: route the next chunk — wire **row-level model scoring**
+  for W1 (per-row pass/fail per category). That flips
+  `scoring_status` to `wired` and gives Stage 1 a real W1 gate
+  signal. Explicitly out of scope for this PR.
+
+**Lesson:** the `not_configured` placeholder I baked in two iterations
+ago turned out to fight a real status the moment the TSV existed.
+Reserving `not_configured` strictly for the *explicitly disabled*
+path — and inventing `missing` / `draft_only` / `evaluated` for the
+file-driven states — is what lets a downstream diff distinguish "we
+chose not to look" from "we looked and there are zero accepted rows".
+Same lesson as the v2 cleanup: pick one absent-shape and apply it
+uniformly, but don't conflate "probe off" with "probe on, nothing
+there yet".
+
+---
+
+## 2026-04-30 — W1 contract revision (Rusty rejection follow-up)
+
+Rusty rejected the v2 W1 wiring with four blocking gaps; revised in
+place rather than redesigning.
+
+**Changes landed (TSV path only, JSONL-first follow-up flagged):**
+- Added `accepted_item_hashes`: sorted `sha256(NFC(prompt + LF +
+  reference))` for accepted rows. `[]` when no accepted rows.
+- Added `w1_suite_sha256`: sha256 over sorted `(item_id, sha)` pairs
+  encoded `item_id\tsha\n`. `null` when no accepted rows. Verified
+  stable under row reorder; flips on accepted↔draft swap.
+- Added `schema_version_seen`: `"manual-w1-tsv-v1"` on `evaluated` /
+  `draft_only`; `null` elsewhere. Reserves the field for the JSONL
+  switch (which will read `MANUAL_W1_JSONL_SCHEMA_VERSION`).
+- Added strict orthographic gate on accepted rows: `nfc_normalized`
+  field, NFC of prompt/reference, no `U+0304`, no wrong-ʻokina. Any
+  failure flips file to `status=invalid` with `error_count` and
+  `first_errors` (line+field only — no row content).
+
+**Helper-reuse decision:** `scripts/315_hash_manual_w1_eval.py` is the
+canonical hash source but cannot be `import`ed — the filename starts
+with a digit and contains a hyphen, and the module performs CLI-side
+mutating work (ledger updates) on load. I mirrored *only* the exact
+canonical formula into two private helpers in `evaluate.py`, and
+pinned the byte-exact match with a unit test that recomputes the
+SHA inline. Documented in
+`.squad/decisions/inbox/basher-w1-contract-revision.md`.
+
+**Validation:**
+- `python3 -m py_compile code/llm_hawaii/evaluate.py
+  scripts/315_hash_manual_w1_eval.py` → clean.
+- `sh -n scripts/run_stage0_eval.sh` → clean.
+- `PYTHONPATH=. python3 -m unittest tests.test_evaluate
+  tests.test_metrics` → **36/36 green** (+11 from 25).
+- `git diff --check` → clean.
+
+**Lesson:** when a contract has helper-reuse intent but the helper
+lives in a non-importable script, mirror-with-pinned-test beats both
+(a) re-deriving the formula by reading the spec, which drifts, and
+(b) `runpy`-loading a CLI module, which leaks side effects into a
+read-only probe. The pinned test is the single tripwire that catches
+formula drift in either direction.
+
+**Out of scope still:** row-level model scoring (`scoring_status`
+stays `not_wired`); `harness_error` 5th branch; English PPL;
+`hawaiian_ppl_by_source`. Naming drift (`tsv_sha256` vs
+`input_sha256` etc.) deliberately untouched per Rusty's
+non-blocking note.
