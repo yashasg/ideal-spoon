@@ -41,11 +41,12 @@ The skeleton ships separate configs so hardware choices stay explicit:
   pipeline bugs fast. **Numbers from this config are not eval results.**
 - **`configs/stage1_fineweb2_haw.json`** — *general Stage 1 prototype.*
   Defaults to `meta-llama/Llama-3.1-8B`, QLoRA on, the local
-  FineWeb-2 Hawaiian train/dev paths, and the default Stage 1 checkpoint
-  cadence.
+  cleaned multi-source Stage 1 train file
+  (`data/stage1/stage1.jsonl.gz`), the FineWeb-2 Hawaiian dev eval path,
+  and the default Stage 1 checkpoint cadence.
 - **`configs/stage1_fineweb2_haw_kaggle_t4x2.json`** — *Kaggle T4x2
-  prototype iteration.* Uses the same Stage 1 data paths and model as the
-  general config, but switches to `fp16`, disables `bf16`, targets
+  prototype iteration.* Uses the same cleaned Stage 1 data and model as
+  the general config, but switches to `fp16`, disables `bf16`, targets
   `max_seq_len=2048`, and checkpoints/evals more often for interruptible
   free-tier sessions. Treat its numbers as prototype-debug signals, not
   promotion/gate numbers. If Kaggle OOMs, fall back to `max_seq_len=1024`
@@ -128,11 +129,13 @@ Requires HF model access (`huggingface-cli login`) and a GPU. Run from the
 PYTHONPATH=code python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json
 ```
 
-Checkpoints are saved under `runs/llama31-8b-stage1-fw2/`. A
+Checkpoints are saved under `runs/llama31-8b-stage1-multisource/`. A
 `run_report.json` (no raw text; hashes + config + git SHA + timing) is
 written there automatically after training completes.
 
 ### Kaggle T4x2 prototype run
+
+Full setup steps live in `docs/kaggle-t4x2-setup.md`.
 
 Kaggle notebooks need **Internet enabled** before `git clone`, `pip install`,
 or Hugging Face downloads will work. From a fresh notebook shell:
@@ -157,11 +160,18 @@ cd ideal-spoon
 If the repo is private, do not paste a token into a notebook cell. Store it in
 Kaggle Secrets and use that environment secret for GitHub/Hugging Face auth.
 
-The repo clone does **not** include `data/` because it is gitignored. Add the
-data as a Kaggle Dataset or copy it into:
+The repo clone does **not** include `data/` because it is gitignored. Attach
+the data as a private Kaggle Dataset or copy it into:
 
 ```bash
 /kaggle/working/ideal-spoon/data/
+```
+
+The current Kaggle config requires:
+
+```bash
+test -s data/stage1/stage1.jsonl.gz
+test -s data/evals/fineweb2_haw/dev.jsonl
 ```
 
 Then install compute deps into Kaggle's current Python environment and run the
@@ -174,16 +184,16 @@ PYTHONPATH=code python3 -m llm_hawaii.train --config code/configs/stage1_fineweb
 PYTHONPATH=code python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw_kaggle_t4x2.json
 ```
 
-Outputs land under `runs/llama31-8b-stage1-fw2-kaggle-t4x2/` relative to the
-directory where you launch the command. Sync that directory to persistent
-storage before the Kaggle session ends.
+Outputs land under `runs/llama31-8b-stage1-multisource-kaggle-t4x2/`
+relative to the directory where you launch the command. Sync that directory
+to persistent storage before the Kaggle session ends.
 
 ### Resume after interruption
 
 ```bash
 PYTHONPATH=code python3 -m llm_hawaii.train \
     --config code/configs/stage1_fineweb2_haw.json \
-    --resume-from-checkpoint runs/llama31-8b-stage1-fw2/checkpoint-200
+    --resume-from-checkpoint runs/llama31-8b-stage1-multisource/checkpoint-200
 ```
 
 ### Eval immediately after training
@@ -199,8 +209,10 @@ PYTHONPATH=code python3 -m llm_hawaii.train \
 All paths in `.json` configs are **config-relative** (resolved against the
 config file's directory, not `$PWD`). The smoke config uses
 `../examples/train.jsonl.example`; the Stage 1 configs use
-`../../data/stage1/...`. This means the same `--config` flag works
-regardless of whether you run from `repo_root/` or `code/`.
+`../../data/stage1/stage1.jsonl.gz` for training and
+`../../data/evals/fineweb2_haw/dev.jsonl` for eval. This means the same
+`--config` flag works regardless of whether you run from `repo_root/` or
+`code/`.
 
 Output dirs (e.g., `runs/`) are resolved relative to `$PWD` as written in
 the config — keep them as relative paths so they land where you expect.

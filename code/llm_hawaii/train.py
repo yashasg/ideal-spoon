@@ -27,7 +27,7 @@ CWD-relative:
 
     # Resume after interrupted session:
     PYTHONPATH=code python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json \\
-        --resume-from-checkpoint runs/llama31-8b-stage1-fw2/checkpoint-200
+        --resume-from-checkpoint runs/llama31-8b-stage1-multisource/checkpoint-200
 
     # Train then eval immediately after:
     PYTHONPATH=code python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json \\
@@ -384,7 +384,7 @@ def main(argv: list[str] | None = None) -> int:
         metavar="PATH",
         help=(
             "Resume training from a checkpoint directory "
-            "(e.g. runs/llama31-8b-stage1-fw2/checkpoint-200). "
+            "(e.g. runs/llama31-8b-stage1-multisource/checkpoint-200). "
             "Passed directly to Trainer.train(resume_from_checkpoint=...)."
         ),
     )

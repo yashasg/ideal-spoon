@@ -1,4 +1,5 @@
 import itertools
+import gzip
 import json
 import os
 import tempfile
@@ -79,6 +80,15 @@ class TestData(unittest.TestCase):
         finally:
             sparse_file.unlink(missing_ok=True)
 
+    def test_iter_jsonl_gzip(self):
+        """Stage 1 trainer configs point at gzipped JSONL."""
+        with tempfile.TemporaryDirectory() as d:
+            gz_path = Path(d) / "train.jsonl.gz"
+            with gzip.open(gz_path, "wt", encoding="utf-8") as f:
+                f.write('{"text": "a"}\n{"text": "b"}\n')
+            rows = list(data.iter_jsonl(gz_path))
+        self.assertEqual(rows, [{"text": "a"}, {"text": "b"}])
+
     def test_normalize_text(self):
         self.assertEqual(data.normalize_text("ha\u0304lau", form="NFC"), "hālau")  # smoke test; more detailed tests in test_data.py
 
@@ -147,7 +157,7 @@ class TestTrainConfig(unittest.TestCase):
             self._repo_root() / "code" / "configs" / "llama31_8b_a100.json"
         )
         self.assertEqual(cfg.stage, "stage1-cpt")
-        self.assertIn("fineweb2_haw/train.jsonl", cfg.train_path)
+        self.assertIn("stage1/stage1.jsonl.gz", cfg.train_path)
         self.assertIsNotNone(cfg.eval_path)
         self.assertIn("fineweb2_haw/dev.jsonl", cfg.eval_path)
 
@@ -159,7 +169,7 @@ class TestTrainConfig(unittest.TestCase):
             cfg.train_path.startswith("/"),
             f"Expected absolute train_path, got: {cfg.train_path}",
         )
-        self.assertIn("fineweb2_haw/train.jsonl", cfg.train_path)
+        self.assertIn("stage1/stage1.jsonl.gz", cfg.train_path)
         self.assertIn("fineweb2_haw/dev.jsonl", cfg.eval_path)
 
     def test_unknown_key_raises(self):

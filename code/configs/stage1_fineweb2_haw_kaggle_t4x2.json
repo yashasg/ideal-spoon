@@ -3,7 +3,7 @@
   "tokenizer_name": null,
   "unicode_normalization": "NFC",
 
-  "train_path": "../../data/stage1/fineweb2_haw/train.jsonl",
+  "train_path": "../../data/stage1/stage1.jsonl.gz",
   "eval_path": "../../data/evals/fineweb2_haw/dev.jsonl",
   "text_field": "text",
   "max_seq_len": 2048,
@@ -26,7 +26,7 @@
   "fp16": true,
   "seed": 7,
 
-  "output_dir": "runs/llama31-8b-stage1-fw2-kaggle-t4x2",
+  "output_dir": "runs/llama31-8b-stage1-multisource-kaggle-t4x2",
   "logging_steps": 10,
   "save_steps": 100,
   "eval_steps": 100,
@@ -34,16 +34,16 @@
 
   "stage": "stage1-cpt",
   "hardware_profile": "kaggle-t4x2-fp16-qlora",
-  "run_name": "llama31-8b-stage1-fw2-kaggle-t4x2-prototype",
+  "run_name": "llama31-8b-stage1-multisource-kaggle-t4x2-prototype",
   "notes": {
-    "purpose": "Kaggle free-tier prototype iteration for Llama-3.1-8B + QLoRA on T4x2. Not a gate-number or release artifact environment.",
+    "purpose": "Kaggle free-tier prototype iteration for Llama-3.1-8B + QLoRA on T4x2 using the cleaned multi-source Stage 1 corpus. Not a gate-number or release artifact environment.",
     "hardware": "T4x2: two discrete T4 GPUs, 16GB each. device_map='auto' makes the 8B model span both (~32GB total addressable). This config is tuned to exploit that full 32GB budget.",
     "device_placement": "device_map='auto' is single-process model sharding across both GPUs — NOT data-parallel DDP. Only one process runs; model layers are spread to fit in the combined ~32GB. QLoRA+bitsandbytes 4-bit cannot use DDP (bnb.nn.Linear4bit breaks DDP gradient gathering). Do NOT use accelerate launch or torchrun with this config.",
     "dtype": "T4 is Turing-class (sm_75): fp16=true, bf16=false. bfloat16 is not supported on T4. If running on A100/L40S, use the A100/general Stage 1 config instead.",
     "memory": "max_seq_len=2048 exploits the full ~32GB addressable across both T4s. gradient_accumulation_steps=16 with seq_len=2048 keeps the same ~32K tokens per gradient update as the prior (seq_len=1024, steps=32) conservative config, but with better context coverage and fewer accumulation micro-steps per update.",
     "checkpointing": "save_steps/eval_steps=100 so interrupted Kaggle sessions lose less work. Sync runs/ to persistent storage or a private HF repo before the notebook ends.",
-    "path_note": "Paths are config-relative for train/eval data. After cloning on Kaggle, copy or mount the off-git data/ tree under /kaggle/working/ideal-spoon/data before preflight.",
-    "resume": "If interrupted from repo root: PYTHONPATH=code python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw_kaggle_t4x2.json --resume-from-checkpoint runs/llama31-8b-stage1-fw2-kaggle-t4x2/checkpoint-NNN",
+    "path_note": "Paths are config-relative for train/eval data. After cloning on Kaggle, copy or mount the off-git data/ tree under /kaggle/working/ideal-spoon/data before preflight. Required files: data/stage1/stage1.jsonl.gz and data/evals/fineweb2_haw/dev.jsonl.",
+    "resume": "If interrupted from repo root: PYTHONPATH=code python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw_kaggle_t4x2.json --resume-from-checkpoint runs/llama31-8b-stage1-multisource-kaggle-t4x2/checkpoint-NNN",
     "oom_fallback": "If Kaggle OOMs: (1) reduce max_seq_len back to 1024 and gradient_accumulation_steps back to 32 (original conservative baseline); (2) if still OOM, reduce lora_rank to 16/lora_alpha to 32; (3) for a quick plumbing test only, try max_seq_len=512. Record the config diff in the run report."
   }
 }

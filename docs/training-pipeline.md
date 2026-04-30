@@ -165,7 +165,10 @@ Continued pretraining on Hawaiian monolingual text. Causal-LM objective, **no in
 The repo also includes
 `code/configs/stage1_fineweb2_haw_kaggle_t4x2.json` for free-tier Kaggle
 prototype iteration when the goal is to shake out the real 8B QLoRA mechanics
-before paying for a stable GPU block. It is intentionally T4x2-tuned
+before paying for a stable GPU block. It trains on the cleaned multi-source
+Stage 1 JSONL (`data/stage1/stage1.jsonl.gz`: FineWeb-2 + hawwiki +
+hawwikisource) with the FineWeb-2 Hawaiian dev split for eval. It is
+intentionally T4x2-tuned
 (`fp16=true`, `bf16=false`, `max_seq_len=2048`,
 `gradient_accumulation_steps=16`, per-device batch 1, gradient checkpointing
 on, frequent checkpoints). If Kaggle OOMs, fall back to `max_seq_len=1024`

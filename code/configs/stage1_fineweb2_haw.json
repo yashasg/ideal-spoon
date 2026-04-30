@@ -3,7 +3,7 @@
   "tokenizer_name": null,
   "unicode_normalization": "NFC",
 
-  "train_path": "../../data/stage1/fineweb2_haw/train.jsonl",
+  "train_path": "../../data/stage1/stage1.jsonl.gz",
   "eval_path": "../../data/evals/fineweb2_haw/dev.jsonl",
   "text_field": "text",
   "max_seq_len": 2048,
@@ -26,7 +26,7 @@
   "fp16": false,
   "seed": 7,
 
-  "output_dir": "runs/llama31-8b-stage1-fw2",
+  "output_dir": "runs/llama31-8b-stage1-multisource",
   "logging_steps": 10,
   "save_steps": 200,
   "eval_steps": 200,
@@ -34,14 +34,14 @@
 
   "stage": "stage1-cpt",
   "hardware_profile": "a100-40gb-single",
-  "run_name": "llama31-8b-stage1-fw2",
+  "run_name": "llama31-8b-stage1-multisource",
   "notes": {
-    "purpose": "Stage 1 CPT on local FineWeb-2 haw_Latn slice. Prototype-only. Not a release artifact.",
+    "purpose": "Stage 1 CPT on the cleaned multi-source Hawaiian prototype corpus. Prototype-only. Not a release artifact.",
     "hardware": "Tuned for 1x A100 40GB. bf16 requires Ampere+; A100 qualifies. L40S also viable — confirm bitsandbytes CUDA kernel compat before use.",
     "gate": "Requires HF access to meta-llama/Llama-3.1-8B. Run --preflight before spending GPU time.",
-    "data": "train.jsonl: 95507 rows, FineWeb-2 haw_Latn, deduped, prototype_only=True, release_eligible=False. Off-git under data/stage1/fineweb2_haw/.",
+    "data": "stage1.jsonl.gz: 81117 train-only cleaned rows (~44.1M whitespace tokens): FineWeb-2 79812 rows, hawwiki 1163 rows, hawwikisource 142 rows. Prototype-only and off-git under data/stage1/.",
     "eval_data": "dev.jsonl: 621 rows, FineWeb-2 haw_Latn dev split, prototype_only=True. Off-git under data/evals/fineweb2_haw/.",
     "path_note": "Paths are config-relative (relative to this file's directory). Run from repo root or code/: python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json",
-    "resume": "If session interrupted: python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json --resume-from-checkpoint runs/llama31-8b-stage1-fw2/checkpoint-NNN"
+    "resume": "If session interrupted: python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json --resume-from-checkpoint runs/llama31-8b-stage1-multisource/checkpoint-NNN"
   }
 }
