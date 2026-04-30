@@ -50,6 +50,14 @@ from typing import Any, Optional
 from .config import TrainConfig, load_config
 
 
+def _signature_parameters(obj: Any) -> dict[str, inspect.Parameter]:
+    """Return callable/class signature parameters across wrapped APIs."""
+    try:
+        return dict(inspect.signature(obj).parameters)
+    except (TypeError, ValueError):
+        return dict(inspect.signature(obj.__init__).parameters)
+
+
 def _require(pkg: str, install_hint: str) -> Any:
     try:
         return __import__(pkg)
@@ -238,14 +246,7 @@ def write_run_report(
 def build_training_args(cfg: TrainConfig, has_eval: bool = False):
     transformers = _require("transformers", "pip install transformers")
     eval_strategy = "steps" if (has_eval and cfg.eval_steps) else "no"
-    try:
-        training_args_params = inspect.signature(
-            transformers.TrainingArguments
-        ).parameters
-    except (TypeError, ValueError):
-        training_args_params = inspect.signature(
-            transformers.TrainingArguments.__init__
-        ).parameters
+    training_args_params = _signature_parameters(transformers.TrainingArguments)
     if "eval_strategy" in training_args_params:
         eval_strategy_key = "eval_strategy"
     elif "evaluation_strategy" in training_args_params:
@@ -277,6 +278,37 @@ def build_training_args(cfg: TrainConfig, has_eval: bool = False):
     if has_eval and cfg.eval_steps:
         kwargs["eval_steps"] = cfg.eval_steps
     return transformers.TrainingArguments(**kwargs)
+
+
+def build_trainer_kwargs(
+    transformers: Any,
+    *,
+    model: Any,
+    args: Any,
+    train_dataset: Any,
+    eval_dataset: Any,
+    data_collator: Any,
+    tokenizer: Any,
+) -> dict[str, Any]:
+    """Build Trainer kwargs across transformers tokenizer API changes."""
+    trainer_params = _signature_parameters(transformers.Trainer)
+    kwargs: dict[str, Any] = dict(
+        model=model,
+        args=args,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+        data_collator=data_collator,
+    )
+    if "processing_class" in trainer_params:
+        kwargs["processing_class"] = tokenizer
+    elif "tokenizer" in trainer_params:
+        kwargs["tokenizer"] = tokenizer
+    else:
+        raise RuntimeError(
+            "Unsupported transformers.Trainer signature: expected "
+            "'processing_class' or 'tokenizer'."
+        )
+    return kwargs
 
 
 def run_training(
@@ -333,7 +365,8 @@ def run_training(
 
     # 3. TrainingArguments + Trainer.
     args = build_training_args(cfg, has_eval=(eval_records is not None))
-    trainer = transformers.Trainer(
+    trainer_kwargs = build_trainer_kwargs(
+        transformers,
         model=model,
         args=args,
         train_dataset=train_records,
@@ -341,6 +374,7 @@ def run_training(
         data_collator=collator,
         tokenizer=tokenizer,
     )
+    trainer = transformers.Trainer(**trainer_kwargs)
 
     # 4. Persist the resolved config next to the checkpoints — every run
     #    must be reproducible from its output dir alone.

@@ -295,6 +295,76 @@ class TestTrainingArgumentsCompatibility(unittest.TestCase):
         self.assertNotIn("eval_strategy", args.kwargs)
 
 
+class TestTrainerCompatibility(unittest.TestCase):
+    """Trainer tokenizer arg changed across transformers versions."""
+
+    def test_new_processing_class_keyword_is_used_when_supported(self):
+        import types
+
+        from llm_hawaii.train import build_trainer_kwargs
+
+        class FakeTrainer:
+            def __init__(
+                self,
+                model=None,
+                args=None,
+                train_dataset=None,
+                eval_dataset=None,
+                data_collator=None,
+                processing_class=None,
+            ):
+                pass
+
+        tokenizer = object()
+        fake_transformers = types.SimpleNamespace(Trainer=FakeTrainer)
+
+        kwargs = build_trainer_kwargs(
+            fake_transformers,
+            model="model",
+            args="args",
+            train_dataset=["train"],
+            eval_dataset=["eval"],
+            data_collator="collator",
+            tokenizer=tokenizer,
+        )
+
+        self.assertIs(kwargs["processing_class"], tokenizer)
+        self.assertNotIn("tokenizer", kwargs)
+
+    def test_legacy_tokenizer_keyword_is_used_when_supported(self):
+        import types
+
+        from llm_hawaii.train import build_trainer_kwargs
+
+        class FakeTrainer:
+            def __init__(
+                self,
+                model=None,
+                args=None,
+                train_dataset=None,
+                eval_dataset=None,
+                data_collator=None,
+                tokenizer=None,
+            ):
+                pass
+
+        tokenizer = object()
+        fake_transformers = types.SimpleNamespace(Trainer=FakeTrainer)
+
+        kwargs = build_trainer_kwargs(
+            fake_transformers,
+            model="model",
+            args="args",
+            train_dataset=["train"],
+            eval_dataset=None,
+            data_collator="collator",
+            tokenizer=tokenizer,
+        )
+
+        self.assertIs(kwargs["tokenizer"], tokenizer)
+        self.assertNotIn("processing_class", kwargs)
+
+
 class TestResumeFlagWiring(unittest.TestCase):
     """CLI flags are parsed and routed without running actual training."""
 
