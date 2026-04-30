@@ -120,7 +120,8 @@ It defaults to `meta-llama/Llama-3.1-8B` and
 ignored `data/eval_runs/stage0/`, while a small hash-only summary is written
 under tracked `docs/eval-runs/stage0/` for GitHub. The wrapper accepts
 `CHECKPOINT=...`, `EVAL_FILE=...`, `PROMPT=...`, `USE_SUITE=...`,
-`OUTPUT_DIR=...`, and `SUMMARY_DIR=...` overrides.
+`MANUAL_W1_JSONL=...`, `USE_MANUAL_W1=...`, `HUMAN_FETCH_JSONL=...`,
+`USE_HUMAN_FETCH=...`, `OUTPUT_DIR=...`, and `SUMMARY_DIR=...` overrides.
 
 ### Stage 0 drift signal bundle (schema `stage0_eval.v2`)
 
@@ -155,12 +156,90 @@ fairly without leaking raw text into git:
   `combining_macron_nonzero`, `kahako_collapse_on_high_diacritic`,
   `generation_count`, `prompt_suite_sha256`, `prompt_suite_id`. Any
   non-zero/true tripwire on a Stage 1 checkpoint is a regression flag.
-- **Probes not yet wired**: `metrics.english_ppl`,
-  `metrics.manual_w1`, and `metrics.hawaiian_ppl_by_source` are emitted
-  with `status: "not_configured"` and a reason string instead of being
+- **Probes not yet wired**: `metrics.english_ppl` and
+  `metrics.hawaiian_ppl_by_source` are emitted with
+  `status: "not_configured"` and a reason string instead of being
   silently absent. The Stage 1 gate's English-forgetting check
   (`docs/training-pipeline.md` §2.4) reads this field — when it lands,
   flip the status. Do not pretend they ran.
+- **W1 manual micro-eval status** (`metrics.manual_w1`): metadata-only
+  probe driven by the local off-git **JSONL** at
+  `data/evals/manual_w1/w1-haw-micro-eval.jsonl` (override with
+  `--manual-w1-jsonl` / `MANUAL_W1_JSONL=...`; disable with
+  `--no-manual-w1` / `USE_MANUAL_W1=0`). Stage 0 W1 input is
+  JSONL-only per the user directive
+  (`.squad/decisions/inbox/copilot-directive-20260430T081137Z.md`);
+  the TSV remains the local authoring/source format consumed by
+  `scripts/315_hash_manual_w1_eval.py`, which emits the JSONL eval
+  artifact via `python3 scripts/315_hash_manual_w1_eval.py --execute --jsonl-only`.
+  Stable status enum: `not_configured` (probe disabled), `missing`
+  (JSONL absent), `invalid` (malformed JSONL or **accepted-row
+  orthographic failure**: `nfc_normalized != true`, non-NFC
+  prompt/reference/text, wrong-ʻokina codepoint, or U+0304 combining
+  macron on any `review_status=accepted` row), `draft_only` (no
+  `review_status=accepted` rows — drafts are **never** reportable as
+  eval results), `evaluated` (accepted rows present and validated).
+  Emits `jsonl_sha256`, `jsonl_size_bytes`, `row_count`,
+  `review_status_counts`, `accepted_count` (=
+  `eval_consumable_count`), `accepted_category_counts`,
+  `accepted_diacritic_density_bin_counts`, and
+  `nfc_normalized_false_count`. On the `evaluated` path also emits
+  `accepted_item_hashes` (sorted; uses each row's
+  `sha256_normalized` when present, else canonical
+  `sha256(NFC(prompt) + LF + NFC(reference))` matching
+  `scripts/315_hash_manual_w1_eval.py:compute_hash`),
+  `w1_suite_sha256` (sha256 over sorted
+  `(item_id, sha256_normalized)` pairs of accepted rows; stable
+  under row reorder; flips when the *accepted* set churns even if
+  the file SHA is unchanged), and `schema_version_seen =
+  "manual-w1-jsonl-v1"`. On the `invalid` accepted-row-orthographic
+  branch the report carries `error_count` plus `first_errors`
+  containing only `line N: <field> <category>` text — never row
+  contents. Raw prompts/references/notes/author text never enter
+  the report. `scoring_status: "not_wired"` is always set: this
+  probe validates W1 metadata, **not** task accuracy. Once
+  row-level model-scoring lands, flip `scoring_status` and add the
+  per-row pass/fail summary alongside.
+- **human_fetch bidirectional translation probe**
+  (`metrics.human_fetch_translation`): **prototype/learning checkpoint
+  eval probe** present on *every* checkpoint eval, including the Stage 0
+  no-training baseline. Reads the local off-git JSONL at
+  `data/tokenizer_audit/ulukau_nupepa/human_fetch.jsonl` (the single
+  English + Hawaiian parallel pair from the Ulukau institutional landing
+  page); override with `--human-fetch-jsonl` / `HUMAN_FETCH_JSONL=...`;
+  disable with `--no-human-fetch` / `USE_HUMAN_FETCH=0`. Regenerate
+  the JSONL with `python3 scripts/_convert_ulukau_human_fetch.py`.
+  Status enum: `not_configured` (disabled), `missing` (JSONL absent —
+  safe to miss, never blocks the eval), `invalid` (parse/lang-pair
+  error), `ready` (pair parsed, no model provided), `evaluated`
+  (greedy generation run for both en→haw and haw→en). On `evaluated`,
+  both direction dicts carry `prompt_sha256`, `generation_sha256`,
+  `reference_sha256`, and a **baseline char-bigram F1 score**
+  (`metric = "char_ngram_f1_baseline"`, `ngram_order = 2`) with
+  `char_f1`, `char_precision`, `char_recall`. Directions are **always
+  kept separate** — en→haw and haw→en are never averaged into one
+  number. The probe is `eval_eligible = True`,
+  `training_eligible = False`. Raw source, reference, and generation
+  text never enter the report; only hashes and numeric metrics. Purpose:
+  gauge zero-training (Stage 0) translation baseline and track drift
+  across checkpoints so asymmetric direction collapse is visible early.
+- **Stage 0 CLI exit code.** `python -m llm_hawaii.evaluate` writes
+  the report JSON first, then exits **2** when `manual_w1.status ==
+  "invalid"` (orthographic contract violation on accepted rows or a
+  malformed W1 JSONL). All other states exit 0.
+  `scripts/run_stage0_eval.sh` still writes the tracked summary
+  projection in this case (so the failing artifact is inspectable),
+  then propagates the non-zero exit so a bad W1 input cannot land as
+  a green Stage 0 run.
+- **W1 expert-validated source directive.** The trusted source for
+  W1 expert-validated Hawaiian rows is the raw file at
+  `data/raw/ulukau_nupepa/human_fetch.txt` (sectioned `# English` /
+  `# Hawaiian`; use the Hawaiian section only). The converter
+  `scripts/_convert_ulukau_human_fetch.py` informs
+  parsing/normalization but is **not** the source of truth itself.
+  Populated W1 TSVs derived from this source remain off-git under
+  the `data/` ignore rule per
+  `data-sources/manual-eval/README.md`.
 
 The fixed prompt suite is frozen by `PROMPT_SUITE_ID` /
 `prompt_suite_sha256`. Editing prompts in place breaks

@@ -1,7 +1,11 @@
-"""One-shot local converter: ulukau_nupepa/human_fetch.md -> tokenizer-audit candidate.
+"""One-shot local converter: ulukau_nupepa/human_fetch.txt -> tokenizer-audit candidate.
 
-Additive, audit-only. Does NOT produce W1/eval/training data. Output paths live
-under ignored data/tokenizer_audit/. Run from repo root:
+Additive, audit-only. Does NOT produce W1/eval/training data on its own —
+this is the *parser/normalizer*, not the source of truth. The trusted
+expert-validated source for W1 Hawaiian rows is the raw file at
+``data/raw/ulukau_nupepa/human_fetch.txt`` (sectioned ``# English`` /
+``# Hawaiian``). Output paths live under ignored ``data/tokenizer_audit/``.
+Run from repo root:
 
     python3 scripts/_convert_ulukau_human_fetch.py
 """
@@ -14,11 +18,16 @@ import unicodedata
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-SRC = REPO / "data/raw/ulukau_nupepa/human_fetch.md"
+SRC = REPO / "data/raw/ulukau_nupepa/human_fetch.txt"
 OUT_DIR = REPO / "data/tokenizer_audit/ulukau_nupepa"
 JSONL = OUT_DIR / "human_fetch.jsonl"
 HAW_TXT = OUT_DIR / "human_fetch.haw.txt"
 ALL_TXT = OUT_DIR / "human_fetch.txt"
+
+# Source path recorded in every output record (relative to repo root).
+# Kept as a constant so regenerating the JSONL always writes the correct
+# path, regardless of how or when the converter is run.
+SOURCE_PATH_FIELD = "data/raw/ulukau_nupepa/human_fetch.txt"
 
 OKINA = "\u02bb"
 OKINA_VARIANTS = ["\u2018", "\u2019", "\u02bc", "`"]
@@ -86,7 +95,7 @@ def main() -> None:
             "lang": sec["lang"],
             "text": text,
             "source": "ulukau_nupepa",
-            "source_path": "data/raw/ulukau_nupepa/human_fetch.md",
+            "source_path": SOURCE_PATH_FIELD,
             "provenance": {
                 "site": "Ulukau / Nupepa Hawaiian newspapers collection landing copy",
                 "fetch_method": "human_fetch (manual paste)",
@@ -99,13 +108,20 @@ def main() -> None:
                 "speakers (institutional landing page); treat as plausible-quality, "
                 "NOT verified. English paragraph is parallel context only."
             ),
-            "audit_use": "tokenizer_audit_candidate",
+            # audit_use covers both the tokenizer audit and the bidirectional
+            # translation probe (en→haw, haw→en) used for checkpoint drift evals.
+            "audit_use": "tokenizer_audit_candidate,translation_probe",
             "policy": {
-                "audit_only": True,
+                "audit_only": False,
                 "stage1_eligible": False,
-                "eval_eligible": False,
+                # eval_eligible: True — this pair is the trusted local source for
+                # the human_fetch bidirectional translation probe, measuring
+                # no-training baseline and drift over checkpoints.
+                # It is NEVER training-eligible (see training_eligible below).
+                "eval_eligible": True,
                 "training_eligible": False,
                 "w1_eligible": False,
+                "translation_probe_eligible": True,
             },
             "normalization": {
                 "form": "NFC",

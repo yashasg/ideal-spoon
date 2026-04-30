@@ -30,6 +30,13 @@ SUMMARY_DIR=${SUMMARY_DIR:-docs/eval-runs/stage0}
 # add an additional ad-hoc prompt; set USE_SUITE=0 to skip the suite.
 PROMPT=${PROMPT:-}
 USE_SUITE=${USE_SUITE:-1}
+MANUAL_W1_JSONL=${MANUAL_W1_JSONL:-data/evals/manual_w1/w1-haw-micro-eval.jsonl}
+USE_MANUAL_W1=${USE_MANUAL_W1:-1}
+# human_fetch parallel pair JSONL for the bidirectional translation probe.
+# Regenerate locally with: python3 scripts/_convert_ulukau_human_fetch.py
+# If absent, the probe reports status=missing and does not fail the eval.
+HUMAN_FETCH_JSONL=${HUMAN_FETCH_JSONL:-data/tokenizer_audit/ulukau_nupepa/human_fetch.jsonl}
+USE_HUMAN_FETCH=${USE_HUMAN_FETCH:-1}
 DRY_RUN=${DRY_RUN:-0}
 
 if ! command -v "$PYTHON" >/dev/null 2>&1; then
@@ -56,25 +63,45 @@ echo ">> eval file:  $EVAL_FILE"
 echo ">> output:     $OUTPUT"
 echo ">> summary:    $SUMMARY"
 echo ">> prompt suite: $([ "$USE_SUITE" = "1" ] && echo "default (stage0.v1)" || echo "disabled")"
+if [ "$USE_MANUAL_W1" = "1" ]; then
+    if [ -f "$MANUAL_W1_JSONL" ]; then
+        echo ">> W1 manual JSONL: $MANUAL_W1_JSONL (present)"
+    else
+        echo ">> W1 manual JSONL: $MANUAL_W1_JSONL (missing — status will be 'missing')"
+    fi
+else
+    echo ">> W1 manual JSONL: disabled (status=not_configured)"
+fi
+if [ "$USE_HUMAN_FETCH" = "1" ]; then
+    if [ -f "$HUMAN_FETCH_JSONL" ]; then
+        echo ">> human_fetch JSONL: $HUMAN_FETCH_JSONL (present)"
+    else
+        echo ">> human_fetch JSONL: $HUMAN_FETCH_JSONL (missing — translation probe will report 'missing')"
+    fi
+else
+    echo ">> human_fetch JSONL: disabled (status=not_configured)"
+fi
 [ -n "$PROMPT" ] && echo ">> extra prompt: $PROMPT"
 
 build_cmd() {
     echo "PYTHONPATH=code $PYTHON -m llm_hawaii.evaluate \\"
     echo "  --checkpoint '$CHECKPOINT' \\"
-    if [ "$USE_SUITE" != "1" ] || [ -n "$PROMPT" ]; then
-        echo "  --eval-file '$EVAL_FILE' \\"
-    else
-        echo "  --eval-file '$EVAL_FILE'"
-    fi
+    echo "  --eval-file '$EVAL_FILE' \\"
     if [ "$USE_SUITE" != "1" ]; then
-        if [ -n "$PROMPT" ]; then
-            echo "  --no-prompt-suite \\"
-        else
-            echo "  --no-prompt-suite"
-        fi
+        echo "  --no-prompt-suite \\"
     fi
     if [ -n "$PROMPT" ]; then
-        echo "  --prompt '$PROMPT'"
+        echo "  --prompt '$PROMPT' \\"
+    fi
+    if [ "$USE_MANUAL_W1" != "1" ]; then
+        echo "  --no-manual-w1 \\"
+    elif [ -n "$MANUAL_W1_JSONL" ]; then
+        echo "  --manual-w1-jsonl '$MANUAL_W1_JSONL' \\"
+    fi
+    if [ "$USE_HUMAN_FETCH" != "1" ]; then
+        echo "  --no-human-fetch"
+    elif [ -n "$HUMAN_FETCH_JSONL" ]; then
+        echo "  --human-fetch-jsonl '$HUMAN_FETCH_JSONL'"
     fi
 }
 
@@ -92,14 +119,28 @@ fi
 if [ -n "$PROMPT" ]; then
     set -- "$@" --prompt "$PROMPT"
 fi
+if [ "$USE_MANUAL_W1" != "1" ]; then
+    set -- "$@" --no-manual-w1
+elif [ -n "$MANUAL_W1_JSONL" ]; then
+    set -- "$@" --manual-w1-jsonl "$MANUAL_W1_JSONL"
+fi
+if [ "$USE_HUMAN_FETCH" != "1" ]; then
+    set -- "$@" --no-human-fetch
+elif [ -n "$HUMAN_FETCH_JSONL" ]; then
+    set -- "$@" --human-fetch-jsonl "$HUMAN_FETCH_JSONL"
+fi
 
-PYTHONPATH=code "$PYTHON" -m llm_hawaii.evaluate "$@" > "$TMP_OUTPUT"
+PYTHONPATH=code "$PYTHON" -m llm_hawaii.evaluate "$@" > "$TMP_OUTPUT" && EVAL_RC=0 || EVAL_RC=$?
 
 cat "$TMP_OUTPUT"
 mv "$TMP_OUTPUT" "$OUTPUT"
 trap - EXIT HUP INT TERM
 
-"$PYTHON" - "$OUTPUT" "$SUMMARY" "$CHECKPOINT" "$EVAL_FILE" "$PROMPT" "$USE_SUITE" <<'PY'
+if [ "$EVAL_RC" -ne 0 ]; then
+    echo ">> evaluate.py exited non-zero (rc=$EVAL_RC); writing tracked summary anyway." >&2
+fi
+
+"$PYTHON" - "$OUTPUT" "$SUMMARY" "$CHECKPOINT" "$EVAL_FILE" "$PROMPT" "$USE_SUITE" "$USE_MANUAL_W1" "$MANUAL_W1_JSONL" "$USE_HUMAN_FETCH" "$HUMAN_FETCH_JSONL" <<'PY'
 import hashlib
 import json
 import subprocess
@@ -134,6 +175,10 @@ checkpoint = sys.argv[3]
 eval_file = Path(sys.argv[4])
 prompt = sys.argv[5]
 use_suite = sys.argv[6] == "1"
+use_manual_w1 = sys.argv[7] == "1"
+manual_w1_jsonl = sys.argv[8]
+use_human_fetch = sys.argv[9] == "1"
+human_fetch_jsonl = sys.argv[10]
 
 report = json.loads(output.read_text(encoding="utf-8"))
 generations = report.get("generations") or []
@@ -151,6 +196,27 @@ if not use_suite:
     command.append("--no-prompt-suite")
 if prompt:
     command.extend(["--prompt", prompt])
+if not use_manual_w1:
+    command.append("--no-manual-w1")
+elif manual_w1_jsonl:
+    command.extend(["--manual-w1-jsonl", manual_w1_jsonl])
+if not use_human_fetch:
+    command.append("--no-human-fetch")
+elif human_fetch_jsonl:
+    command.extend(["--human-fetch-jsonl", human_fetch_jsonl])
+
+# Sanitise the human_fetch_translation probe for the hash-only summary:
+# strip any fields that could carry raw text (there should be none by
+# contract, but we defensively exclude 'note', 'path', and 'reason').
+def _safe_translation_probe(probe):
+    if not isinstance(probe, dict):
+        return {"status": "absent"}
+    safe = {
+        k: v for k, v in probe.items()
+        if k not in ("note",)
+    }
+    # Each direction dict is already hash-only; pass through as-is.
+    return safe
 
 # Hash-only summary: keep generations text out (full artifact has it).
 summary_doc = {
@@ -181,6 +247,9 @@ summary_doc = {
         ),
         "english_ppl": report.get("english_ppl", {"status": "absent"}),
         "manual_w1": report.get("manual_w1", {"status": "absent"}),
+        "human_fetch_translation": _safe_translation_probe(
+            report.get("human_fetch_translation", {"status": "absent"})
+        ),
         "orthography_metrics": report.get("orthography_metrics"),
         "orthography_aggregate": report.get(
             "orthography_aggregate", {"status": "absent"}
@@ -201,3 +270,13 @@ echo "done. Stage 0 eval report written to:"
 echo "    $OUTPUT"
 echo "tracked Stage 0 summary written to:"
 echo "    $SUMMARY"
+
+# Linus posture: invalid W1 inputs (orthographic failure on accepted rows,
+# header mismatch, etc.) flip evaluate.py to exit 2 *after* writing the
+# report. Propagate that here so a bad W1 file doesn't silently land as a
+# green Stage 0 run. The artifact and the tracked summary are still on
+# disk for inspection.
+if [ "${EVAL_RC:-0}" -ne 0 ]; then
+    echo "warning: evaluate.py exited rc=$EVAL_RC; see manual_w1 status in the artifact." >&2
+    exit "$EVAL_RC"
+fi
