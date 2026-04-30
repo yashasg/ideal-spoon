@@ -162,6 +162,25 @@ Continued pretraining on Hawaiian monolingual text. Causal-LM objective, **no in
 | **7B/8B Stage 1 CPT** | **Provider 2 paid stable block** — one vendor/GPU class, L4 / A10 / A100 / 4090-class (SM ≥80). T4/P100 free tiers are smoke-only, not gate-number environments. |
 | Stage 1 → fp16 merge sanity-check | Same Provider 2 environment; CPU merge is acceptable only with matching env lock, base SHA, and tokenizer SHA. |
 
+The repo also includes
+`code/configs/stage1_fineweb2_haw_kaggle_t4x2.json` for free-tier Kaggle
+prototype iteration when the goal is to shake out the real 8B QLoRA mechanics
+before paying for a stable GPU block. It is intentionally T4x2-tuned
+(`fp16=true`, `bf16=false`, `max_seq_len=2048`,
+`gradient_accumulation_steps=16`, per-device batch 1, gradient checkpointing
+on, frequent checkpoints). If Kaggle OOMs, fall back to `max_seq_len=1024`
+and `gradient_accumulation_steps=32`. Treat metrics from that profile as debug
+signals; they do not replace the Provider-2-class gate numbers above.
+
+> **Kaggle T4x2 — `device_map="auto"` is model placement, not data parallel.**
+> The current Kaggle command (`python -m llm_hawaii.train`) runs a single
+> process with `device_map="auto"`, which is Hugging Face big-model inference
+> sharding across the two T4s. Only one process runs; you do **not** get
+> data-parallel throughput from the second GPU. True DDP would require
+> removing `device_map="auto"`, loading the model per-rank, and launching with
+> `torchrun --nproc_per_node=2` or `accelerate launch`. That is a separate
+> experiment and not wired here.
+
 Stage 1 dominates wallclock. If only one stage fits in budget, **Stage 1 must run on the 7B**.
 
 ### 2.4 Stage 1 evaluation gate (go / no-go)

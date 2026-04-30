@@ -29,16 +29,33 @@ def _require(pkg: str, install_hint: str) -> Any:
         ) from e
 
 
-def _bnb_4bit_config():
-    """4-bit NF4 + double-quant config (project default for QLoRA)."""
+def _bnb_compute_dtype_name(bf16: bool, fp16: bool) -> str:
+    """Return the torch dtype name for bnb_4bit_compute_dtype based on TrainConfig flags.
+
+    Priority: bf16 > fp16 > float32. Pure Python — no torch import needed.
+    """
+    if bf16:
+        return "bfloat16"
+    if fp16:
+        return "float16"
+    return "float32"
+
+
+def _bnb_4bit_config(bf16: bool = False, fp16: bool = False):
+    """4-bit NF4 + double-quant config (project default for QLoRA).
+
+    compute_dtype follows TrainConfig: bf16 → bfloat16, fp16 → float16,
+    else float32. Pass the same bf16/fp16 flags you set in TrainConfig.
+    """
     transformers = _require("transformers", "pip install transformers")
     _require("bitsandbytes", "pip install bitsandbytes")
     torch = _require("torch", "pip install torch")
+    compute_dtype = getattr(torch, _bnb_compute_dtype_name(bf16, fp16))
     return transformers.BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
         bnb_4bit_use_double_quant=True,
-        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_compute_dtype=compute_dtype,
     )
 
 
@@ -46,6 +63,8 @@ def load_base_model(
     base_model: str,
     use_qlora: bool = True,
     gradient_checkpointing: bool = True,
+    bf16: bool = False,
+    fp16: bool = False,
 ):
     """Load the causal-LM base.
 
@@ -56,7 +75,7 @@ def load_base_model(
     transformers = _require("transformers", "pip install transformers")
     kwargs: dict = {}
     if use_qlora:
-        kwargs["quantization_config"] = _bnb_4bit_config()
+        kwargs["quantization_config"] = _bnb_4bit_config(bf16=bf16, fp16=fp16)
         kwargs["device_map"] = "auto"
     model = transformers.AutoModelForCausalLM.from_pretrained(base_model, **kwargs)
 
@@ -110,6 +129,8 @@ def build_model_and_tokenizer(cfg) -> Tuple[Any, Any]:
         cfg.base_model,
         use_qlora=cfg.use_qlora,
         gradient_checkpointing=cfg.gradient_checkpointing,
+        bf16=cfg.bf16,
+        fp16=cfg.fp16,
     )
     model = attach_lora(
         model,

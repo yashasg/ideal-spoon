@@ -12,24 +12,25 @@ Skeleton uses `transformers.Trainer` because it gives you checkpointing, LR
 scheduling, logging, and resume-from-checkpoint for free. Roll your own loop
 only after you've felt the pain of doing it the easy way.
 
-Run (from repo root OR from code/ — paths are config-relative, not CWD-relative):
+Run from repo root with ``PYTHONPATH=code`` — paths are config-relative, not
+CWD-relative:
 
     # Smoke test — no GPU, no download of heavy base model:
-    python -m llm_hawaii.train --config code/configs/smoke.json --preflight
-    python -m llm_hawaii.train --config code/configs/smoke.json --print-config
+    PYTHONPATH=code python -m llm_hawaii.train --config code/configs/smoke.json --preflight
+    PYTHONPATH=code python -m llm_hawaii.train --config code/configs/smoke.json --print-config
 
     # Stage 1 preflight on the real local data (no model download):
-    python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json --preflight
+    PYTHONPATH=code python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json --preflight
 
     # Stage 1 train (requires HF access + GPU):
-    python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json
+    PYTHONPATH=code python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json
 
     # Resume after interrupted session:
-    python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json \\
+    PYTHONPATH=code python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json \\
         --resume-from-checkpoint runs/llama31-8b-stage1-fw2/checkpoint-200
 
     # Train then eval immediately after:
-    python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json \\
+    PYTHONPATH=code python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json \\
         --eval-after-train
 """
 

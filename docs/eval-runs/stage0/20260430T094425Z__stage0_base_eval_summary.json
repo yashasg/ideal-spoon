@@ -1,0 +1,311 @@
+{
+  "stage": "stage0",
+  "schema_version": "stage0_eval.v2",
+  "checkpoint": "meta-llama/Llama-3.1-8B",
+  "eval_file": "data/evals/fineweb2_haw/dev.jsonl",
+  "eval_file_sha256": "6e2595be89b9c9e5657477f2a008e92955dbedb838c61065f1225d10e8bb60db",
+  "full_artifact": "data/eval_runs/stage0/20260430T094425Z__stage0_base_eval.json",
+  "full_artifact_sha256": "ec3fc66e2abcd5d756ae0b12f65a9c79caf485627ece7a3231702bd26576c423",
+  "source_git_commit": "56be2ec91b1fbbbe9ea934d56b508d6021c91f20",
+  "command": [
+    "python",
+    "-m",
+    "llm_hawaii.evaluate",
+    "--checkpoint",
+    "meta-llama/Llama-3.1-8B",
+    "--eval-file",
+    "data/evals/fineweb2_haw/dev.jsonl",
+    "--manual-w1-jsonl",
+    "data/evals/manual_w1/w1-haw-micro-eval.jsonl",
+    "--human-fetch-jsonl",
+    "data/tokenizer_audit/ulukau_nupepa/human_fetch.jsonl"
+  ],
+  "identity": {
+    "checkpoint": "meta-llama/Llama-3.1-8B",
+    "torch_version": "2.8.0+cu128",
+    "cuda_available": true,
+    "transformers_version": "5.7.0",
+    "model_class": "LlamaForCausalLM",
+    "model_dtype": "torch.float16",
+    "model_device": "cuda:0",
+    "is_adapter": false,
+    "base_model": "meta-llama/Llama-3.1-8B",
+    "device_map": "single_device",
+    "quantization_config": {
+      "status": "absent"
+    },
+    "tokenizer_class": "TokenizersBackend",
+    "tokenizer_name_or_path": "meta-llama/Llama-3.1-8B",
+    "tokenizer_vocab_size": 128000
+  },
+  "decoding": {
+    "do_sample": false,
+    "max_new_tokens": 64,
+    "temperature": null,
+    "top_p": null,
+    "greedy": true
+  },
+  "ppl_config": {
+    "max_length": 1024
+  },
+  "eval_set": {
+    "path": "data/evals/fineweb2_haw/dev.jsonl",
+    "sha256": "6e2595be89b9c9e5657477f2a008e92955dbedb838c61065f1225d10e8bb60db",
+    "record_count": 621,
+    "scored_record_count": 621,
+    "total_tokens": 490296,
+    "total_chars": 2172006,
+    "length_bin_counts_tokens": {
+      "short": 5,
+      "medium": 150,
+      "long": 466
+    },
+    "diacritic_density_bin_counts": {
+      "none": 8,
+      "low": 0,
+      "medium": 0,
+      "high": 613
+    },
+    "max_length_used": 1024,
+    "source_counts": {
+      "status": "field_absent"
+    },
+    "register_counts": {
+      "status": "field_absent"
+    }
+  },
+  "prompt_suite": {
+    "suite_id": "stage0.v1",
+    "suite_sha256": "2683027f538ae8fb2910f758f2865596355893cc91c85dbdfe9ced130797bce6",
+    "items": [
+      {
+        "id": "en_control_1",
+        "prompt_sha256": "2d0b23f9dc4839af2c6d7194e78ac8240c60d43cfbc439fe64f3c3c723abdf2c",
+        "prompt_len_chars": 66,
+        "prompt_diacritics": 0,
+        "diacritic_density_bin": "none"
+      },
+      {
+        "id": "haw_low_1",
+        "prompt_sha256": "d7dfa0b5b6cea896c001a79991f198c960f1fc869fb9bfccb38ac72910f6a508",
+        "prompt_len_chars": 16,
+        "prompt_diacritics": 1,
+        "diacritic_density_bin": "low"
+      },
+      {
+        "id": "haw_low_2",
+        "prompt_sha256": "90cfb759b4a1df09c35875ce904f5f1a3925afd45df23a24aaa5a580e8550a67",
+        "prompt_len_chars": 28,
+        "prompt_diacritics": 2,
+        "diacritic_density_bin": "low"
+      },
+      {
+        "id": "haw_medium_1",
+        "prompt_sha256": "851aa55b1ad59aacc76634a110b686d287ef5c7aaff2243d09248b9a75f596a3",
+        "prompt_len_chars": 30,
+        "prompt_diacritics": 3,
+        "diacritic_density_bin": "medium"
+      },
+      {
+        "id": "haw_medium_2",
+        "prompt_sha256": "16bac8ae4e9d0ef85f9cc7fed217c7877d345fc90e7bece0a3347d3e34b86797",
+        "prompt_len_chars": 20,
+        "prompt_diacritics": 3,
+        "diacritic_density_bin": "medium"
+      },
+      {
+        "id": "haw_high_1",
+        "prompt_sha256": "ebe312a9235d3cfdad033ec7d7fcc09f0dd950b9eb58fa42eb1857a23ca00520",
+        "prompt_len_chars": 125,
+        "prompt_diacritics": 13,
+        "diacritic_density_bin": "high"
+      },
+      {
+        "id": "haw_high_2",
+        "prompt_sha256": "7012f20f1b0b3bcb4c3a820585cea3a2603e38b5d83d28462b76e185af560970",
+        "prompt_len_chars": 131,
+        "prompt_diacritics": 12,
+        "diacritic_density_bin": "high"
+      }
+    ]
+  },
+  "prompt_count": 7,
+  "generation_count": 7,
+  "generation_sha256": {
+    "sample_0": "8863d84781f5dcb6f8eac30938f2b43b94a8688c72971fa6e1602f84efb8a3f2",
+    "sample_1": "13f325a721e7cff97bf5ca08c39b1b6240c70b467a13af71948a604360778cba",
+    "sample_2": "d0a0ea610a9bf8e0b5f78fe7183771e535ac882dcaa2d0b062f2dcbf9d6db4f4",
+    "sample_3": "bc1d8c545d6b355ee8789a1e451e9378aa7af0d926375db2c24189b3db790bd4",
+    "sample_4": "e622be9db285c1f85b4fa9a519b96312e34b533e350fafd5e1917e44fd68c015",
+    "sample_5": "a7cea63e34db88be3a2354f060bc8f8580835d5ebc827356d5c162bdabe16969",
+    "sample_6": "bcddb12af828e46ddc61a787c9dde03438327d1722f1142e96b6271e180c7da8"
+  },
+  "metrics": {
+    "hawaiian_ppl": 7.915167545081799,
+    "hawaiian_ppl_by_source": {
+      "status": "not_configured",
+      "reason": "per-source slicing TODO (evaluate.py:perplexity)"
+    },
+    "english_ppl": {
+      "status": "not_configured",
+      "reason": "english held-out PPL harness not wired (eval_pipeline.md §3.2)"
+    },
+    "manual_w1": {
+      "path": "data/evals/manual_w1/w1-haw-micro-eval.jsonl",
+      "scoring_status": "not_wired",
+      "scoring_reason": "W1 row-level model scoring not wired; metadata/validation only — accepted_count is NOT a task-accuracy benchmark",
+      "schema_version_seen": "manual-w1-jsonl-v1",
+      "jsonl_sha256": "fe255f9de850d70adbb3d9c016165af0638127d9c4075bc24581c219207f8157",
+      "jsonl_size_bytes": 4832,
+      "row_count": 5,
+      "review_status_counts": {
+        "draft": 5
+      },
+      "accepted_count": 0,
+      "eval_consumable_count": 0,
+      "nfc_normalized_false_count": 0,
+      "accepted_category_counts": {},
+      "accepted_diacritic_density_bin_counts": {},
+      "accepted_item_hashes": [],
+      "w1_suite_sha256": null,
+      "status": "draft_only",
+      "reason": "no review_status=accepted rows; drafts/reviewed rows are not reportable as eval results"
+    },
+    "human_fetch_translation": {
+      "schema": "human-fetch-translation-probe-v1",
+      "path": "data/tokenizer_audit/ulukau_nupepa/human_fetch.jsonl",
+      "eval_eligible": true,
+      "training_eligible": false,
+      "source_jsonl_sha256": "203935a3dd1a444715897d4f67ba2a1a8fa0a7a31915edcad791ab9e5dcc8067",
+      "source_jsonl_size_bytes": 3527,
+      "pair_count": 1,
+      "pair_sha256": {
+        "en": "5ef0173e06b98e1137ef134d3fee64da99c96a908c165b89357958b5c9ab3589",
+        "haw": "e7ced0ae2eb6aa04f94b11271b8722fce509e2eac1cb4924b56cfb5a2f77565c"
+      },
+      "template_sha256": {
+        "en_to_haw": "c0d99bc26e7cc96bf66b7dc8809c03451b9d881d5f16abaae214c69685b2f1ff",
+        "haw_to_en": "5a9c8eab29913723967249dbb4ec4b3866f22b7767159d9d0163d199e7a72e59"
+      },
+      "directions": {
+        "en_to_haw": {
+          "prompt_sha256": "aba86f5fe8437c21711502dbb9738a3ed1f20ce923926806639c9c6efc4a65fc",
+          "generation_sha256": "d23e1d7446b266fe87176964a0233e0b4855fb6d00aa6d4c5e469953a48b6301",
+          "reference_sha256": "e7ced0ae2eb6aa04f94b11271b8722fce509e2eac1cb4924b56cfb5a2f77565c",
+          "metric": "char_ngram_f1_baseline",
+          "char_f1": 0.329114,
+          "char_precision": 0.270502,
+          "char_recall": 0.420152,
+          "ngram_order": 2
+        },
+        "haw_to_en": {
+          "prompt_sha256": "9f74c9cacfa5e77c80ed17fbcb1b0c6f04a0c3e703e17d61be46be0db4e71352",
+          "generation_sha256": "c5a12d58a6b57a44c4252784531f2780b860d072861a1d90c40a4558819e750a",
+          "reference_sha256": "5ef0173e06b98e1137ef134d3fee64da99c96a908c165b89357958b5c9ab3589",
+          "metric": "char_ngram_f1_baseline",
+          "char_f1": 0.469799,
+          "char_precision": 0.392279,
+          "char_recall": 0.585502,
+          "ngram_order": 2
+        }
+      },
+      "status": "evaluated"
+    },
+    "orthography_metrics": {
+      "sample_0": {
+        "is_nfc": true,
+        "okina": 0,
+        "wrong_okina": 0,
+        "kahako": 0,
+        "diacritic_density": 0,
+        "diacritic_density_bin": "none",
+        "combining_macron": 0,
+        "len": 306
+      },
+      "sample_1": {
+        "is_nfc": true,
+        "okina": 0,
+        "wrong_okina": 0,
+        "kahako": 1,
+        "diacritic_density": 1,
+        "diacritic_density_bin": "low",
+        "combining_macron": 0,
+        "len": 262
+      },
+      "sample_2": {
+        "is_nfc": true,
+        "okina": 0,
+        "wrong_okina": 0,
+        "kahako": 2,
+        "diacritic_density": 2,
+        "diacritic_density_bin": "low",
+        "combining_macron": 0,
+        "len": 338
+      },
+      "sample_3": {
+        "is_nfc": true,
+        "okina": 4,
+        "wrong_okina": 0,
+        "kahako": 1,
+        "diacritic_density": 5,
+        "diacritic_density_bin": "medium",
+        "combining_macron": 0,
+        "len": 263
+      },
+      "sample_4": {
+        "is_nfc": true,
+        "okina": 2,
+        "wrong_okina": 0,
+        "kahako": 2,
+        "diacritic_density": 4,
+        "diacritic_density_bin": "medium",
+        "combining_macron": 0,
+        "len": 294
+      },
+      "sample_5": {
+        "is_nfc": true,
+        "okina": 15,
+        "wrong_okina": 0,
+        "kahako": 15,
+        "diacritic_density": 30,
+        "diacritic_density_bin": "high",
+        "combining_macron": 0,
+        "len": 220
+      },
+      "sample_6": {
+        "is_nfc": true,
+        "okina": 17,
+        "wrong_okina": 0,
+        "kahako": 13,
+        "diacritic_density": 30,
+        "diacritic_density_bin": "high",
+        "combining_macron": 0,
+        "len": 224
+      }
+    },
+    "orthography_aggregate": {
+      "n": 7,
+      "okina_total": 38,
+      "wrong_okina_total": 0,
+      "kahako_total": 34,
+      "combining_macron_total": 0,
+      "nfc_failures": 0,
+      "diacritic_density_bin_counts": {
+        "none": 1,
+        "low": 2,
+        "medium": 2,
+        "high": 2
+      },
+      "kahako_collapse_on_high_diacritic": 0
+    }
+  },
+  "tripwires": {
+    "wrong_okina_nonzero": false,
+    "nfc_failures": 0,
+    "combining_macron_nonzero": false,
+    "kahako_collapse_on_high_diacritic": 0,
+    "generation_count": 7,
+    "prompt_suite_sha256": "2683027f538ae8fb2910f758f2865596355893cc91c85dbdfe9ced130797bce6",
+    "prompt_suite_id": "stage0.v1"
+  }
+}

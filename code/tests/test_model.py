@@ -20,6 +20,19 @@ import llm_hawaii.model as model
 
 class Testmodel(unittest.TestCase):
 
+    def test_bnb_compute_dtype_name_bf16(self):
+        self.assertEqual(model._bnb_compute_dtype_name(bf16=True, fp16=False), "bfloat16")
+
+    def test_bnb_compute_dtype_name_fp16(self):
+        self.assertEqual(model._bnb_compute_dtype_name(bf16=False, fp16=True), "float16")
+
+    def test_bnb_compute_dtype_name_fp32(self):
+        self.assertEqual(model._bnb_compute_dtype_name(bf16=False, fp16=False), "float32")
+
+    def test_bnb_compute_dtype_name_bf16_takes_priority(self):
+        # bf16 wins if both flags are set (should not normally happen)
+        self.assertEqual(model._bnb_compute_dtype_name(bf16=True, fp16=True), "bfloat16")
+
     def test_check_runtime_capability(self):
         info = model.check_runtime_capability(use_qlora=True, want_bf16=True)
         print(info)

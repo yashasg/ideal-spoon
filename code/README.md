@@ -23,21 +23,36 @@ code/
 │   ├── evaluate.py            # checkpoint eval CLI (PPL + generation)
 │   └── metrics.py             # pure-Python Hawaiian text checks
 ├── configs/
-│   ├── smoke.json             # tiny config for an end-to-end smoke run
-│   └── llama31_8b_a100.json   # serious-prototype target config
+│   ├── smoke.json                              # tiny smoke/preflight config
+│   ├── stage1_fineweb2_haw.json               # general Stage 1 prototype config
+│   ├── stage1_fineweb2_haw_kaggle_t4x2.json   # Kaggle T4x2 prototype config
+│   └── llama31_8b_a100.json                   # A100 serious-prototype config
 └── examples/
     └── train.jsonl.example    # placeholder schema only — NOT real data
 ```
 
-## Two configs, two purposes
+## Configs and purposes
 
-The skeleton ships two configs to make the learn-vs-prototype split
-explicit:
+The skeleton ships separate configs so hardware choices stay explicit:
 
 - **`configs/smoke.json`** — *learning / debug.* Defaults to
   Qwen2.5-0.5B, QLoRA off, fp32, max_seq_len 256, one tiny example
   file. Designed to fit on a laptop or a free-tier GPU and to surface
   pipeline bugs fast. **Numbers from this config are not eval results.**
+- **`configs/stage1_fineweb2_haw.json`** — *general Stage 1 prototype.*
+  Defaults to `meta-llama/Llama-3.1-8B`, QLoRA on, the local
+  FineWeb-2 Hawaiian train/dev paths, and the default Stage 1 checkpoint
+  cadence.
+- **`configs/stage1_fineweb2_haw_kaggle_t4x2.json`** — *Kaggle T4x2
+  prototype iteration.* Uses the same Stage 1 data paths and model as the
+  general config, but switches to `fp16`, disables `bf16`, targets
+  `max_seq_len=2048`, and checkpoints/evals more often for interruptible
+  free-tier sessions. Treat its numbers as prototype-debug signals, not
+  promotion/gate numbers. If Kaggle OOMs, fall back to `max_seq_len=1024`
+  with `gradient_accumulation_steps=32`. **Note:** the standard launch
+  command uses a single process with `device_map="auto"` (big-model
+  sharding), not DDP. The second T4 helps fit the model but does not add
+  data-parallel throughput. True DDP requires a separate experiment.
 - **`configs/llama31_8b_a100.json`** — *serious-prototype target.*
   Defaults to `meta-llama/Llama-3.1-8B` (HF-gated), QLoRA on, bf16 on,
   longer sequence length, gradient accumulation tuned for a single
@@ -89,7 +104,7 @@ Run from the **repo root** (paths are config-relative, not CWD-relative):
 
 ```bash
 cd /path/to/ideal-spoon        # repo root
-python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json --preflight
+PYTHONPATH=code python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json --preflight
 ```
 
 Expected output: a JSON report with `"issues": []`. If issues appear, fix
@@ -98,7 +113,7 @@ them before touching the GPU.
 ### Step 2 — Print resolved config (sanity-check)
 
 ```bash
-python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json --print-config
+PYTHONPATH=code python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json --print-config
 ```
 
 Confirm `train_path` / `eval_path` are absolute paths that point to the local
@@ -107,20 +122,66 @@ Confirm `train_path` / `eval_path` are absolute paths that point to the local
 ### Step 3 — Train
 
 Requires HF model access (`huggingface-cli login`) and a GPU. Run from the
-**repo root** or from `code/` — it does not matter:
+**repo root**:
 
 ```bash
-python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json
+PYTHONPATH=code python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw.json
 ```
 
 Checkpoints are saved under `runs/llama31-8b-stage1-fw2/`. A
 `run_report.json` (no raw text; hashes + config + git SHA + timing) is
 written there automatically after training completes.
 
+### Kaggle T4x2 prototype run
+
+Kaggle notebooks need **Internet enabled** before `git clone`, `pip install`,
+or Hugging Face downloads will work. From a fresh notebook shell:
+
+```bash
+cd /kaggle/working
+git clone --depth 1 https://github.com/yashasg/ideal-spoon.git
+cd ideal-spoon
+```
+
+If `git clone` still fails but `curl` works, download the GitHub zipball
+instead:
+
+```bash
+cd /kaggle/working
+curl -L https://github.com/yashasg/ideal-spoon/archive/refs/heads/main.zip -o ideal-spoon-main.zip
+python3 -m zipfile -e ideal-spoon-main.zip .
+mv ideal-spoon-main ideal-spoon
+cd ideal-spoon
+```
+
+If the repo is private, do not paste a token into a notebook cell. Store it in
+Kaggle Secrets and use that environment secret for GitHub/Hugging Face auth.
+
+The repo clone does **not** include `data/` because it is gitignored. Add the
+data as a Kaggle Dataset or copy it into:
+
+```bash
+/kaggle/working/ideal-spoon/data/
+```
+
+Then install compute deps into Kaggle's current Python environment and run the
+T4 profile:
+
+```bash
+python3 scripts/setup_training.py --no-venv --skip-torch
+huggingface-cli login
+PYTHONPATH=code python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw_kaggle_t4x2.json --preflight
+PYTHONPATH=code python3 -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw_kaggle_t4x2.json
+```
+
+Outputs land under `runs/llama31-8b-stage1-fw2-kaggle-t4x2/` relative to the
+directory where you launch the command. Sync that directory to persistent
+storage before the Kaggle session ends.
+
 ### Resume after interruption
 
 ```bash
-python3 -m llm_hawaii.train \
+PYTHONPATH=code python3 -m llm_hawaii.train \
     --config code/configs/stage1_fineweb2_haw.json \
     --resume-from-checkpoint runs/llama31-8b-stage1-fw2/checkpoint-200
 ```
@@ -128,7 +189,7 @@ python3 -m llm_hawaii.train \
 ### Eval immediately after training
 
 ```bash
-python3 -m llm_hawaii.train \
+PYTHONPATH=code python3 -m llm_hawaii.train \
     --config code/configs/stage1_fineweb2_haw.json \
     --eval-after-train
 ```
