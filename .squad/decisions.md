@@ -3180,3 +3180,154 @@ If Kaggle session OOMs at max_seq_len=2048:
 - ✅ JSON parses without error
 - ✅ `load_config()` returns `max_seq_len=2048`, `gradient_accumulation_steps=16`, `fp16=True`, `bf16=False`
 - ✅ All assertions pass
+
+---
+
+## Decision: GPU VRAM Optimization Analysis — Kaggle T4x2 Headroom Allocation
+
+**Date:** 2026-05-02  
+**Owner:** Rusty (NLP Researcher)  
+**Status:** ANALYZED & DEFERRED (context-length expansion)
+
+### Context
+
+Kaggle T4x2 prototype run observes 8–10 GB unused VRAM across both GPUs combined. Current config: `max_seq_len=2048, per_device_train_batch_size=1, gradient_accumulation_steps=16, lora_rank=32/alpha=64/dropout=0.05`, using `device_map='auto'` (single-process model sharding, not DDP).
+
+### Memory Usage Breakdown
+
+**Current Configuration:**
+- Model: Llama-3.1-8B in 4-bit (NF4 + double-quant via bitsandbytes)
+- Quantized base: ~2.5 GB (8B fp32 ÷ 4)
+- LoRA rank=32 projections on all-linear: ~500 MB
+- Optimizer state (bfloat16 copy + momentum): ~1.5 GB for LoRA weights only
+- Activations (forward/backward): max_seq_len=2048 × 1 batch × hidden_dim × 2 passes ≈ 2–3 GB
+- **Subtotal: ~6.5–7.5 GB per GPU under peak load**
+- Result: **~24–28 GB in use across 32 GB total** → 8–10 GB headroom is realistic.
+
+### Option Analysis & Recommendation
+
+**Option 1: Increase `max_seq_len` (2048 → 4096)**
+- Pros: Direct quality win for Hawaiian; longer context = better long-range dependency modeling.
+- Cons: Activation memory scales linearly; 4096 tokens ≈ 2× activations → ~30–31 GB total, near ceiling. QA-risk: peak transient spikes may exceed 32 GB (OOM).
+- **Recommendation:** ⚠️ Higher risk. Only if you observe stable per-step memory < 28 GB after first 100 steps.
+
+**Option 2: Increase `per_device_train_batch_size` (1 → 2)** ✅ IMPLEMENTED
+- Pros: Doubles token throughput per GPU per step; modest memory cost: +1–1.5 GB per GPU.
+- Cons: Batch=1 + grad_accum=16 already achieves effective batch=16 tokens/update (~32K tokens = 1 gradient step). Not DDP, so limited parallelization gain.
+- **Recommendation:** ✅ Safe lever. Implement immediately.
+
+**Option 3: Increase LoRA rank (32 → 64)**
+- Pros: Higher rank = more adapter expressiveness; modest VRAM cost: ~1–2 GB.
+- Cons: Minimal PPL benefit in CPT. Risk of overfitting on small Hawaiian corpus (81k rows, 44M tokens).
+- **Recommendation:** ⚠️ Conditional. Defer to Stage-2 downstream task evals if room for improvement shown.
+
+**Option 4: Leave headroom (status quo)**
+- Pros: Safe. Kaggle's VRAM varies session-to-session; headroom absorbs spikes.
+- Cons: Unused VRAM is unused learning capacity.
+- **Recommendation:** ❌ Don't leave full headroom without exploring other options first.
+
+### Decision
+
+**Primary:** Implement `per_device_train_batch_size` 1→2 and `gradient_accumulation_steps` 16→8 (safe, immediate).
+
+**Secondary (deferred):** Explore `max_seq_len` ≤ 3072 after Stage-1 checkpoint validation. If stable, revisit for Stage-2 prototype; if not, keep 2048.
+
+**Deferred (Stage-2 tuning):** `lora_rank` expansion only if downstream task evals show capacity bottleneck.
+
+### Key Insights
+
+- Context-length is the highest-ROI VRAM lever for Hawaiian language modeling.
+- Batch-size increase provides immediate implementable gain without changing optimizer semantics.
+- QLoRA cannot use DDP (bitsandbytes `Linear4bit` incompatible with gradient gathering); single-process `device_map='auto'` is mandatory.
+
+---
+
+## Decision: Kaggle T4x2 VRAM Tuning — Config-Only Pass
+
+**Date:** 2026-04-30T23:14:55Z  
+**Owner:** Basher (Training Engineer)  
+**Status:** IMPLEMENTED
+
+### Decision
+
+Use the observed 8–10GB spare aggregate VRAM on Kaggle T4x2 by raising the single-process training micro-batch from 1 to 2 and lowering accumulation from 16 to 8.
+
+**New Config:**
+```json
+{
+  "max_seq_len": 2048,
+  "per_device_train_batch_size": 2,
+  "gradient_accumulation_steps": 8
+}
+```
+
+This preserves the same effective ~32K token/update budget:
+```
+Old: 2048 × 1 × 16 = 32,768 tokens/update
+New: 2048 × 2 × 8  = 32,768 tokens/update  ← same
+```
+
+### Why This is the Safe Lever
+
+- It is config-only; no trainer/model code path changes.
+- It uses more activation memory directly, which is the resource currently underused.
+- It keeps the optimizer update size and LR schedule effectively stable.
+- It does not change the model architecture, LoRA capacity, dtype, or device placement.
+
+### What NOT to Change Yet
+
+- Do not raise `max_seq_len` beyond 2048 yet; 4096 is a much larger attention/activation jump.
+- Do not raise LoRA rank or expand target modules; current `rank=32`, `all-linear` already changes trainable capacity.
+- Keep gradient checkpointing enabled; disabling it risks a large activation-memory jump.
+- Keep `device_map="auto"` single-process placement. QLoRA + bitsandbytes 4-bit cannot use DDP.
+
+### Implementation
+
+**File:** `code/configs/stage1_fineweb2_haw_kaggle_t4x2.json`
+- Changed: `per_device_train_batch_size` 1→2
+- Changed: `gradient_accumulation_steps` 16→8
+
+**File:** `docs/kaggle-t4x2-setup.md`
+- Updated memory tuning guidance to reflect new batch/accumulation settings
+
+### OOM Fallback Strategy
+
+If Kaggle session OOMs at batch=2, gradient_accum=8:
+1. Revert to `per_device_train_batch_size=1`, `gradient_accumulation_steps=16` (original conservative values)
+2. If still OOM: reduce `lora_rank=16`, `lora_alpha=32`
+3. If still needed: fallback to `max_seq_len=512`
+
+---
+
+## Decision: pip check Non-Fatal on Shared Provider Environments
+
+**Date:** 2026-05-01  
+**Owner:** Basher (Training Engineer)  
+**Status:** IMPLEMENTED
+
+### Summary
+
+`pip check` at the end of `setup_training.py --no-venv --skip-torch` was failing with exit code 1 on Kaggle because the provider base image already contains unresolved package conflicts unrelated to this project.
+
+### Decision
+
+- `pip check` defaults to **non-fatal** when `--no-venv` is used (shared provider environment assumed).
+- `pip check` remains **fatal** (strict) for managed venv installs.
+- A new `--strict-pip-check` CLI flag (and `STRICT_PIP_CHECK` env var) lets users override to hard-failure in any mode.
+- Strictness logic: `pip_check_strict = args.strict_pip_check or (not args.no_venv)`.
+- Non-strict failure prints a clear warning attributing conflicts to the provider image with a hint to use `--strict-pip-check`.
+
+### Implementation
+
+**File:** `scripts/setup_training.py`
+- New `pip_check()` helper function
+- New `--strict-pip-check` CLI argument
+- Updated pip check logic to handle non-fatal vs. fatal modes
+
+**File:** `docs/kaggle-t4x2-setup.md`
+- Added pip check troubleshooting note to section 4 (setup instructions)
+
+### Rationale
+
+On shared provider environments like Kaggle, the base image often contains pre-installed packages with unresolved dependency conflicts. These conflicts are not caused by this project's setup and should not block training setup. Local/managed venv installs should be stricter to catch genuine issues in the project's dependency tree.
+

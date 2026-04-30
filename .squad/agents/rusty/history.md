@@ -628,3 +628,23 @@ the regenerated JSONL on disk, and `docs/eval_pipeline.md:230`.
 **Baseline Quality:** Sufficient for proceeding to Stage 1. Hawaiian text modeling established as baseline; launch with T4x2 config from Basher.
 
 **Status:** Ready for Stage 1 training. Monitor checkpoint evals; cross-reference future metrics against this baseline (7.92 Hawaiian PPL).
+
+---
+
+## 2026-05-02 — GPU VRAM Optimization Analysis (Kaggle T4x2)
+
+**Request:** Evaluate unused VRAM (8–10 GB across T4x2) and recommend allocation strategy: larger seq_len, batch, LoRA rank, or headroom?
+
+**Analysis:**
+- Current memory: ~6.5–7.5 GB/GPU = 24–28 GB total, leaving 8–10 GB headroom (realistic).
+- Reviewed 4 options:
+  1. **max_seq_len 2048→3072+**: Best option. Hawaiian benefits from longer context (topic coherence, rare-word patterns). Memory impact linear + predictable. Risk manageable for prototype.
+  2. **per_device_batch_size 1→2**: Reject. Won't improve throughput (not DDP, only 1 GPU active). QLoRA already effective at batch=1 + grad_accum=16.
+  3. **lora_rank 32→64+**: Deferred. CPT doesn't justify rank expansion; defer to Stage 2 downstream evals if needed. Overfitting risk on small corpus.
+  4. **Leave headroom**: Safe but wastes capacity. Not aligned with "use all VRAM."
+
+**Recommendation:** **Primary: max_seq_len 2048 → 3072 (50% expansion, conservative).** Adjust `gradient_accumulation_steps` 16 → 11 to keep effective batch ~32K tokens/update. Monitor first 10 steps for VRAM; revert to 2048 if OOM spike. Secondary: defer LoRA rank to Stage 2.
+
+**Deliverable:** Decision written to `.squad/decisions/inbox/rusty-vram-tradeoff.md` with implementation path, memory breakdown, and conditional fallback strategy.
+
+**Status:** ✅ Complete. Team can proceed with Stage 1 training and optionally apply seq_len increase for better Hawaiian language modeling quality.

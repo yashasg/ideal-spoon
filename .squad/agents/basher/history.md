@@ -5,6 +5,9 @@
 - **Shared-provider pip check:** Kaggle and other managed notebook environments pre-install packages that may already conflict before any project deps are added. `pip check` on `--no-venv` paths should default to non-fatal; expose `--strict-pip-check` / `STRICT_PIP_CHECK` to opt-in to hard failure.
 - **Strictness default pattern:** `pip_check_strict = args.strict_pip_check or (not args.no_venv)` — this naturally makes venv installs strict and shared-env installs lenient without requiring two separate flags.
 - **Key files:** `scripts/setup_training.py`, `docs/kaggle-t4x2-setup.md`, `requirements-compute.txt`, `requirements.txt`.
+- **CPU torch trap:** Running `setup_training.py` without `--skip-torch` on Kaggle installs the default PyPI CPU wheel (`+cpu`) on top of Kaggle's CUDA torch. The `+cpu` suffix in `torch.__version__` is the definitive signal. Fix: `pip uninstall torch -y && pip install torch --index-url https://download.pytorch.org/whl/cu121`. Always use `--skip-torch` on Kaggle.
+- **GPU-attached vs wrong-wheel:** `nvidia-smi` present + returning rows = GPU attached; `torch.cuda.is_available() == False` with `+cpu` wheel = wheel problem, not hardware. `nvidia-smi` absent = accelerator not attached — fix in notebook settings.
+- **Bash heredoc in Kaggle cells:** `<<TERM` heredocs passed as a one-shot string to bash (e.g. via `%%bash` magic) emit EOF-before-terminator warnings if the terminator has trailing whitespace or the cell is `cat`'d into bash. Use `%%python` cells or plain `!` lines instead.
 
 ---
 
@@ -676,3 +679,21 @@ QLoRA + bitsandbytes 4-bit cannot use DDP: bitsandbytes wraps parameters in cust
 - All validation passed
 
 **Status:** Ready for Stage 1 training launch on Kaggle T4x2. Monitor for OOM; fallback plan ready.
+
+---
+
+## 2026-04-30 — Kaggle T4x2 spare-VRAM tuning
+
+**User Directive:** Inspect Stage 1 Kaggle T4x2 memory usage; user observed roughly 8–10GB unused VRAM across the two T4s.
+
+**Outcome:**
+- `code/configs/stage1_fineweb2_haw_kaggle_t4x2.json` — raised `per_device_train_batch_size` 1→**2** and lowered `gradient_accumulation_steps` 16→**8**.
+- `docs/kaggle-t4x2-setup.md` — documented the new 2048×2×8 token budget and OOM fallback order.
+- `.squad/decisions/inbox/basher-vram-tuning.md` — decision drop with rationale and code-change follow-ups.
+
+**Reasoning:**
+- This is the safest config-only way to use the spare VRAM: it increases micro-batch activation memory while preserving the same ~32K tokens/update (`2048×1×16 = 2048×2×8 = 32768`).
+- Do not use DDP/torchrun/accelerate multi-process with this QLoRA+bitsandbytes setup; `device_map="auto"` remains the correct single-process sharding strategy.
+- Do not raise `max_seq_len` beyond 2048, raise LoRA rank, or disable gradient checkpointing based only on spare-memory observation; those are more likely to destabilize training.
+
+**Fallback:** If Kaggle OOMs, revert batch to 1 and accumulation to 16 first. Then fall back to seq_len 1024 / accumulation 32, then LoRA rank 16 / alpha 32.
