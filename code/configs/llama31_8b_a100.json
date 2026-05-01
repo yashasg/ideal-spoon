@@ -28,9 +28,12 @@
 
   "output_dir": "runs/llama31-8b-stage1-multisource-a100",
   "logging_steps": 10,
-  "save_steps": 200,
-  "eval_steps": 200,
-  "save_total_limit": 2,
+  "save_steps": 100,
+  "eval_steps": 500,
+  "save_total_limit": 300,
+  "per_device_eval_batch_size": 1,
+  "eval_accumulation_steps": 1,
+  "prediction_loss_only": true,
 
   "stage": "stage1-cpt",
   "hardware_profile": "a100-40gb-single",
@@ -39,6 +42,8 @@
     "purpose": "Prototype-tier serious run target: Llama-3.1-8B + QLoRA on a single A100 using the cleaned multi-source Stage 1 corpus.",
     "hardware": "Tuned for 1x A100 40GB (or 80GB). bf16 requires Ampere or newer; A100 qualifies.",
     "gate": "Requires HF access to meta-llama/Llama-3.1-8B and a real Stage-1 manifest/token report passing strict checks.",
+    "checkpoint_cadence": "Saves every 100 optimizer steps and delays first eval until step 500 so checkpoint-100 exists before eval can fail.",
+    "eval_memory": "Eval is loss-only with per-device eval batch 1 and eval_accumulation_steps 1 to avoid retaining large Llama logits during checkpoint-adjacent eval.",
     "path_note": "Paths are config-relative (relative to this file's directory). Run from anywhere: python -m llm_hawaii.train --config code/configs/llama31_8b_a100.json",
     "train_data_note": "stage1.jsonl.gz is the cleaned, train-only multi-source Stage 1 corpus: 81117 rows, ~44.1M whitespace tokens, FineWeb-2 + hawwiki + hawwikisource, prototype_only=True. Off-git under data/.",
     "eval_data_note": "dev.jsonl is 621 rows from FineWeb-2 haw_Latn dev split (prototype_only=True, release_eligible=False). Eval-during-train wired when eval_steps non-null and eval_path set."

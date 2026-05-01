@@ -718,6 +718,26 @@ class TestEvalMemoryControls(unittest.TestCase):
             "so checkpoint-{save_steps} exists before first eval fires",
         )
 
+    def test_a100_config_has_hardened_eval_and_checkpoint_cadence(self):
+        """A100 config keeps checkpoint writes ahead of eval and constrains eval memory."""
+        from llm_hawaii.config import load_config
+
+        repo_root = Path(__file__).resolve().parents[2]
+        cfg_path = repo_root / "code" / "configs" / "llama31_8b_a100.json"
+        self.assertTrue(cfg_path.exists(), f"Missing A100 config: {cfg_path}")
+        cfg = load_config(cfg_path)
+        self.assertEqual(cfg.save_steps, 100)
+        self.assertEqual(cfg.eval_steps, 500)
+        self.assertGreater(
+            cfg.eval_steps,
+            cfg.save_steps,
+            "A100 first eval must happen after the first checkpoint is saved",
+        )
+        self.assertEqual(cfg.save_total_limit, 300)
+        self.assertEqual(cfg.per_device_eval_batch_size, 1)
+        self.assertEqual(cfg.eval_accumulation_steps, 1)
+        self.assertIs(cfg.prediction_loss_only, True)
+
 
 class TestTrainerCompatibility(unittest.TestCase):
     """Trainer tokenizer arg changed across transformers versions."""
