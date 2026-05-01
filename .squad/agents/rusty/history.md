@@ -782,3 +782,38 @@ Rusty completed the alignment-quality policy integration into the manifest build
 
 **Agents notified:** Linus, Basher, Frank, Danny
 
+---
+
+## 2026-05-02 — Baibala 1839 historical-orthography policy review
+
+**Task:** Decide whether 1839 Baibala rows flagged `haw_no_diacritics` stay review-pending or get a carve-out. Output: `.squad/decisions/inbox/rusty-baibala-orthography-policy.md`.
+
+**Data points:**
+- 5,823 Bible candidates in current manifest. Tiers: accept=1,732 / review=4,071 / reject=20.
+- 3,956 (~68 %) flagged `haw_no_diacritics`; **3,897 carry only that flag** (no length / LID / alignment issues).
+- Sampled rows confirm genuine 1839 Andrews/Bingham register (`papaaina`, `hookuu`, `hookaawale`) — pre-Pukui-Elbert convention, not OCR drift.
+
+**Recommendation:** Narrow source-pinned, train-only carve-out. Promote review→accept iff `source==baibala-hemolele-1839` AND only flag is `haw_no_diacritics` AND no other quality issues. Force `split=train`. Tag with new `historical_orthography_exception=true` + `orthography_era="pre-pukui-elbert"`. Keep the `haw_no_diacritics` flag on the row — accept *despite* it, not by suppressing it. Bump POLICY_VERSION to v0.2.
+
+**Guardrails:**
+- Source-pinned: Tatoeba/Wiktionary/etc with `haw_no_diacritics` still go to review (extraction loss for those sources).
+- Sub-cap inside the existing 30 % Bible token cap: historical-orthography rows ≤ 50 % of accepted Bible train rows AND ≤ 15 % of total parallel-train tokens. Enforced deterministically by `pair_id` hash so reruns are reproducible.
+- Dev/test exclusion is non-negotiable — my eval gate's ʻokina/kahakō retention tripwires would falsely report regressions if no-diacritic references leaked in.
+- Off-switch flag: `PolicyConfig.allow_historical_orthography_exception` (default True for prototype, False for release).
+
+**Why this generalizes:** Same per-source interpretation will apply to future historical Hawaiian sources (nūpepa OCR, pre-1925 government docs). Pattern — "keep the diagnostic flag, gate the *acceptance decision* on source + register + flag-set" — is reusable. Don't add per-flag global suppressions; that path loses signal.
+
+**Hand-off:** Linus owns the manifest-builder + scorer change. No code touched in this review by request.
+
+
+## 2026-05-02 — Baibala 1839 historical-orthography policy review (COMPLETE)
+
+**Decision:** `.squad/decisions/inbox/rusty-baibala-orthography-policy.md` → merged to `.squad/decisions.md`
+
+**Outcome:** Recommended narrow source-pinned carve-out (train-only, no-diacritics diagnostic preserved, sub-cap + kill-switch + per-row metadata). Hand-off to Linus for implementation.
+
+**Manifest impact:** 5,823 Bible candidates; 3,897 carry only `haw_no_diacritics` flag. Carve-out promotes review→accept under strict conditions; sub-cap ensures model still sees modern-orthography Bible signal.
+
+**Implementation by Linus:** Completed as commit 50b89c0; POLICY_VERSION → v0.2; 1,071 historical-orthography rows accepted + 3,791 deterministically dropped by sub-cap.
+
+**Status:** Policy merged; ready for eval-gate re-validation + diacritic retention tripwire check.

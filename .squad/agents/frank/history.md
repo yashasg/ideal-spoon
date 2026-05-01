@@ -1477,3 +1477,19 @@ For Stage 2 80k row target, no new external dataset moves needle materially beyo
 `.squad/decisions/inbox/frank-ready-dataset-sweep.md` (merged to `.squad/decisions.md` by Scribe).
 
 ### No commits, no fetches.
+
+## 2026-05-02 — Baibala 1839 raw fetch: 1SA + 2SA + 1KI + 2KI (COMPLETE)
+
+**Task:** Fetch 1 Samuel, 2 Samuel, 1 Kings, 2 Kings raw from baibala.org.
+
+**Outcome:** ✅ COMPLETE — 102 chapters, 1.5 MB fetched; provenance rows 240→342 appended.
+
+- 1SA: 31 chapters, 477 KB
+- 2SA: 24 chapters, 376 KB
+- 1KI: 22 chapters, 369 KB
+- 2KI: 25 chapters, 300 KB
+- Cumulative HAW on disk: 236 chapters
+
+**Candidate emission:** Deferred pending Linus USFM cleanup confirmation. No code changes to fetcher; next batch (1CH, 2CH, EZR, NEH, EST) follows identical pattern.
+
+**Decision merged:** `.squad/decisions/inbox/frank-bible-jos-rut-fetch.md` → `.squad/decisions.md`

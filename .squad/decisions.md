@@ -4787,3 +4787,124 @@ Frank has no signal that `322`'s `--book-codes` style scoping (or equivalent bou
 
 None (per task directive).
 
+---
+
+## Decision: Rusty — Baibala Hemolele 1839 historical-orthography policy exception (2026-05-02)
+
+**Owner:** Rusty (NLP Researcher)  
+**Date:** 2026-05-02  
+**Status:** IMPLEMENTED — merged into POLICY_VERSION v0.2 by Linus (commit 50b89c0)
+
+### Recommendation
+
+Add a **narrow, source-pinned, train-only** acceptance carve-out for `haw_no_diacritics` when the row is genuine 1839 Baibala Hemolele text. Keep the flag itself and tag affected rows so any downstream consumer can see the historical register.
+
+**Conditions for promotion (review → accept):**
+
+1. `source == "baibala-hemolele-1839"` AND `edition_or_version == "baibala-hemolele-1839"` AND `register == "religious"`
+2. `quality_flags ⊆ {"haw_no_diacritics"}` — no other soft/hard flags
+3. `synthetic == false` AND `alignment_method == "verse-id"`
+4. `split == "train"` (forced; never dev/test)
+
+Gated by `PolicyConfig.allow_historical_orthography_exception` (default True for prototype).
+
+### Key Findings
+
+- 5,823 Bible candidates; 3,956 (~68%) flagged `haw_no_diacritics`; 3,897 carry **only** that flag
+- Sampled rows confirm genuine 1839 Andrews/Bingham register — pre-Pukui-Elbert, intentional
+- Signal interpretation differs by source: for Tatoeba/Wiktionary, no-diacritics is extraction loss; for 1839 Baibala, it is native register
+
+### Guardrails
+
+**Sub-cap (inside 30% Bible cap):**
+- Historical-orthography rows ≤ 50% of accepted Bible train rows AND ≤ 15% of total parallel-train tokens
+- Enforced deterministically by pair_id hash; recorded in build_manifest.json
+
+**Dev/test exclusion:** Train-only; required for eval gate diacritic retention tripwires
+
+**Source specificity:** Keyed on source==baibala-hemolele-1839 only
+
+### Out of Scope
+
+- Programmatic ʻokina/kahakō insertion
+- Release-tier promotion
+- Ulukau nūpepa OCR handling
+
+---
+
+## Decision: Frank — Baibala 1839 raw fetch: 1SA + 2SA + 1KI + 2KI (2026-05-02)
+
+**Owner:** Frank (Hawaiian Data Collector)  
+**Date:** 2026-05-02  
+**Status:** COMPLETE — raw fetch done; candidates deferred
+
+### Summary
+
+Fetched 1 Samuel, 2 Samuel, 1 Kings, 2 Kings (102 chapters, 1.5 MB) from baibala.org. Provenance rows 240→342 appended.
+
+### Counts
+
+| Book | Chapters | Bytes |
+|---|---:|---:|
+| 1SA | 31 | 477,392 |
+| 2SA | 24 | 375,849 |
+| 1KI | 22 | 369,392 |
+| 2KI | 25 | 299,908 |
+| **Total** | **102** | **1,522,541** |
+
+**Cumulative on disk:** 236 HAW chapter HTMLs (was 187 + 49 earlier).
+
+### Status
+
+- Fetch complete; provenance ledger updated
+- Candidates deferred pending Linus USFM cleanup sign-off
+- No blocker on raw side; next batch is 1CH + 2CH + EZR + NEH + EST
+
+---
+
+## Decision: Linus — Baibala 1839 historical-orthography policy implemented (2026-05-02)
+
+**Owner:** Linus (Data Engineer)  
+**Date:** 2026-05-02  
+**Status:** IMPLEMENTED — committed as 50b89c0 `feat(stage2): Baibala 1839 historical-orthography policy (v0.2)`
+
+### Code Changes
+
+| File | Change |
+|------|--------|
+| `code/llm_hawaii/stage2_quality.py` | POLICY_VERSION → v0.2. PolicyConfig: allow_historical_orthography_exception, historical_orthography_train_token_share_max. score_pair() detects carve-out conditions and promotes to accept tier. |
+| `scripts/320_build_stage2_manifest.py` | Added _apply_historical_orthography_cap() for deterministic row-count capping. Sub-cap enforcement and split=train forcing for exception rows. |
+| `code/tests/test_stage2_manifest.py` | 15 new tests covering exception logic, cap enforcement, metadata fields, kill switch, determinism. |
+| `docs/data-pipeline.md` | One-line entry linking to decision. |
+
+### Manifest Results (GEN–RUT, v0.2)
+
+| Metric | Value |
+|--------|-------|
+| Total candidates | 8,791 |
+| Train | 3,350 |
+| Dev | 15 |
+| Review-pending | 5,426 |
+| Historical-orthography accepted | 1,071 |
+| Historical-orthography dropped (cap) | 3,791 |
+| SFT rows | 6,700 |
+
+### Test Results
+
+- Existing: 53/53 ✅
+- New historical-orthography: 15/15 ✅
+- Kill switch verified
+- Cap determinism confirmed
+
+### Commit
+
+```
+50b89c0 feat(stage2): Baibala 1839 historical-orthography policy (v0.2)
+
+- POLICY_VERSION bumped to v0.2
+- New PolicyConfig fields for exception control
+- score_pair() detects carve-out and applies tagging
+- Manifest builder enforces sub-cap deterministically
+- 15 new tests + docs update
+```
+

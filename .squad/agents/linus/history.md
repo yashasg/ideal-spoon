@@ -1,5 +1,83 @@
 # Linus — History
 
+## 2026-05-01 — 1SA/2SA/1KI/2KI materialization (Bible candidates GEN–2KI)
+
+**Task:** Extend Bible candidate materialization to include 1SA (31 ch), 2SA (24 ch), 1KI (22 ch), 2KI (25 ch) — all on disk in `data/raw/baibala-hemolele-1839/20260501/` (102 chapters, provenance rows 240→342). Rebuild manifest and SFT under v0.2 policy.
+
+**No code changes required.** `--books` filter already present from Pentateuch batch.
+
+**Commands run:**
+```bash
+# Step 1: validate tests (always before execute)
+python3 code/tests/test_bible_adapter.py -v      # → 53/53 OK
+python3 code/tests/test_stage2_manifest.py -v    # → OK
+
+# Step 2: dry-run candidates
+python3 scripts/322_build_bible_candidates.py \
+  --dry-run \
+  --from-raw 20260501 \
+  --eng-usfm-zip data/raw/bible-eng-pd-anchor/20260501/eng-kjv2006_usfm.zip \
+  --books GEN,EXO,LEV,NUM,DEU,JOS,JDG,RUT,1SA,2SA,1KI,2KI
+# → 10221 rows would be written; 338 chapters paired; 0 skipped
+
+# Step 3: execute candidates
+python3 scripts/322_build_bible_candidates.py \
+  --execute \
+  --from-raw 20260501 \
+  --eng-usfm-zip data/raw/bible-eng-pd-anchor/20260501/eng-kjv2006_usfm.zip \
+  --books GEN,EXO,LEV,NUM,DEU,JOS,JDG,RUT,1SA,2SA,1KI,2KI
+# → 10221 rows written
+
+# Step 4: execute manifest
+python3 scripts/320_build_stage2_manifest.py --execute
+# → 11828 rows total, 0 violations
+
+# Step 5: execute SFT
+python3 scripts/330_emit_stage2_sft_jsonl.py \
+  --manifest data/stage2/stage2_manifest.jsonl \
+  --out data/stage2/stage2_sft.jsonl \
+  --splits train --directions both
+# → 9330 SFT rows (4665 × 2)
+```
+
+**Final counts:**
+
+| Metric | Value |
+|---|---|
+| Bible candidates (GEN–2KI) | 10,221 |
+| — GEN | 1,533 |
+| — EXO | 1,206 |
+| — LEV | 858 |
+| — NUM | 1,273 |
+| — DEU | 953 |
+| — JOS | 658 |
+| — JDG | 618 |
+| — RUT | 85 |
+| — 1SA | 809 |
+| — 2SA | 695 |
+| — 1KI | 816 |
+| — 2KI | 717 |
+| Total manifest rows (all sources) | 11,828 |
+| Train rows | 4,665 |
+| Dev rows | 15 (non-Bible) |
+| Review-pending rows | 7,148 |
+| SFT rows total | 9,330 |
+| SFT en→haw | 4,665 |
+| SFT haw→en | 4,665 |
+| Bible train rows | 4,431 |
+| Bible review-pending rows | 5,790 |
+| Bible dev/test rows | 0 ✅ |
+| Historical-orthography accepted (train) | 1,509 |
+| Historical-orthography dropped (review-pending) | 5,399 |
+| `\|strong=` leaks | 0 ✅ |
+| USFM marker leaks | 0 ✅ |
+| Footnote body leaks | 0 ✅ |
+| Duplicate pair_ids | 0 ✅ |
+
+**Outputs updated:** `data/stage2/candidates/bible.jsonl`, `data/stage2/stage2_manifest.jsonl`, `data/stage2/stage2_sft.jsonl`, `data/stage2/build_manifest.json`, `data/stage2/score_summary.json`.
+
+---
+
 ## 2026-05-01 — Bible manifest materialization (Stage 2)
 
 **Task:** Materialize cleaned Bible candidate batch into Stage 2 manifest and SFT outputs.
@@ -1593,4 +1671,34 @@ python3 scripts/320_build_stage2_manifest.py --dry-run
 - Test fixture design: companion non-hist rows must be long enough (~5–6 HAW tokens) to avoid `length_ratio_extreme` when paired with English text; short companions silently cause the Bible-50% cap to collapse to 0 and demote the test row under scrutiny.
 - `_apply_historical_orthography_cap` operates post-ingest on the assembled rows list. The function is deterministic by `pair_id` SHA-256 hash so re-runs with identical candidates produce identical cap outcomes.
 
-**Decision file:** `.squad/decisions/inbox/linus-baibala-orthography-implementation.md`
+**Decision file:** `.squad/decisions/inbox/linus-baibala-orthography-implementation.md` → merged to `.squad/decisions.md`
+
+## 2026-05-02 — Baibala 1839 historical-orthography policy implementation (COMPLETE)
+
+**Task:** Implement Rusty's historical-orthography carve-out policy.
+
+**Outcome:** ✅ IMPLEMENTED — Commit 50b89c0 `feat(stage2): Baibala 1839 historical-orthography policy (v0.2)`.
+
+### Changes
+
+- `code/llm_hawaii/stage2_quality.py`: POLICY_VERSION → v0.2; PolicyConfig exception control fields; score_pair() carve-out logic
+- `scripts/320_build_stage2_manifest.py`: _apply_historical_orthography_cap() for deterministic sub-capping; split=train forcing
+- `code/tests/test_stage2_manifest.py`: 15 new exception tests (all passing)
+- `docs/data-pipeline.md`: Policy carve-out one-liner
+
+### Manifest Results (GEN–RUT, v0.2)
+
+- Total: 8,791 candidates
+- Train: 3,350 (1,071 historical-orthography rows accepted; 3,791 dropped by sub-cap)
+- Dev: 15 (non-Bible only)
+- SFT: 6,700 directional rows
+- Bible dev/test: 0 (enforced)
+
+### Test Results
+
+- Existing: 53/53 ✅
+- New historical-orthography: 15/15 ✅
+- Kill switch verified
+- Cap determinism confirmed
+
+**Status:** Manifest at v0.2; ready for Rusty eval validation.
