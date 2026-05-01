@@ -1,0 +1,10 @@
+# FIXTURE — synthetic English verse text for adapter tests only.
+# NOT real Bible content. Verse numbers must align with the haw fixture
+# at code/tests/fixtures/bible/haw/GEN_1.txt. See issue #16.
+#
+# Format: <verse_no>: <text>
+1: This is a marker for the writer's test.
+2: The Hawaiian language is a beautiful tongue.
+3: This is shown in the test document.
+4: Every verse of this document is short.
+5: At the end, the test is finished.

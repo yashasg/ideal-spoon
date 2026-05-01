@@ -1,0 +1,11 @@
+# FIXTURE — synthetic Hawaiian-flavored verse text for adapter tests only.
+# NOT real Bible content. Exercises NFC normalization, ʻokina canonicalization
+# (U+02BB), kahakō (precomposed long vowels), and verse-id alignment with the
+# matching English fixture file. See data-sources/bible/README.md (issue #16).
+#
+# Format: <verse_no>: <text>
+1: He hōʻailona kēia no ka hoʻāʻo ʻana o ka mea kākau.
+2: ʻO ka ʻōlelo Hawaiʻi he ʻōlelo nani.
+3: Ua hōʻike ʻia kēia ma ka palapala hoʻāʻo.
+4: He pōkole nā paukū a pau o ka palapala nei.
+5: ʻO ka hopena, ua pau ka hoʻāʻo ʻana.

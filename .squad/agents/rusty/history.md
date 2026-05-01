@@ -763,3 +763,22 @@ check consumes.
 - **Frank coordination:** If Bible adapter produces new candidates, rebuild manifest with `scripts/320_build_stage2_manifest.py --execute`.
 
 **Action needed:** Assess issue #19 and determine if it blocks Stage 2 go/no-go.
+
+## Learnings — 2026-05 (Stage 2 scorer × manifest wiring, issue #19)
+
+- Wired `llm_hawaii.stage2_quality.score_pair` into `scripts/320_build_stage2_manifest.py` via a new `apply_policy()` helper. Every ingested candidate now gets `alignment_confidence_tier`, `alignment_review_required`, `quality_flags`, `manual_review_reasons`, `alignment_score_components`, and `policy_version` baked onto the manifest row before schema validation.
+- Manifest schema now declares those six fields as required (see MANIFEST_FIELDS). Adapter outputs (Bible, Tatoeba) intentionally do *not* carry them — the manifest builder is the single point that merges policy, so `validate_row` only ever runs against scored rows. Adjusted both adapter tests to apply the policy before validating, which matches the new contract.
+- Tier→split contract: `review` and `reject` both force `split="review-pending"`, regardless of whatever the candidate originally claimed. This is the durable kill-switch that keeps the SFT emitter (`330_emit_stage2_sft_jsonl.py`) from training on quarantined rows — it already filters `alignment_review_required=true` and skips splits outside the requested set, so `review-pending` is double-belted out.
+- Persisted `data/stage2/score_summary.json` from `summarise_policy()` on every `--execute`. Tier counts + flag counts + the active `policy_summary()` give the run-level diagnostic surface called out in #19's acceptance criteria.
+- Hawaiian template review (Linus's flag from #20): the haw->en paraphrase `"Unuhi i kēia ʻōlelo Pelekānia mai ka ʻōlelo Hawaiʻi."` had source/target reversed — it literally reads "Translate this English speech FROM the Hawaiian language", which is grammatical nonsense for an instruction whose *input is Hawaiian*. Replaced both in `code/tests/fixtures/stage2/templates.json` and in `DEFAULT_INSTRUCTIONS` inside `scripts/330_emit_stage2_sft_jsonl.py`. Surviving haw->en paraphrases use `kēia ʻōlelo Hawaiʻi … i ka ʻōlelo Pelekānia` (Hawaiian→English direction expressed correctly), all NFC, all preserving ʻokina (U+02BB) and kahakō.
+- `_make_valid_row` in `test_stage2_manifest.py` originally used 2-token sides ("Aloha honua." / "Hello world."). Once the policy gate is wired in, those trip `side_too_short` and tier=reject. Bumped to 5-token NFC phrases. If you ever see new manifest tests fail on `side_too_short` after a refactor, check the fixture token counts before the policy.
+- Defaults `accept_min=0.75` / `review_min=0.55` are still appropriate for the deterministic-method sources we have (Bible verse-id, Tatoeba tmx-line both land at `accept`). Embedding-aligned sources will arrive later; the threshold knob lives in `PolicyConfig` and a bump should come with a `POLICY_VERSION` bump and a manifest re-write per the existing decisions.
+
+## 2026-05-01 — Stage 2 Alignment-Quality Policy Integrated (Issue #19)
+
+**Status:** IMPLEMENTED — Reviewed by Danny, merged
+
+Rusty completed the alignment-quality policy integration into the manifest builder. Policy fields are now computed at build time, not at adapter output. Tier-to-split contract ensures review/reject rows are quarantined to `review-pending` and excluded from training. Hawaiian template fixture corrected. Policy version tracking enables future threshold changes with explainability.
+
+**Agents notified:** Linus, Basher, Frank, Danny
+

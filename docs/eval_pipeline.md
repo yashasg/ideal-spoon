@@ -100,7 +100,7 @@ Held-out splits are cluster-aware (see `data-pipeline.md`); PPL is computed only
 
 | Metric | Notes |
 |---|---|
-| **chrF / chrF++ by direction** | Primary. Reported separately for en→haw and haw→en. **Never averaged.** BLEU is reported alongside but not weighted — it is unreliable on morphologically rich low-resource targets. |
+| **chrF / chrF++ by direction** | Primary. Reported separately for en→haw and haw→en. **Never averaged.** Implemented at `code/llm_hawaii/stage2_eval.py` with CLI `scripts/410_stage2_eval.py` (issue #23): sacrebleu when available, deterministic pure-Python fallback for prototype tests. BLEU is reported alongside but not weighted — it is unreliable on morphologically rich low-resource targets. |
 | **chrF as-is vs diacritic-normalized** | Dual-report. If the gap collapses under normalization, the regression is orthography handling, not translation quality. (Currently advisory; promotion to formal gate is an open team question.) |
 | **COMET (if applicable)** | Only if a multilingual COMET model has demonstrable Hawaiian coverage. Otherwise the limitation is documented in the run report. |
 

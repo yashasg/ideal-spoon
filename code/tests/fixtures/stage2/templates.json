@@ -1,0 +1,13 @@
+{
+  "_comment": "Tiny fixture for unit tests. NOT a production template file.",
+  "en->haw": [
+    "Translate the following English sentence into Hawaiian.",
+    "Please translate this English text into Hawaiian.",
+    "Render the following English sentence in Hawaiian."
+  ],
+  "haw->en": [
+    "E unuhi i kēia ʻōlelo Hawaiʻi a lilo i ʻōlelo Pelekānia.",
+    "Translate the following Hawaiian sentence into English.",
+    "E unuhi i kēia ʻōlelo Hawaiʻi i ka ʻōlelo Pelekānia."
+  ]
+}

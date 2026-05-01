@@ -1,0 +1,25 @@
+{
+  "schema_version": "tatoeba-adapter.v1",
+  "dump_date": "2025-05-01",
+  "haw_sentences_url": "https://downloads.tatoeba.org/exports/per_language/haw/haw_sentences_detailed.tsv.bz2",
+  "haw_eng_links_url": "https://downloads.tatoeba.org/exports/per_language/haw/haw-eng_links.tsv.bz2",
+  "eng_sentences_url": "https://downloads.tatoeba.org/exports/per_language/eng/eng_sentences_detailed.tsv.bz2",
+  "license": "CC-BY 2.0 FR",
+  "license_url": "https://tatoeba.org/en/terms_of_use",
+  "attribution": "Tatoeba — https://tatoeba.org. Sentences contributed by individual users under CC-BY 2.0 FR. Per-sentence contributor names are preserved in the candidates JSONL (contributor_haw, contributor_en fields) to satisfy attribution flow-down obligations.",
+  "notes": [
+    "Tatoeba is a crowd-sourced sentence corpus. All en-haw pairs are human-contributed and manually linked.",
+    "Per-sentence license may vary: most are CC-BY 2.0 FR; some older entries may be CC0. license_observed in candidates reflects the site-level license; downstream manifest review should confirm per-row.",
+    "prototype_only=true, release_eligible=false for this prototype. Attribution in source/source_url_* fields suffices for the private prototype.",
+    "alignment_method='manual' chosen because Tatoeba links are manually added by contributors (deterministic via link ID, not an embedding aligner).",
+    "register='unknown' chosen because Tatoeba has mixed-domain content (conversational, educational, encyclopedic).",
+    "Volume estimate: Hawaiian has ~100-600 sentences on Tatoeba (as of 2025); en-haw pairs are a subset."
+  ],
+  "fetch_policy": {
+    "rate_limit": "1 req/sec",
+    "dry_run_default": true,
+    "execute_flag_required": true,
+    "raw_storage_root": "data/raw/tatoeba-haw-eng/<YYYYMMDD>/",
+    "candidate_output": "data/stage2/candidates/tatoeba.jsonl"
+  }
+}

@@ -4,6 +4,7 @@
 >
 > Updated 2026-04-30T10:06:39Z: Merged Basher QLoRA bitsandbytes compute dtype fix. Outcome: `_bnb_4bit_config()` now correctly derives compute dtype from TrainConfig `bf16`/`fp16` flags. Kaggle T4x2 config (fp16=true, bf16=false) now uses torch.float16 instead of unsupported torch.bfloat16.
 
+
 ---
 
 ## Decision: Basher — Kaggle venv robustness + docs idempotency (2026-04-30)
@@ -37,6 +38,7 @@ Two failure modes on Kaggle notebook reruns:
 - ✅ Broken-venv recovery path tested: deleted and recreated healthy venv
 - ✅ `git diff --check` passed
 
+
 ---
 
 ## User Directive: W1 provisional micro-eval skipped (2026-04-30T21:32:04Z)
@@ -48,6 +50,7 @@ Two failure modes on Kaggle notebook reruns:
 **Why:** User request — captured for team memory
 
 **Status:** Honored in Basher Kaggle venv robustness session; no W1 eval data included in setup guidance.
+
 
 ---
 
@@ -96,6 +99,7 @@ without requiring torch.
 - ✅ 4 new dtype helper unit tests pass
 - ✅ `git diff --check` passes
 
+
 ---
 
 ## Decision: Basher — Kaggle T4x2 Keep Single-Process; device_map="auto" is Model Placement Only (2026-04-30)
@@ -138,11 +142,13 @@ Our current code is correct. `device_map="auto"` with QLoRA is **model-parallel 
 ### Future: If Bitsandbytes DDP Support Lands Upstream
 
 Monitor https://github.com/TimDettmers/bitsandbytes/issues for multi-GPU 4-bit DDP support. If it lands, revisit. Until then, single-process is correct.
+
 
 ---
 
 > Updated 2026-04-30T10:00:52Z: Merged Basher Kaggle T4x2 DDP research. Outcome: QLoRA + bitsandbytes 4-bit cannot use DDP (upstream blocker). Keep single-process `python -m llm_hawaii.train` with `device_map="auto"` for model placement. No code changes required.
 
+
 ---
 
 ## Decision: Basher — Kaggle T4x2 Keep Single-Process; device_map="auto" is Model Placement Only (2026-04-30)
@@ -185,6 +191,7 @@ Our current code is correct. `device_map="auto"` with QLoRA is **model-parallel 
 ### Future: If Bitsandbytes DDP Support Lands Upstream
 
 Monitor https://github.com/TimDettmers/bitsandbytes/issues for multi-GPU 4-bit DDP support. If it lands, revisit. Until then, single-process is correct.
+
 
 ---
 
@@ -197,6 +204,7 @@ Monitor https://github.com/TimDettmers/bitsandbytes/issues for multi-GPU 4-bit D
 **Why:** User request — captured for team memory
 
 **Status:** Implemented by Linus; reviewed and APPROVED by Rusty.
+
 
 ---
 
@@ -211,6 +219,7 @@ Monitor https://github.com/TimDettmers/bitsandbytes/issues for multi-GPU 4-bit D
 **Why:** User model preferences — captured for team memory
 
 **Status:** For future agent spawning
+
 
 ---
 
@@ -282,6 +291,7 @@ Drafts/reviewed rows stay loose.
 - **Converter:** `scripts/_convert_ulukau_human_fetch.py` is parser/normalizer context, not source of truth
 - **Populated TSV/JSONL:** Off-git under `data/evals/manual_w1/`
 
+
 ---
 
 ## Review: Rusty — W1 Stage 0 JSONL-only revision (Linus) [APPROVED]
@@ -336,6 +346,7 @@ JSONL-only Stage 0 W1 path delivered, no TSV fallback, strict accepted-row gates
 
 ✅ **Lift the W1 JSONL-only revision.** Linus locked out of next revision cycle per standard rule; no re-spawn needed.
 
+
 ---
 
 
@@ -346,6 +357,7 @@ JSONL-only Stage 0 W1 path delivered, no TSV fallback, strict accepted-row gates
 Stage 0 evals should capture the full checkpoint drift-signal bundle so future checkpoints can be compared across PPL, orthography, generation, dtype/config identity, and related regression tripwires instead of only the current PPL summary.
 
 **Status:** Implemented as `stage0_eval.v2` (Basher); reviewed and approved (Rusty, Linus). Post-review cleanups applied.
+
 
 ---
 
@@ -402,6 +414,7 @@ Any prompt placed in the `high` diacritic-density slot of the Stage 0 suite must
 - English PPL probe — `evaluate.py` does not load an English eval JSONL yet. Status field carries `not_configured`. Stage 1 gate cannot be called green until this is wired.
 - W1 manual micro-eval — loader/integration not implemented. Status field carries `not_configured`.
 - Per-source / per-register PPL slice — needs `source`/`register` field on JSONL records. Eval-set metadata already counts those fields when present; PPL aggregation per slice is the follow-up.
+
 
 ---
 
@@ -511,6 +524,7 @@ Serialize the tripwire predicates so checkpoint comparison is a pure function ov
 
 Current `20260430T063118Z__stage0_base_eval_summary.json` satisfies A partially (missing tokenizer SHA, eval-suite SHA, eval dtype, prompt-set SHA, ledger SHA), B only at n=1, none of C beyond a single prompt, only the global PPL of D, none of E, none of F as structured fields, none of G as slice keys, and none of H as serialized tripwires. It is a usable PPL anchor (`7.9152`) and nothing more.
 
+
 ---
 
 ## Decision: Rusty — Stage 0 prompt suite review (Hawaiian phrasing + tripwire)
@@ -566,6 +580,7 @@ Any prompt placed in the `high` diacritic-density slot of the Stage 0 suite must
 1. **Symmetric `okina_collapse_on_high_diacritic` is cheap.** Both high prompts request ʻokina too. A sibling counter would catch the dual failure mode. Suggest as Stage 1 follow-up (additive, no SHA churn).
 2. **`mōʻaukala` vs `moʻolelo`.** Both are valid; they represent distinct registers. Fine as-is.
 
+
 ---
 
 ## Decision: Linus — Stage 0 summary shape review (cross-checkpoint aggregator consumability)
@@ -596,6 +611,7 @@ Any prompt placed in the `high` diacritic-density slot of the Stage 0 suite must
 3. `schema_version` equal or carry an explicit migration table.
 
 These are guidance for the future aggregator; the current summary already carries every field needed to enforce them.
+
 
 ---
 
@@ -703,6 +719,7 @@ The 19% `byte_fallback_or_proxy_rate` is dominated by `▁<diacritic-char>` patt
 - **Rusty:** confirm v2 `blocking_reasons` enum and the high-diacritic minimum coverage numbers (10 samples / 1,500 words) are still the right floor.
 - **Basher:** confirm the Stage-1 manifest will read from `model.model_repo_sha` + `model.tokenizer_fingerprint_sha256` of a specific `official/` filename, and that pinning that filename in the Stage-1 manifest is acceptable.
 - **Coordinator:** sequence — schema/path/identity first, then Llama re-run; do not re-run while sections are still `not_evaluated`.
+
 
 
 ---
@@ -836,6 +853,7 @@ A re-run of `test_smoke_tokenizer_audit` against `meta-llama/Llama-3.1-8B` on `k
 If round-trip fails on Llama-3 against the Hawaiian slice, that is a real `no_go` and I want to see the debug dump before recommending anything else.
 
 
+
 ---
 
 ## Decision: Basher — Standalone tokenizer audit script removed; gate remains
@@ -857,6 +875,7 @@ If round-trip fails on Llama-3 against the Hawaiian slice, that is a real `no_go
 - Rusty: the audit gate is still yours; expect to provide thresholds and the test harness when the tokenizer-audit test is authored.
 - Linus: representative sample sourcing (nūpepa / Baibala / manual eval slices, NFC + U+02BB canonicalized) is unchanged.
 - Coordinator: no orchestration change; #8 stays open.
+
 
 ---
 
@@ -916,6 +935,7 @@ New local-only artifacts (gitignored):
 - No data committed; all artifacts gitignored under `/data/`
 - No new dependencies added; script uses stdlib only
 
+
 ---
 
 ## Decision: Linus — Quality-4 Wikisource fetch is count-only; eval contract established
@@ -968,6 +988,7 @@ Ready to receive Frank's candidate manifest. Count and ns=0 vs ns=104 split will
 
 **Open:** Coordinator clarification owed on whether wikisource-derived candidates can flip to W1 `accepted` (#7), or remain a separate `W1-wikisource` slice.
 
+
 ---
 
 ## User Directive Consolidation: Squad:Yashas & Issue #4 (2026-04-29T05-07–12-13Z)
@@ -990,6 +1011,7 @@ All four Stage 2 agents (Frank, Linus, Rusty, Basher) explicitly deferred issue 
 **Outcome:** Directive honored; no Squad overreach into Squad:Yashas territory.
 
 
+
 ---
 
 ## Decision: Basher — Stage 1 local manifest + trainer JSONL convention (Issue #6)
@@ -1006,6 +1028,7 @@ Until a `pyarrow` dependency is explicitly accepted, `scripts/301_build_stage1_d
 - Training configs may point at `data/stage1/stage1.jsonl.gz` for local Stage 1 CPT runs.
 - Tokenized `.bin` / `.npy` packing remains a later tokenizer-dependent step after Rusty's tokenizer audit.
 - Parquet promotion is a follow-up dependency decision, not a blocker for issue #6.
+
 
 ---
 
@@ -1029,6 +1052,7 @@ For the prototype, the canonical eval-hash contamination ledger is JSONL at `dat
 
 **Impact:** FineWeb-2, W1 manual eval, Stage 1, and Stage 2 contamination checks now point at the same ledger contract. Parquet is a future optional mirror only; if implemented, it must be derived from JSONL, not a second source of truth.
 
+
 ---
 
 ## Decision: Rusty — Stage-0 tokenizer audit gate for Llama-3.1-8B (Issue #8)
@@ -1049,6 +1073,7 @@ Use a local-only tokenizer audit (a tokenizer-audit test is planned; no standalo
 - The audit must fail loudly with actionable install/login instructions if `transformers` is missing or gated Hugging Face Llama access is unavailable. Do not fabricate audit results.
 - Basher: treat `code/configs/llama31_8b_a100.json` as blocked until a real report says `go` and its tokenizer/model SHA fields are frozen in the Stage-1 manifest.
 - Linus: sample rows should come from local ignored data and cover nūpepa, Baibala, and contemporary/manual eval slices where possible.
+
 
 ---
 
@@ -1077,6 +1102,7 @@ FineWeb-2 `haw_Latn` rows fetched by `205` and split/deduped by `310` are still 
 
 **Follow-up:** Near-duplicate handling beyond exact text and repeated paragraphs is planned: build MinHash/LSH signatures over cleaned FineWeb + `hawwiki` + `hawwikisource` paragraphs/docs, persist cluster IDs, enforce cluster-aware eval/final isolation.
 
+
 ---
 
 ## Decision: Rusty — W1 manual eval local hash policy (Issue #7)
@@ -1102,6 +1128,7 @@ W1 manual micro-eval rows remain local/off-git at `data/evals/manual_w1/w1-haw-m
 
 **Rationale:** Reviewed Hawaiian rows require human review. The project can validate the local path, Unicode checks, category/slice contracts, and contamination ledger wiring with clearly marked draft rows while avoiding a fabricated public benchmark.
 
+
 ---
 
 ## Decision: Linus — Stage-2 manifest contract (Issue #11)
@@ -1118,6 +1145,7 @@ For the private prototype, the canonical Stage-2 manifest artifact is JSONL at `
 - `release_eligible` remains in manifest and SFT JSONL provenance; private prototype rows default to `prototype_only=true`, `release_eligible=false`
 - Schema/enforcement: `prototype_only=true ⟹ release_eligible=false` is enforced as a schema/check violation
 - Raw/generated artifacts stay under ignored `data/`
+
 
 ---
 
@@ -1138,6 +1166,7 @@ For the Ralph review loop, classify issues by prototype acceptance, not producti
 4. **Do not close skeleton issue when contract is internally inconsistent.** Hold #11 (and therefore #9) until Stage-2 JSONL-first manifest contract is reconciled across docs/scripts (stage2_manifest.jsonl vs stale parquet references, output naming, release_eligible tension).
 
 **Application:** Issue #9 epic and all sub-issues (#10–#14) closed after Linus reconciled Stage-2 contract. #11 validation: py_compile 320/321/330, `320 --dry-run --print-schema`, targeted stale-name grep all passed.
+
 
 ---
 
@@ -1171,6 +1200,7 @@ Hawaiian Wikisource (on multilingual `wikisource.org`) has ProofreadPage extensi
 - Did not implement transclusion walks for Page-ns aggregation
 - Did not auto-promote Validated rows
 - Did not change `--namespaces` defaults
+
 
 ---
 
@@ -1214,6 +1244,7 @@ Hawaiian Wikisource (on multilingual `wikisource.org`) has ProofreadPage extensi
 - **Frank:** confirm whether ProofreadPage quality is reachable for our `Category:ʻŌlelo Hawaiʻi` enumeration, or whether we'd need an Index/Page namespace walk.
 - **Coordinator / #7 owner:** confirm whether Hawaiian-literate reviewers may flip wikisource-derived candidates to `accepted`, or whether W1 stays hand-authored only.
 
+
 ---
 
 ## User Directive: Non-replacement data policy for Wikisource-derived work
@@ -1223,6 +1254,7 @@ Hawaiian Wikisource (on multilingual `wikisource.org`) has ProofreadPage extensi
 **Status:** Team guidance — captured for future Wikisource fetches
 
 Do not replace existing data when fetching or deriving Wikisource proofread/validated material. If found, treat it as new data unless a later dedupe pass validates equivalence.
+
 
 ---
 
@@ -1234,6 +1266,7 @@ Do not replace existing data when fetching or deriving Wikisource proofread/vali
 
 Do not work on PowerPoint yet. Maintain a Markdown file documenting the project journey and decisions (e.g., `docs/prototype-journey-data-factcheck.md`).
 
+
 ---
 
 ## User Directive: VS Code IDE context
@@ -1243,6 +1276,7 @@ Do not work on PowerPoint yet. Maintain a Markdown file documenting the project 
 **Status:** Context capture — for workflow and docs framing
 
 The user is using VS Code as their IDE. Capture for future project journey notes and workflow/docs framing.
+
 
 ---
 
@@ -1289,6 +1323,7 @@ The harness then aggregates `overall.*` and `high_diacritic.*` (`tokens_per_word
 
 - **Linus:** please convert `data/raw/ulukau_nupepa/human_fetch.md` into a JSONL slice under `data/tokenizer_audit/ulukau_nupepa/` (off-git) using the shape above, splitting by language heading and emitting NFC + U+02BB-canonical text. Treat as tokenizer-audit input only; do not route into Stage 1 ingest or eval ledger from this path.
 - **Frank / W1 owners:** unchanged. This file is not W1.
+
 
 ---
 
@@ -1353,6 +1388,7 @@ Aligned with Rusty's Stage-0 tokenizer-audit gate convention that audit inputs/r
 - **Frank:** if/when license clearance for Ulukau landing copy is in scope,
   this is the path to clear. Until then it stays audit-only.
 
+
 ---
 
 ## Decision: Linus — Kaʻehuikimanōopuʻuloa pages converted to tokenizer-audit candidate
@@ -1406,6 +1442,7 @@ Converted manual book-page paste of *He moʻolelo kaʻao no Kaʻehuikimanōopuʻ
 
 - **Rusty:** Combined with `human_fetch.md` landing-copy slice, these two now meet Stage-0 minimums (≥1,500 words ✅, ≥10 high-diacritic samples ✅)
 - **Coordinator:** Test harness can begin; multi-genre expansion (≥5–6k words, ≥3 genres) recommended for defensible gate numbers
+
 
 ---
 
@@ -1468,6 +1505,7 @@ Converted manual book-page paste of *He moʻolelo kaʻao no Kaʻehuikimanōopuʻ
 - **Linus:** Conversion complete; manifest.json ready for harness consumption
 - **Basher:** Tokenizer audit output contract now has concrete candidate slices to validate schema against
 - **Coordinator:** Two-slice pair passes minimum thresholds; test authoring unblocked; multi-genre expansion is nice-to-have, not blocker
+
 
 ---
 
@@ -1592,6 +1630,7 @@ Human-readable narrative matching JSON:
 3. Tokenize in batches: Llama tokenizer may choke on very long sequences
 4. Preserve sample metadata: JSONL must include source for audit traceability
 
+
 ---
 
 ## Updated 2026-04-30T02:04:40Z: Linus, Rusty, Basher decisions added
@@ -1600,6 +1639,7 @@ Three decisions merged:
 - Linus: Kaʻehuikimanōopuʻuloa book-slice conversion (additive, audit-only)
 - Rusty: Assessment confirming strong audit candidacy; two-slice pair meets Stage-0 minimums
 - Basher: Tokenizer-audit output contract (report.json gate schema, hard-fail semantics)
+
 
 ---
 
@@ -1612,6 +1652,7 @@ Three decisions merged:
 User directive: Tokenizer audit helper should derive required metadata from (model_id, tokenizer) arguments rather than requiring separate manual SHA/hash arguments.
 
 **Impact:** Implementation target for Linus's metadata helper (landed 2026-04-30).
+
 
 ---
 
@@ -1656,6 +1697,7 @@ These will be populated later when `build_audit_report` orchestrator can make Hu
 
 Consumers expecting `model.{model_repo_sha, tokenizer_sha256, tokenizer_fingerprint_sha256}` will encounter `KeyError`. For now, use `model.hf_commit_sha`.
 
+
 ---
 
 ## Added 2026-04-30: Rusty — Kaʻehuikimanōopuʻuloa as tokenizer-audit candidate slice (assessment)
@@ -1687,6 +1729,7 @@ User added pages from *He Moʻolelo Kaʻao no Kaʻehuikimanōopuʻuloa* (Moses M
 
 - **Linus:** Convert `human_fetch_book_pages.txt` → `data/tokenizer_audit/ulukau_nupepa/kaehuikimanoopuuloa/` JSONL using prior slice shape
 - **Coordinator:** Route varied-genre collection to user if/when audit needs defensibility upgrade
+
 
 ---
 
@@ -1744,6 +1787,7 @@ Under `data/tokenizer_audit/ulukau_nupepa/kaehuikimanoopuuloa/` (ignored, not co
 
 - **Frank/licensing:** Clear rights for *Kaʻehuikimanōopuʻuloa* before any promotion
 - **Rusty:** When tokenizer-audit test lands, consider this as high-diacritic probe (density 0.1254, 756 ʻokina, 614 kahakō)
+
 
 ---
 
@@ -1840,6 +1884,7 @@ If `transformers` missing, Llama gated, or no Hawaiian samples found:
 - **Linus:** New audit slices under `data/tokenizer_audit/<src>/` need only expose JSONL shape already used; harness aggregates into `inputs.slices[]`. Slices stay `audit_only`.
 - **Frank/licensing:** `report.md` carries "Prototype/local artifact" footer to prevent misread as release claim.
 
+
 ---
 
 ## Added 2026-04-30: Basher — Llama-3.1-8B tokenizer audit NO-GO (gate closed, awaits clean re-run)
@@ -1897,6 +1942,7 @@ If `transformers` missing, Llama gated, or no Hawaiian samples found:
 - Gate definition: `.squad/decisions.md` Issue #8
 - Output contract: `.squad/decisions/inbox/basher-tokenizer-audit-output-contract.md`
 - Metric definitions: `code/tests/test_tokenizer_audit.py`
+
 
 ---
 
@@ -1984,6 +2030,7 @@ If round-trip **not** clean → picture changes, no_go becomes real tokenizer bl
 
 - **Linus:** Ownership of harness change + round-trip dump
 - **Coordinator:** Route harness to Linus; fingerprint/slice-population to audit-runner owner
+
 
 ---
 
@@ -2086,6 +2133,7 @@ contribute. All other entries must be excluded (e.g., `passed=null` from `not_ap
 ### Coordination
 
 **Linus owns harness implementation.** This decision gates §2 (family-aware proxy + roundtrip) in his concrete plan. **Will not land §2 without this sign-off.**
+
 
 ---
 
@@ -2244,6 +2292,7 @@ These remain queued in harness-cleanup decision (2026-04-30T03:43Z) and will lan
 - **Basher:** Ack schema stays v1 this pass (additive); manifest pin work waits
 - **Coordinator:** Route §2 decision back through Rusty before Linus implements
 
+
 ---
 
 ## Decision: Linus — Tokenizer audit cleanup implementation (status: ✅ Implemented)
@@ -2326,6 +2375,7 @@ No SHA256 computation in helpers (per Rusty constraint and prior Linus contract)
 
 **Orchestration log:** `.squad/orchestration-log/2026-04-30T04:44:24Z-linus-tokenizer-audit-cleanup-implementation.md`  
 **Session log:** `.squad/log/2026-04-30T04:44:24Z-tokenizer-audit-cleanup-implementation.md`
+
 
 
 ---
@@ -2457,11 +2507,13 @@ Every cheap eval reports the same generations sliced along:
 **Orchestration logs:** `.squad/orchestration-log/2026-04-30T07-00-17Z-basher.md`, `.squad/orchestration-log/2026-04-30T07-00-17Z-rusty.md`  
 **Session log:** `.squad/log/2026-04-30T07-00-17Z-eval-checkpoints.md`
 
+
 ---
 
 ## Decision Timeline: Stage 0 W1 manual micro-eval metadata + orthography wiring (2026-04-30)
 
 > Updated 2026-04-30T08:08:04Z: Linus W1 revision approved by Rusty (42/42 tests green, four blockers resolved, corrected source directive honored). Basher's prior in-flight work rejected per strict reviewer lockout; Linus performed independent complete rework. User directive corrected: W1 expert-validated source is `data/raw/ulukau_nupepa/human_fetch.txt`; `scripts/_convert_ulukau_human_fetch.py` is parser/normalizer context only, not the source. Orchestration logs written. Decisions merged from inbox with deduplication; superseded directives marked.
+
 
 ---
 
@@ -2472,6 +2524,7 @@ Every cheap eval reports the same generations sliced along:
 **Statement:** For W1 eval, use `scripts/_convert_ulukau_human_fetch.py` as the source path for Ulukau human-fetch rows and consider those rows expert-validated.  
 **Status:** **SUPERSEDED** by the correction below (2026-04-30T07:59:13Z).
 
+
 ---
 
 ### User Directive (Current): W1 expert-validated source path — Corrected
@@ -2480,6 +2533,7 @@ Every cheap eval reports the same generations sliced along:
 **By:** yashasg (via Copilot)  
 **Statement:** For W1 eval expert-validated Ulukau rows, the data source is `data/raw/ulukau_nupepa/human_fetch.txt` (sections: `# English` / `# Hawaiian`; use Hawaiian section for W1). `scripts/_convert_ulukau_human_fetch.py` is the related parser/normalizer (NFC, ʻokina-folding, basic stats), not the source of truth.  
 **Status:** Current. Supersedes 2026-04-30T07:52:13Z directive.
+
 
 ---
 
@@ -2525,6 +2579,7 @@ This contract closes that gap without shipping a fabricated benchmark.
 
 **Approved.** Wire the loader into Stage 0 per the state machine before the next Stage 0 run.
 
+
 ---
 
 ## Decision: Basher — W1 manual micro-eval status wired into Stage 0 (metadata only)
@@ -2564,6 +2619,7 @@ This contract closes that gap without shipping a fabricated benchmark.
 - `sh -n scripts/run_stage0_eval.sh` → clean.
 - `cd code && PYTHONPATH=. python3 -m unittest tests.test_evaluate tests.test_metrics` → 25/25 green.
 
+
 ---
 
 ## Review: Rusty — W1 Stage 0 implementation review (Basher's work)
@@ -2588,6 +2644,7 @@ This contract closes that gap without shipping a fabricated benchmark.
 ### Recommended next agent
 
 **Basher** — implementation-side, contained, mechanical fixes. All 25 tests to remain green.
+
 
 ---
 
@@ -2634,6 +2691,7 @@ Cross-checkpoint aggregator can switch on:
 
 **Basher** — implementation-side contract-compliance work.
 
+
 ---
 
 ## Decision: Basher — W1 contract-revision (Stage 0 eval) [In-flight]
@@ -2664,6 +2722,7 @@ Mirrored the hash formula from `scripts/315_hash_manual_w1_eval.py` into `evalua
 Circulated for Rusty re-review and Linus sign-off on run-script projection.
 
 **⚠️ Note:** This work was subsequently rejected by Linus and the coordinator enforced strict reviewer lockout (rejected author cannot revise). Linus performed independent complete rework (see Linus W1 revision below).
+
 
 ---
 
@@ -2763,6 +2822,7 @@ Populated W1 TSVs derived from `human_fetch.txt` remain off-git under `data/eval
 
 - **Coordinator:** if anyone touches the W1 TSV format or the canonical hash formula, the `evaluate._manual_w1_sha256_normalized` mirror and the unit test that pins it must be updated in the same change.
 
+
 ---
 
 ## Review: Rusty — W1 Linus revision review [APPROVED]
@@ -2823,6 +2883,7 @@ The four blockers from `rusty-w1-implementation-review.md` are addressed and the
 
 ✅ **Lift the W1 revision.** Linus is locked out of the next revision cycle on this scope by standard rule; no rejection-driven re-spawn needed because the verdict is APPROVE.
 
+
 ---
 
 ## User Directive: human_fetch as checkpoint eval probe (2026-04-30T08:37:06Z)
@@ -2834,6 +2895,7 @@ The four blockers from `rusty-w1-implementation-review.md` are addressed and the
 **Why:** User request — captured for team memory
 
 **Status:** Implemented by Linus; reviewed and APPROVED by Rusty.
+
 
 ---
 
@@ -2899,6 +2961,7 @@ The four blockers from `rusty-w1-implementation-review.md` are addressed and the
 - ✅ `cd code && PYTHONPATH=. python3 -m unittest tests.test_evaluate tests.test_metrics` — **73/73 green** (was 50; +23 new tests)
 - ✅ `git --no-pager diff --check`
 
+
 ---
 
 ## Decision: Rusty — review of Linus's human_fetch bidirectional translation probe
@@ -2960,6 +3023,7 @@ The metric is correctly framed throughout (docstring, README, `eval_pipeline.md`
 ✅ **APPROVED.** Implementation faithfully delivers Stage 0 as checkpoint 0 in the same checkpoint-eval series, with bidirectional translation behaviour visible from the first eval and drift trackable across checkpoints. No raw text leaks, directions never averaged, metric framed honestly as a baseline string-overlap signal, converter metadata correct and truthful, W1 invalid-gate and CLI compatibility intact. Ready to land.
 
 
+
 ---
 
 ## Decision: Training Input Path for Stage 1 Prototype Run (2026-05-01)
@@ -3005,6 +3069,7 @@ Eval input: `data/evals/fineweb2_haw/dev.jsonl` (621 rows).
 ### Coordination with Basher (training runner)
 
 Config paths are config-relative (resolved from config file location). Basher's runner does not change CWD or pass absolute override unless it writes `resolved_config.json` with absolute paths.
+
 
 ---
 
@@ -3085,6 +3150,7 @@ python3 -m llm_hawaii.train \
 - Lazy imports preserved (root venv, no torch, still compiles)
 - Existing `--config` / `--print-config` behavior unchanged
 
+
 ---
 
 ## Decision: DummyTokenizer Test Fix (2026-05-01)
@@ -3124,6 +3190,7 @@ Unit tests imported real HuggingFace tokenizers, causing:
 - `_DummyTokenizer` is test-only; never used in production
 - Real tokenizer validation at preflight/train time
 - Unit tests do not verify actual token counts (integration test scope)
+
 
 
 ---
@@ -3180,6 +3247,7 @@ If Kaggle session OOMs at max_seq_len=2048:
 - ✅ JSON parses without error
 - ✅ `load_config()` returns `max_seq_len=2048`, `gradient_accumulation_steps=16`, `fp16=True`, `bf16=False`
 - ✅ All assertions pass
+
 
 ---
 
@@ -3240,6 +3308,7 @@ Kaggle T4x2 prototype run observes 8–10 GB unused VRAM across both GPUs combin
 - Batch-size increase provides immediate implementable gain without changing optimizer semantics.
 - QLoRA cannot use DDP (bitsandbytes `Linear4bit` incompatible with gradient gathering); single-process `device_map='auto'` is mandatory.
 
+
 ---
 
 ## Decision: Kaggle T4x2 VRAM Tuning — Config-Only Pass
@@ -3296,6 +3365,7 @@ If Kaggle session OOMs at batch=2, gradient_accum=8:
 1. Revert to `per_device_train_batch_size=1`, `gradient_accumulation_steps=16` (original conservative values)
 2. If still OOM: reduce `lora_rank=16`, `lora_alpha=32`
 3. If still needed: fallback to `max_seq_len=512`
+
 
 ---
 
@@ -3449,6 +3519,7 @@ PYTHONPATH=code python3 -m llm_hawaii.train \
   --config code/configs/stage1_fineweb2_haw_kaggle_t4x2.json
 ```
 
+
 ---
 
 ## Decision: Stage-2 Bible verse-id adapter — edition pin lives in JSON, not code (2026-05-01)
@@ -3463,6 +3534,7 @@ Stood up the first real Stage-2 source adapter for the (Baibala Hemolele × publ
 **Validation:** 18/18 new tests pass; full `code/tests` suite still green. `322 --execute` emits 5 rows to `data/stage2/candidates/bible.jsonl` (gitignored). Schema check → rc=0.
 
 **Files:** `data-sources/bible/{source_registry.json, README.md}`, `scripts/{206_fetch_baibala_raw.py, 322_build_bible_candidates.py}`, `code/tests/fixtures/bible/`, `code/tests/test_bible_adapter.py`.
+
 
 ---
 
@@ -3482,6 +3554,7 @@ Stood up the first real Stage-2 source adapter for the (Baibala Hemolele × publ
 
 **Files:** `data-sources/tatoeba/{fetch.py, README.md, PINNED_DUMP.json}`, `code/tests/fixtures/tatoeba/*.tsv`, `code/tests/test_tatoeba_adapter.py` (41 tests, all green).
 
+
 ---
 
 ## Decision: Stage-2 SFT data path and target-only masking (no TRL) (2026-05-01)
@@ -3500,6 +3573,7 @@ Stage-2 SFT uses custom tokenizer + collator in `code/llm_hawaii/data.py` rather
 
 **Validation:** Target-only labels at tokenization; prompt/padding = -100 (inspectable); EOS placement correct; no BOS/EOS injection mid-sequence.
 
+
 ---
 
 ## Decision: Colab Pro vs Kaggle T4x2 — conditional GPU assessment (2026-05-01)
@@ -3517,6 +3591,7 @@ Stage-2 SFT uses custom tokenizer + collator in `code/llm_hawaii/data.py` rather
 | T4 16GB   | No  | Stay on Kaggle T4x2 (32GB total beats 16GB single) |
 
 **How to check before committing:** `print(torch.cuda.get_device_name(0))` and `torch.cuda.get_device_properties(0).total_memory / 1e9`.
+
 
 ---
 
@@ -3539,6 +3614,7 @@ Stage 2 prototype eval gate is live at `code/llm_hawaii/stage2_eval.py` with CLI
 
 **Hand-offs:** Basher (predictions keyed by `pair_id`), Linus (manifest schema fields: `sha256_pair`, `sha256_normalized`, etc.).
 
+
 ---
 
 ## Decision: Colab Pro ROI for Stage-1 Prototype (2026-05-01)
@@ -3555,6 +3631,7 @@ Stage 2 prototype eval gate is live at `code/llm_hawaii/stage2_eval.py` with CLI
 1. Confirm remaining 28h41m is not enough to complete the run.
 2. Need A100 (bf16, faster throughput) — requires new config.
 3. Iterating rapidly and exhausting free quota repeatedly in the same week.
+
 
 ---
 
@@ -3585,6 +3662,7 @@ Added Stage 2 tokenizer SHA equality check and parent artifact recording to the 
 - `code/configs/stage2_smoke.json`, `stage2_prototype.json` — `parent_run_dir: null`
 - `docs/training-pipeline.md` §5 — implementation notes
 - `code/tests/test_train.py` — 12 new tests
+
 
 ---
 
@@ -3622,3 +3700,45 @@ Two `haw->en` templates are in Hawaiian. Flagged in issue #20 comment for Rusty'
 - **Rusty:** Please review the two Hawaiian-language instruction paraphrases in `data/stage2/templates.json` (haw->en direction).
 - **Frank:** If the Bible adapter produces new candidates, run `python scripts/320_build_stage2_manifest.py --execute` to rebuild the manifest.
 
+
+
+---
+
+## Decision: Stage 2 Alignment-Quality Policy Integration (Issue #19)
+
+**Owner:** Rusty (NLP Researcher)
+**Date:** 2026-05-01
+**Status:** IMPLEMENTED — Manifest builder integrated
+
+### Summary
+
+The alignment-quality scoring policy is now wired directly into the manifest builder at `scripts/320_build_stage2_manifest.py`. Every candidate row is scored through `llm_hawaii.stage2_quality.score_pair` before validation. Policy fields are required on the manifest but NOT on adapter candidate output.
+
+### Key decisions
+
+1. **Policy fields required on manifest, not on adapters.** The six fields (`alignment_confidence_tier`, `alignment_review_required`, `quality_flags`, `manual_review_reasons`, `alignment_score_components`, `policy_version`) are computed by the builder, not the adapters. Adapters keep their structural-only contract.
+
+2. **Tier → split contract:**
+   - `tier == "accept"` → split is preserved if explicit, else `assign_split(pair_id)` (deterministic train/dev).
+   - `tier ∈ {"review", "reject"}` → split is forced to `"review-pending"`, overriding upstream value. The SFT emitter already excludes `review-pending` from default split set and skips `alignment_review_required=true`, so quarantined rows are double-belted out of training.
+
+3. **Run-level summary persisted.** `data/stage2/score_summary.json` is written on every `--execute` with `row_count`, `tier_counts`, `flag_counts`, and serialized active `policy_summary()`. `policy_version="stage2-quality-v0.1"` is recorded on every row and on the manifest's `ingest.policy_version`.
+
+4. **Policy version tracking for explainability.** Any change to `PolicyConfig` defaults must bump `POLICY_VERSION` in `code/llm_hawaii/stage2_quality.py` and trigger a manifest re-write — old rows remain explainable via their recorded policy version.
+
+### Hawaiian-language template fixture correction
+
+The committed haw→en paraphrase was orthographically/grammatically inverted (`"Unuhi i kēia ʻōlelo Pelekānia mai ka ʻōlelo Hawaiʻi."` — "Translate this English speech FROM Hawaiian", which is wrong for a haw→en prompt whose input is Hawaiian). Replaced in `code/tests/fixtures/stage2/templates.json` and in the emitter's `DEFAULT_INSTRUCTIONS`. All haw→en paraphrases now phrase the direction as `kēia ʻōlelo Hawaiʻi … i ka ʻōlelo Pelekānia`.
+
+### Impact on other agents
+
+- **Linus:** Adapters do not need to emit policy fields. If adding a new adapter, only ship structural manifest fields; the builder scores on ingest. Schema-compatibility tests should `apply_policy(dict(row))` before calling `validate_row` — see `test_bible_adapter.py` and `test_tatoeba_adapter.py` for pattern.
+- **Basher:** No change required. Emitter's existing `alignment_review_required` filter and split filter already honor the quarantine. Trainer fields are unchanged.
+- **Frank:** Template fixtures corrected; no adapter logic change.
+
+### Files changed
+- `scripts/320_build_stage2_manifest.py` — policy scoring integrated
+- `code/llm_hawaii/stage2_quality.py` — policy version tracking
+- `code/tests/fixtures/stage2/templates.json` — haw→en templates corrected
+- `code/llm_hawaii/score_stage2_sft_batch.py` — emitter default instructions updated
+- `data/stage2/score_summary.json` — persisted on each build

@@ -1,0 +1,54 @@
+{
+  "base_model": "meta-llama/Llama-3.1-8B",
+  "tokenizer_name": null,
+  "unicode_normalization": "NFC",
+
+  "train_path": "../../data/stage2/stage2_sft.jsonl",
+  "eval_path": null,
+  "text_field": "text",
+  "max_seq_len": 1024,
+
+  "sft_instruction_field": "instruction",
+  "sft_source_field": "source_text",
+  "sft_target_field": "target_text",
+
+  "use_qlora": true,
+  "lora_rank": 32,
+  "lora_alpha": 64,
+  "lora_dropout": 0.05,
+  "lora_target_modules": "all-linear",
+
+  "learning_rate": 0.0001,
+  "num_train_epochs": 2.0,
+  "per_device_train_batch_size": 1,
+  "gradient_accumulation_steps": 16,
+  "warmup_ratio": 0.05,
+  "weight_decay": 0.01,
+  "lr_scheduler_type": "cosine",
+  "gradient_checkpointing": true,
+  "bf16": true,
+  "fp16": false,
+  "seed": 7,
+
+  "output_dir": "runs/llama31-8b-stage2-sft-prototype",
+  "logging_steps": 10,
+  "save_steps": 200,
+  "eval_steps": null,
+  "save_total_limit": 3,
+
+  "stage": "stage2-sft",
+  "hardware_profile": "a100-40gb-single",
+  "run_name": "llama31-8b-stage2-sft-prototype",
+  "parent_run_dir": null,
+  "notes": {
+    "purpose": "Stage 2 bidirectional translation SFT on Llama-3.1-8B + QLoRA. Target-only loss masking via make_sft_collator. Prototype-only; not a release artifact.",
+    "gate": "Requires: (1) HF access to meta-llama/Llama-3.1-8B; (2) data/stage2/stage2_sft.jsonl emitted by scripts/330_emit_stage2_sft_jsonl.py; (3) Stage 1 adapter checkpoint at a known checkpoint dir. Set parent_run_dir to that checkpoint dir. Run --preflight before spending GPU time.",
+    "lineage": "Set parent_run_dir to the Stage 1 / merged-base output dir (must contain tokenizer files and run_report.json). --preflight validates tokenizer SHA equality and records parent_artifact_sha before any GPU work.",
+    "hardware": "Tuned for 1x A100 40GB (bf16=true, Ampere required). Adjust bf16->false and fp16->true for T4/Turing.",
+    "lr_note": "Stage 2 SFT uses a lower LR (1e-4) and higher warmup ratio (0.05) than Stage 1 CPT to avoid catastrophic forgetting on the LoRA-tuned Stage 1 adapter.",
+    "data": "stage2_sft.jsonl: emitted by scripts/330_emit_stage2_sft_jsonl.py from data/stage2/stage2_manifest.jsonl. Contains en->haw and haw->en directional rows. Off-git under data/stage2/.",
+    "loss_mask": "target-only — labels=-100 on instruction+source tokens; target tokens including EOS carry cross-entropy loss. Enforced by tokenize_sft_example + make_sft_collator in code/llm_hawaii/data.py.",
+    "path_note": "Paths are config-relative (relative to this file). Run: PYTHONPATH=code python -m llm_hawaii.train --config code/configs/stage2_prototype.json --preflight",
+    "resume": "If interrupted: PYTHONPATH=code python -m llm_hawaii.train --config code/configs/stage2_prototype.json --resume-from-checkpoint runs/llama31-8b-stage2-sft-prototype/checkpoint-NNN"
+  }
+}

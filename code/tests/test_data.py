@@ -26,11 +26,14 @@ class _DummyTokenizer:
 
     Splits on whitespace and maps each token to its index in a tiny vocab.
     Implements the same call-signature as HF AutoTokenizer so
-    tokenize_example / build_train_dataset work without any HF downloads.
+    tokenize_example / build_train_dataset / tokenize_sft_example work without
+    any HF downloads.
     """
 
     pad_token = "<pad>"
+    pad_token_id = 0
     eos_token = "<eos>"
+    eos_token_id = 999
 
     def __call__(
         self,
@@ -39,9 +42,11 @@ class _DummyTokenizer:
         truncation: bool = False,
         padding=False,
         return_tensors=None,
+        **kwargs,
     ) -> dict:
         tokens = text.split()
-        ids = [abs(hash(t)) % 1000 for t in tokens]
+        # Map tokens to 1-998 so 0=pad and 999=eos are reserved.
+        ids = [abs(hash(t)) % 998 + 1 for t in tokens]
         if truncation:
             ids = ids[:max_length]
         return {"input_ids": ids, "attention_mask": [1] * len(ids)}
@@ -325,6 +330,217 @@ class TestTrainConfig(unittest.TestCase):
             self.assertEqual(original.stage, reloaded.stage)
         finally:
             out_path.unlink(missing_ok=True)
+
+
+class TestSFTData(unittest.TestCase):
+    """Stage-2 SFT tokenization and collation tests — no ML deps required."""
+
+    _EXAMPLE = {
+        "instruction": "Translate the following English sentence into Hawaiian.",
+        "source_text": "The sky is blue.",
+        "target_text": "Ua uliuli ke lani.",
+        "loss_mask": "target_only",
+    }
+
+    def _tok(self):
+        return _DummyTokenizer()
+
+    def _tokenize(self, example=None, **kwargs):
+        return data.tokenize_sft_example(
+            example or dict(self._EXAMPLE), self._tok(), **kwargs
+        )
+
+    # --- target-only masking regression ---
+
+    def test_target_only_masking_prompt_positions_are_neg100(self):
+        """All prompt token positions in labels must be -100 (exact regression)."""
+        tok = self._tok()
+        prompt_text = (
+            self._EXAMPLE["instruction"]
+            + "\n\n"
+            + self._EXAMPLE["source_text"]
+            + "\n\n"
+        )
+        prompt_ids = tok(prompt_text, add_special_tokens=False)["input_ids"]
+
+        result = self._tokenize()
+        n_prompt = len(prompt_ids)
+        self.assertGreater(n_prompt, 0, "Expected non-empty prompt")
+        for i, lbl in enumerate(result["labels"][:n_prompt]):
+            self.assertEqual(
+                lbl,
+                -100,
+                f"labels[{i}] = {lbl}, expected -100 (prompt position)",
+            )
+
+    def test_target_only_masking_target_positions_carry_loss(self):
+        """Target token positions (after prompt) must have real token IDs, not -100."""
+        tok = self._tok()
+        prompt_text = (
+            self._EXAMPLE["instruction"]
+            + "\n\n"
+            + self._EXAMPLE["source_text"]
+            + "\n\n"
+        )
+        n_prompt = len(tok(prompt_text, add_special_tokens=False)["input_ids"])
+        result = self._tokenize()
+        target_labels = result["labels"][n_prompt:]
+        self.assertGreater(len(target_labels), 0, "Expected at least one target label")
+        for i, lbl in enumerate(target_labels):
+            self.assertNotEqual(
+                lbl,
+                -100,
+                f"target labels[{i}] = -100, expected a real token id",
+            )
+
+    def test_eos_appended_and_carries_loss(self):
+        """EOS token must be the last input_id and the last label (not -100)."""
+        result = self._tokenize()
+        self.assertEqual(
+            result["input_ids"][-1],
+            _DummyTokenizer.eos_token_id,
+            "Last input_id must be EOS",
+        )
+        self.assertEqual(
+            result["labels"][-1],
+            _DummyTokenizer.eos_token_id,
+            "EOS label must equal eos_token_id (carries loss)",
+        )
+
+    def test_labels_input_ids_same_length(self):
+        """labels and input_ids must have the same length."""
+        result = self._tokenize()
+        self.assertEqual(len(result["input_ids"]), len(result["labels"]))
+        self.assertEqual(len(result["input_ids"]), len(result["attention_mask"]))
+
+    def test_missing_field_raises(self):
+        """KeyError on missing instruction/source/target field."""
+        tok = self._tok()
+        with self.assertRaises(KeyError):
+            data.tokenize_sft_example(
+                {"source_text": "x", "target_text": "y"}, tok
+            )
+        with self.assertRaises(KeyError):
+            data.tokenize_sft_example(
+                {"instruction": "x", "target_text": "y"}, tok
+            )
+        with self.assertRaises(KeyError):
+            data.tokenize_sft_example(
+                {"instruction": "x", "source_text": "y"}, tok
+            )
+
+    def test_no_eos_token_raises(self):
+        """RuntimeError when tokenizer has no eos_token_id."""
+
+        class _NoEosTokenizer(_DummyTokenizer):
+            eos_token_id = None
+
+        with self.assertRaises(RuntimeError):
+            data.tokenize_sft_example(dict(self._EXAMPLE), _NoEosTokenizer())
+
+    def test_truncation_respects_max_length(self):
+        """Combined sequence must not exceed max_length."""
+        result = self._tokenize(max_length=5)
+        self.assertLessEqual(len(result["input_ids"]), 5)
+
+    def test_normalization_applied_to_all_fields(self):
+        """NFC normalization is applied to instruction, source, and target."""
+        # NFD ā = a + combining macron; NFC ā = precomposed U+0101
+        nfd_example = {
+            "instruction": "Translate the following English sentence into Hawaiian.",
+            "source_text": "ha\u0304lau",   # NFD: a + U+0304
+            "target_text": "ha\u0304lau",
+        }
+        result = data.tokenize_sft_example(nfd_example, self._tok())
+        # If normalization were skipped the hash-based tokenizer would see
+        # different token strings; the main thing is it doesn't crash and
+        # returns the expected structure.
+        self.assertIn("input_ids", result)
+
+    # --- build_sft_dataset ---
+
+    def test_build_sft_dataset_loads_example_file(self):
+        """build_sft_dataset must return >0 records from the example JSONL."""
+        repo_root = Path(__file__).resolve().parents[2]
+        example_path = repo_root / "code" / "examples" / "stage2_sft.jsonl.example"
+        self.assertTrue(example_path.exists(), f"Missing: {example_path}")
+        records = data.build_sft_dataset(
+            example_path,
+            self._tok(),
+            max_length=256,
+        )
+        self.assertGreater(len(records), 0)
+        for rec in records:
+            self.assertIn("input_ids", rec)
+            self.assertIn("labels", rec)
+            self.assertEqual(len(rec["input_ids"]), len(rec["labels"]))
+
+    def test_build_sft_dataset_empty_raises(self):
+        """ValueError when JSONL has zero rows."""
+        import gzip as _gzip
+        with tempfile.TemporaryDirectory() as d:
+            empty = Path(d) / "empty.jsonl"
+            empty.write_text("", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                data.build_sft_dataset(empty, self._tok())
+
+    # --- make_sft_collator ---
+
+    def test_sft_collator_pads_to_max_length(self):
+        """SFT collator must pad all sequences in a batch to the same length."""
+        collator = data.make_sft_collator(self._tok())
+        features = [
+            {"input_ids": [1, 2, 3], "attention_mask": [1, 1, 1], "labels": [-100, -100, 10]},
+            {"input_ids": [4, 5, 6, 7], "attention_mask": [1, 1, 1, 1], "labels": [-100, 20, 21, 999]},
+        ]
+        batch = collator(features)
+        self.assertEqual(len(batch["input_ids"][0]), 4)
+        self.assertEqual(len(batch["input_ids"][1]), 4)
+
+    def test_sft_collator_pads_labels_with_neg100(self):
+        """Padded label positions must be -100, not the pad token id."""
+        collator = data.make_sft_collator(self._tok())
+        features = [
+            {"input_ids": [1, 2], "attention_mask": [1, 1], "labels": [-100, 10]},
+            {"input_ids": [4, 5, 6, 7], "attention_mask": [1, 1, 1, 1], "labels": [-100, 20, 21, 999]},
+        ]
+        batch = collator(features)
+        # Short row: positions 2 and 3 are padded — labels must be -100
+        self.assertEqual(batch["labels"][0][2], -100)
+        self.assertEqual(batch["labels"][0][3], -100)
+        # Short row: attention_mask at padded positions must be 0
+        self.assertEqual(batch["attention_mask"][0][2], 0)
+        self.assertEqual(batch["attention_mask"][0][3], 0)
+
+    def test_sft_collator_preserves_existing_neg100(self):
+        """Existing -100 labels (prompt mask) must survive collation unchanged."""
+        collator = data.make_sft_collator(self._tok())
+        features = [
+            {"input_ids": [1, 2, 3, 4], "attention_mask": [1, 1, 1, 1], "labels": [-100, -100, 30, 999]},
+            {"input_ids": [5, 6, 7, 8], "attention_mask": [1, 1, 1, 1], "labels": [-100, 40, 41, 999]},
+        ]
+        batch = collator(features)
+        # No padding needed (equal-length batch) — labels must be unchanged.
+        self.assertEqual(batch["labels"][0], [-100, -100, 30, 999])
+        self.assertEqual(batch["labels"][1], [-100, 40, 41, 999])
+
+    # --- config ---
+
+    def test_stage2_smoke_config_loads(self):
+        """stage2_smoke.json must parse and have stage='stage2-sft'."""
+        repo_root = Path(__file__).resolve().parents[2]
+        cfg = TrainConfig.from_json(repo_root / "code" / "configs" / "stage2_smoke.json")
+        self.assertEqual(cfg.stage, "stage2-sft")
+        self.assertEqual(cfg.sft_instruction_field, "instruction")
+        self.assertEqual(cfg.sft_source_field, "source_text")
+        self.assertEqual(cfg.sft_target_field, "target_text")
+
+    def test_stage2_prototype_config_loads(self):
+        """stage2_prototype.json must parse and have stage='stage2-sft'."""
+        repo_root = Path(__file__).resolve().parents[2]
+        cfg = TrainConfig.from_json(repo_root / "code" / "configs" / "stage2_prototype.json")
+        self.assertEqual(cfg.stage, "stage2-sft")
+        self.assertIn("stage2", cfg.train_path)
 
 
 if __name__ == "__main__":

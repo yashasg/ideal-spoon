@@ -79,6 +79,50 @@ def _hash_file(path: Path, chunk_size: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
+# Canonical tokenizer files that constitute the tokenizer identity.
+# Sorted for determinism; only present files are included in the hash.
+_TOKENIZER_SHA_FILES = [
+    "added_tokens.json",
+    "merges.txt",
+    "special_tokens_map.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "vocab.json",
+]
+
+
+def compute_tokenizer_sha(tokenizer_dir: Path) -> str:
+    """SHA-256 over the canonical tokenizer files present in ``tokenizer_dir``.
+
+    Files are hashed in sorted order so the digest is deterministic regardless
+    of filesystem ordering.  Raises ``FileNotFoundError`` if no tokenizer files
+    are found (mistyped path guard).
+    """
+    h = hashlib.sha256()
+    found = False
+    for fname in _TOKENIZER_SHA_FILES:
+        fpath = tokenizer_dir / fname
+        if fpath.exists():
+            found = True
+            h.update(fname.encode("utf-8"))
+            h.update(_hash_file(fpath).encode("ascii"))
+    if not found:
+        raise FileNotFoundError(
+            f"No tokenizer files found in '{tokenizer_dir}'. "
+            "Expected at least one of: " + ", ".join(_TOKENIZER_SHA_FILES)
+        )
+    return h.hexdigest()
+
+
+def _compute_artifact_sha(out_dir: Path) -> Optional[str]:
+    """SHA-256 of the saved LoRA adapter file, or None if not found."""
+    for candidate in ("adapter_model.safetensors", "adapter_model.bin"):
+        fpath = out_dir / candidate
+        if fpath.exists():
+            return _hash_file(fpath)
+    return None
+
+
 def _git_commit(cwd: Optional[Path] = None) -> str:
     """Return current HEAD SHA, or 'unknown' — never raises."""
     try:
@@ -137,11 +181,22 @@ def run_preflight(cfg: TrainConfig) -> dict:
             issues.append(f"train_path has zero rows: {train_path}")
             report["train_field_ok"] = None
         else:
-            field_ok = cfg.text_field in (first_row or {})
+            # Stage-2 SFT records have instruction/source/target fields;
+            # Stage-1 CPT records have a single text field.
+            if cfg.stage == "stage2-sft":
+                check_fields = [
+                    cfg.sft_instruction_field,
+                    cfg.sft_source_field,
+                    cfg.sft_target_field,
+                ]
+            else:
+                check_fields = [cfg.text_field]
+            missing_fields = [f for f in check_fields if f not in (first_row or {})]
+            field_ok = not missing_fields
             report["train_field_ok"] = field_ok
             if not field_ok:
                 issues.append(
-                    f"text_field '{cfg.text_field}' missing from first row; "
+                    f"Required fields {missing_fields} missing from first row; "
                     f"found keys: {sorted((first_row or {}).keys())}"
                 )
 
@@ -178,6 +233,103 @@ def run_preflight(cfg: TrainConfig) -> dict:
             stacklevel=2,
         )
 
+    # --- Stage 2 lineage checks (stage2-sft only; Stage 1 path unaffected) ---
+    if cfg.stage == "stage2-sft":
+        lineage = run_stage2_lineage_preflight(cfg)
+        issues.extend(lineage.pop("issues", []))
+        report.update(lineage)
+
+    return report
+
+
+def run_stage2_lineage_preflight(cfg: TrainConfig) -> dict:
+    """Stage 2 lineage checks. Does NOT require ML deps or a GPU.
+
+    Validates:
+    1. ``parent_run_dir`` is configured, exists, and contains a ``run_report.json``
+       with a ``tokenizer_sha`` recorded from Stage 1.
+    2. Current tokenizer files in ``parent_run_dir`` hash to that same SHA —
+       any single-byte tamper of ``tokenizer.json`` (or any canonical file)
+       fails loudly here, before any GPU work starts.
+    3. Records ``corpus_manifest_sha`` (hash of ``cfg.train_path``),
+       ``parent_artifact_sha`` (from parent ``run_report.json``), and the
+       verified ``tokenizer_sha``.
+
+    Returns a dict with keys:
+      issues                list[str] — empty means all checks passed
+      tokenizer_sha         str | None
+      parent_artifact_sha   str | None
+      corpus_manifest_sha   str | None
+
+    Stage 1 path: this function is only called for ``stage2-sft``; Stage 1
+    ``run_preflight`` is unaffected.
+    """
+    issues: list[str] = []
+    report: dict = {
+        "issues": issues,
+        "tokenizer_sha": None,
+        "parent_artifact_sha": None,
+        "corpus_manifest_sha": None,
+    }
+
+    # Corpus SHA — hash the training JSONL regardless of other checks.
+    train_path = Path(cfg.train_path)
+    if train_path.exists():
+        report["corpus_manifest_sha"] = _hash_file(train_path)
+
+    # parent_run_dir is required for Stage 2.
+    if not cfg.parent_run_dir:
+        issues.append(
+            "stage2-sft lineage check requires 'parent_run_dir' in config "
+            "(path to Stage 1 / merged-base output dir containing saved "
+            "tokenizer files and run_report.json)"
+        )
+        return report
+
+    parent_dir = Path(cfg.parent_run_dir)
+    if not parent_dir.exists():
+        issues.append(f"parent_run_dir not found: {parent_dir}")
+        return report
+
+    # Load parent run report for expected tokenizer SHA and artifact SHA.
+    parent_report_path = parent_dir / "run_report.json"
+    expected_tokenizer_sha: Optional[str] = None
+    if not parent_report_path.exists():
+        issues.append(
+            f"No run_report.json found in parent_run_dir '{parent_dir}'; "
+            "cannot verify tokenizer SHA or artifact lineage. "
+            "Ensure Stage 1 completed and wrote its run report."
+        )
+    else:
+        with open(parent_report_path, "r", encoding="utf-8") as f:
+            parent_report = json.load(f)
+        expected_tokenizer_sha = parent_report.get("tokenizer_sha")
+        report["parent_artifact_sha"] = parent_report.get("artifact_sha")
+        if not expected_tokenizer_sha:
+            issues.append(
+                "parent run_report.json has no 'tokenizer_sha' field — "
+                "was it produced by an older trainer version? "
+                "Re-run Stage 1 to regenerate a complete run report."
+            )
+
+    # Compute tokenizer SHA from files saved in parent_run_dir.
+    try:
+        tok_sha = compute_tokenizer_sha(parent_dir)
+        report["tokenizer_sha"] = tok_sha
+    except FileNotFoundError as e:
+        issues.append(str(e))
+        tok_sha = None
+
+    # Equality gate: tampered tokenizer → hard fail.
+    if expected_tokenizer_sha and tok_sha and tok_sha != expected_tokenizer_sha:
+        issues.append(
+            f"TOKENIZER SHA MISMATCH — Stage 1 run_report recorded "
+            f"{expected_tokenizer_sha!r} but current tokenizer files in "
+            f"parent_run_dir hash to {tok_sha!r}. "
+            "Tokenizer files may have been tampered with or replaced. "
+            "Restore the original files or re-run Stage 1."
+        )
+
     return report
 
 
@@ -199,12 +351,25 @@ def write_run_report(
     capability: dict,
     t_start: float,
     t_end: float,
+    *,
+    tokenizer_sha: Optional[str] = None,
+    artifact_sha: Optional[str] = None,
+    parent_artifact_sha: Optional[str] = None,
+    corpus_manifest_sha: Optional[str] = None,
 ) -> Path:
     """Write a small JSON run report under ``out_dir/run_report.json``.
 
     Contains no raw training text — only hashes, counts, resolved config,
     git commit, runtime capability, and timing.  Enough to re-run or compare
     runs without committing data.
+
+    Lineage fields (all optional; populated at training time):
+      tokenizer_sha         SHA-256 of canonical tokenizer files in out_dir.
+      artifact_sha          SHA-256 of the saved LoRA adapter (for Stage 2 to
+                            read as parent_artifact_sha).
+      parent_artifact_sha   artifact_sha from the parent (Stage 1) run report.
+      corpus_manifest_sha   SHA-256 of the training JSONL (top-level convenience
+                            field; also present in train.sha256).
 
     Schema version: ``training-run-report.v1``
     """
@@ -234,6 +399,12 @@ def write_run_report(
         "completed_at_utc": time.strftime(
             "%Y-%m-%dT%H:%M:%SZ", time.gmtime(t_end)
         ),
+        # Lineage fields — populated at training time; None for older/Stage-1
+        # runs that don't supply them yet.
+        "tokenizer_sha": tokenizer_sha,
+        "artifact_sha": artifact_sha,
+        "parent_artifact_sha": parent_artifact_sha,
+        "corpus_manifest_sha": corpus_manifest_sha,
     }
 
     report_path = out_dir / "run_report.json"
@@ -343,25 +514,46 @@ def run_training(
     model, tokenizer = model_mod.build_model_and_tokenizer(cfg)
 
     # 2. Train dataset + optional eval dataset + collator.
-    train_records = data_mod.build_train_dataset(
-        cfg.train_path,
-        tokenizer,
-        text_field=cfg.text_field,
-        max_length=cfg.max_seq_len,
-        normalization=cfg.unicode_normalization,
-    )
-
-    eval_records = None
-    if cfg.eval_path:
-        eval_records = data_mod.build_train_dataset(
-            cfg.eval_path,
+    if cfg.stage == "stage2-sft":
+        train_records = data_mod.build_sft_dataset(
+            cfg.train_path,
+            tokenizer,
+            instruction_field=cfg.sft_instruction_field,
+            source_field=cfg.sft_source_field,
+            target_field=cfg.sft_target_field,
+            max_length=cfg.max_seq_len,
+            normalization=cfg.unicode_normalization,
+        )
+        eval_records = None
+        if cfg.eval_path:
+            eval_records = data_mod.build_sft_dataset(
+                cfg.eval_path,
+                tokenizer,
+                instruction_field=cfg.sft_instruction_field,
+                source_field=cfg.sft_source_field,
+                target_field=cfg.sft_target_field,
+                max_length=cfg.max_seq_len,
+                normalization=cfg.unicode_normalization,
+            )
+        collator = data_mod.make_sft_collator(tokenizer)
+    else:
+        train_records = data_mod.build_train_dataset(
+            cfg.train_path,
             tokenizer,
             text_field=cfg.text_field,
             max_length=cfg.max_seq_len,
             normalization=cfg.unicode_normalization,
         )
-
-    collator = data_mod.make_collator(tokenizer)
+        eval_records = None
+        if cfg.eval_path:
+            eval_records = data_mod.build_train_dataset(
+                cfg.eval_path,
+                tokenizer,
+                text_field=cfg.text_field,
+                max_length=cfg.max_seq_len,
+                normalization=cfg.unicode_normalization,
+            )
+        collator = data_mod.make_collator(tokenizer)
 
     # 3. TrainingArguments + Trainer.
     args = build_training_args(cfg, has_eval=(eval_records is not None))
@@ -400,16 +592,35 @@ def run_training(
         )
 
     # 8. Run report (no raw text; hashes + config + git SHA + timing).
+    #    Compute lineage fields from the just-saved artifacts.
     t_end = time.time()
-    write_run_report(out, cfg, config_path, capability, t_start, t_end)
+    _tok_sha: Optional[str] = None
+    try:
+        _tok_sha = compute_tokenizer_sha(out)
+    except FileNotFoundError:
+        pass
+    _art_sha = _compute_artifact_sha(out)
+    _parent_art_sha: Optional[str] = None
+    _corpus_sha: Optional[str] = None
+    if cfg.parent_run_dir:
+        parent_dir = Path(cfg.parent_run_dir)
+        parent_rpt = parent_dir / "run_report.json"
+        if parent_rpt.exists():
+            with open(parent_rpt, "r", encoding="utf-8") as _f:
+                _parent_art_sha = json.load(_f).get("artifact_sha")
+    train_path = Path(cfg.train_path)
+    if train_path.exists():
+        _corpus_sha = _hash_file(train_path)
+
+    write_run_report(
+        out, cfg, config_path, capability, t_start, t_end,
+        tokenizer_sha=_tok_sha,
+        artifact_sha=_art_sha,
+        parent_artifact_sha=_parent_art_sha,
+        corpus_manifest_sha=_corpus_sha,
+    )
 
     return str(out)
-
-
-# ---------------- TODO for the learner ----------------
-#
-# TODO(stage2): Swap `Trainer` for `trl.SFTTrainer` (or write your own
-#   target-masked collator) when you start the Stage 2 translation SFT.
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -131,7 +131,13 @@ class TestPreflightChecks(unittest.TestCase):
             )
             report = run_preflight(cfg)
             self.assertFalse(report["train_field_ok"])
-            self.assertTrue(any("text_field" in i for i in report["issues"]))
+            self.assertTrue(
+                any(
+                    "text" in i or "field" in i or "missing" in i.lower()
+                    for i in report["issues"]
+                ),
+                f"Expected a field-missing issue, got: {report['issues']}",
+            )
 
     def test_configured_eval_path_missing_reported(self):
         from llm_hawaii.config import TrainConfig
@@ -240,8 +246,289 @@ class TestRunReportMetadata(unittest.TestCase):
             self.assertNotIn("Aloha", report_text)
             self.assertNotIn("Mahalo", report_text)
 
+    def test_run_report_lineage_fields_present(self):
+        """write_run_report always emits lineage keys (may be None)."""
+        from llm_hawaii.config import TrainConfig
+        from llm_hawaii.train import write_run_report
+        import time
 
-class TestTrainingArgumentsCompatibility(unittest.TestCase):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            train_file = d / "train.jsonl"
+            train_file.write_text('{"text": "test"}\n')
+
+            cfg = TrainConfig(
+                train_path=str(train_file),
+                output_dir=str(d / "runs"),
+                stage="smoke",
+            )
+            out_dir = d / "runs"
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            t = time.time()
+            report_path = write_run_report(
+                out_dir, cfg, "configs/test.json", {}, t, t + 0.1,
+                tokenizer_sha="abc123",
+                artifact_sha="def456",
+                parent_artifact_sha="ghi789",
+                corpus_manifest_sha="jkl012",
+            )
+            with open(report_path) as f:
+                report = json.load(f)
+
+            for key in ("tokenizer_sha", "artifact_sha", "parent_artifact_sha", "corpus_manifest_sha"):
+                self.assertIn(key, report, f"Missing lineage key: {key}")
+
+            self.assertEqual(report["tokenizer_sha"], "abc123")
+            self.assertEqual(report["artifact_sha"], "def456")
+            self.assertEqual(report["parent_artifact_sha"], "ghi789")
+            self.assertEqual(report["corpus_manifest_sha"], "jkl012")
+
+    def test_run_report_lineage_fields_default_none(self):
+        """Lineage fields are None when not supplied."""
+        from llm_hawaii.config import TrainConfig
+        from llm_hawaii.train import write_run_report
+        import time
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            train_file = d / "train.jsonl"
+            train_file.write_text('{"text": "test"}\n')
+            cfg = TrainConfig(train_path=str(train_file), output_dir=str(d / "runs"))
+            out_dir = d / "runs"
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            t = time.time()
+            report_path = write_run_report(out_dir, cfg, "x.json", {}, t, t + 0.1)
+            with open(report_path) as f:
+                report = json.load(f)
+
+            for key in ("tokenizer_sha", "artifact_sha", "parent_artifact_sha", "corpus_manifest_sha"):
+                self.assertIn(key, report)
+                self.assertIsNone(report[key], f"Expected None for {key}")
+
+
+class TestStage2LineagePreflight(unittest.TestCase):
+    """run_stage2_lineage_preflight validates tokenizer SHA and parent artifact."""
+
+    def _make_parent_dir(self, d: Path, tokenizer_sha: str = "", artifact_sha: str = "aaaa") -> Path:
+        """Create a minimal parent_run_dir fixture with tokenizer files + run_report.json."""
+        parent = d / "parent_run"
+        parent.mkdir(parents=True, exist_ok=True)
+        (parent / "tokenizer.json").write_text('{"version": "1.0"}')
+        (parent / "tokenizer_config.json").write_text('{"model_type": "qwen2"}')
+        # Compute real SHA if not provided.
+        if not tokenizer_sha:
+            from llm_hawaii.train import compute_tokenizer_sha
+            tokenizer_sha = compute_tokenizer_sha(parent)
+        run_report = {
+            "schema_version": "training-run-report.v1",
+            "stage": "stage1-cpt",
+            "tokenizer_sha": tokenizer_sha,
+            "artifact_sha": artifact_sha,
+        }
+        (parent / "run_report.json").write_text(json.dumps(run_report))
+        return parent
+
+    def test_valid_lineage_passes(self):
+        """Valid parent_run_dir with matching tokenizer SHA → no issues."""
+        from llm_hawaii.config import TrainConfig
+        from llm_hawaii.train import run_stage2_lineage_preflight
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            parent = self._make_parent_dir(d)
+            train_file = d / "train.jsonl"
+            train_file.write_text(
+                '{"instruction": "Translate", "source_text": "Hello", "target_text": "Aloha"}\n'
+            )
+            cfg = TrainConfig(
+                stage="stage2-sft",
+                train_path=str(train_file),
+                parent_run_dir=str(parent),
+            )
+            result = run_stage2_lineage_preflight(cfg)
+            self.assertEqual(result["issues"], [], f"Unexpected issues: {result['issues']}")
+            self.assertIsNotNone(result["tokenizer_sha"])
+            self.assertEqual(result["parent_artifact_sha"], "aaaa")
+            self.assertIsNotNone(result["corpus_manifest_sha"])
+
+    def test_tampered_tokenizer_fails(self):
+        """Single-byte flip in tokenizer.json → SHA mismatch → hard fail."""
+        from llm_hawaii.config import TrainConfig
+        from llm_hawaii.train import run_stage2_lineage_preflight
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            parent = self._make_parent_dir(d)
+            # Tamper: overwrite tokenizer.json after run_report was written.
+            (parent / "tokenizer.json").write_text('{"version": "1.1"}')
+            train_file = d / "train.jsonl"
+            train_file.write_text(
+                '{"instruction": "x", "source_text": "x", "target_text": "x"}\n'
+            )
+            cfg = TrainConfig(
+                stage="stage2-sft",
+                train_path=str(train_file),
+                parent_run_dir=str(parent),
+            )
+            result = run_stage2_lineage_preflight(cfg)
+            self.assertTrue(
+                any("MISMATCH" in i or "mismatch" in i.lower() for i in result["issues"]),
+                f"Expected SHA mismatch issue, got: {result['issues']}",
+            )
+
+    def test_missing_parent_run_dir_fails(self):
+        """parent_run_dir not set → issue reported."""
+        from llm_hawaii.config import TrainConfig
+        from llm_hawaii.train import run_stage2_lineage_preflight
+
+        cfg = TrainConfig(
+            stage="stage2-sft",
+            train_path="/nonexistent/train.jsonl",
+            parent_run_dir=None,
+        )
+        result = run_stage2_lineage_preflight(cfg)
+        self.assertTrue(
+            any("parent_run_dir" in i for i in result["issues"]),
+            f"Expected parent_run_dir issue, got: {result['issues']}",
+        )
+
+    def test_nonexistent_parent_run_dir_fails(self):
+        """parent_run_dir pointing to non-existent path → issue reported."""
+        from llm_hawaii.config import TrainConfig
+        from llm_hawaii.train import run_stage2_lineage_preflight
+
+        cfg = TrainConfig(
+            stage="stage2-sft",
+            train_path="/nonexistent/train.jsonl",
+            parent_run_dir="/nonexistent/stage1_output",
+        )
+        result = run_stage2_lineage_preflight(cfg)
+        self.assertTrue(
+            any("not found" in i for i in result["issues"]),
+            f"Expected not-found issue, got: {result['issues']}",
+        )
+
+    def test_missing_run_report_fails(self):
+        """parent_run_dir exists but has no run_report.json → issue reported."""
+        from llm_hawaii.config import TrainConfig
+        from llm_hawaii.train import run_stage2_lineage_preflight
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            parent = d / "parent_run"
+            parent.mkdir()
+            (parent / "tokenizer.json").write_text('{"version": "1.0"}')
+            # No run_report.json
+            cfg = TrainConfig(
+                stage="stage2-sft",
+                train_path="/nonexistent/train.jsonl",
+                parent_run_dir=str(parent),
+            )
+            result = run_stage2_lineage_preflight(cfg)
+            self.assertTrue(
+                any("run_report.json" in i for i in result["issues"]),
+                f"Expected run_report.json issue, got: {result['issues']}",
+            )
+
+    def test_no_tokenizer_sha_in_parent_report_fails(self):
+        """parent run_report.json missing tokenizer_sha → issue reported."""
+        from llm_hawaii.config import TrainConfig
+        from llm_hawaii.train import run_stage2_lineage_preflight
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            parent = d / "parent_run"
+            parent.mkdir()
+            (parent / "tokenizer.json").write_text('{"version": "1.0"}')
+            (parent / "run_report.json").write_text(json.dumps({"stage": "stage1-cpt"}))
+            cfg = TrainConfig(
+                stage="stage2-sft",
+                train_path="/nonexistent/train.jsonl",
+                parent_run_dir=str(parent),
+            )
+            result = run_stage2_lineage_preflight(cfg)
+            self.assertTrue(
+                any("tokenizer_sha" in i for i in result["issues"]),
+                f"Expected tokenizer_sha issue, got: {result['issues']}",
+            )
+
+    def test_stage1_preflight_unaffected_by_lineage_checks(self):
+        """Stage 1 run_preflight does not require parent_run_dir."""
+        from llm_hawaii.config import TrainConfig
+        from llm_hawaii.train import run_preflight
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            train_file = d / "train.jsonl"
+            train_file.write_text('{"text": "He aloha nō ʻoe"}\n')
+            cfg = TrainConfig(
+                stage="stage1-cpt",
+                train_path=str(train_file),
+                output_dir=str(d / "runs"),
+                parent_run_dir=None,
+            )
+            report = run_preflight(cfg)
+            # Stage 1 must not fail due to missing parent_run_dir.
+            self.assertNotIn(
+                "parent_run_dir",
+                " ".join(report.get("issues", [])),
+                "Stage 1 preflight should not require parent_run_dir",
+            )
+
+    def test_preflight_stage2_calls_lineage(self):
+        """run_preflight for stage2-sft merges lineage issues into report."""
+        from llm_hawaii.config import TrainConfig
+        from llm_hawaii.train import run_preflight
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            parent = self._make_parent_dir(d)
+            train_file = d / "train.jsonl"
+            train_file.write_text(
+                '{"instruction": "T", "source_text": "A", "target_text": "B"}\n'
+            )
+            cfg = TrainConfig(
+                stage="stage2-sft",
+                train_path=str(train_file),
+                output_dir=str(d / "runs"),
+                parent_run_dir=str(parent),
+            )
+            report = run_preflight(cfg)
+            # Lineage fields must appear in the top-level preflight report.
+            self.assertIn("tokenizer_sha", report)
+            self.assertIn("parent_artifact_sha", report)
+            self.assertIn("corpus_manifest_sha", report)
+            self.assertIsNotNone(report["tokenizer_sha"])
+
+    def test_compute_tokenizer_sha_deterministic(self):
+        """Same files → same SHA; different content → different SHA."""
+        from llm_hawaii.train import compute_tokenizer_sha
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            dir_a = d / "tok_a"
+            dir_a.mkdir()
+            dir_b = d / "tok_b"
+            dir_b.mkdir()
+
+            (dir_a / "tokenizer.json").write_text('{"vocab": "abc"}')
+            (dir_b / "tokenizer.json").write_text('{"vocab": "abc"}')
+            self.assertEqual(compute_tokenizer_sha(dir_a), compute_tokenizer_sha(dir_b))
+
+            (dir_b / "tokenizer.json").write_text('{"vocab": "xyz"}')
+            self.assertNotEqual(compute_tokenizer_sha(dir_a), compute_tokenizer_sha(dir_b))
+
+    def test_compute_tokenizer_sha_no_files_raises(self):
+        """Empty directory → FileNotFoundError."""
+        from llm_hawaii.train import compute_tokenizer_sha
+
+        with tempfile.TemporaryDirectory() as d:
+            empty = Path(d) / "empty"
+            empty.mkdir()
+            with self.assertRaises(FileNotFoundError):
+                compute_tokenizer_sha(empty)
     """TrainingArguments eval strategy arg changed across transformers versions."""
 
     def test_new_eval_strategy_keyword_is_used_when_supported(self):

@@ -64,13 +64,14 @@ DATA_STAGE2 = REPO_ROOT / "data" / "stage2"
 
 DEFAULT_MANIFEST = DATA_STAGE2 / "stage2_manifest.jsonl"
 DEFAULT_OUTPUT = DATA_STAGE2 / "stage2_sft.jsonl"
+DEFAULT_TEMPLATES_PATH = DATA_STAGE2 / "templates.json"
 
 # Default instruction templates. Mirrored from docs/data-pipeline.md
 # §"Stage 2 output JSONL". Real runs swap in ~5 paraphrases per
-# direction loaded from data/stage2/templates.json — wired as a TODO.
+# direction loaded from data/stage2/templates.json — see load_templates().
 DEFAULT_INSTRUCTIONS: dict[str, str] = {
     "en->haw": "Translate the following English sentence into Hawaiian.",
-    "haw->en": "Unuhi i kēia ʻōlelo Pelekānia mai ka ʻōlelo Hawaiʻi.",
+    "haw->en": "E unuhi i kēia ʻōlelo Hawaiʻi i ka ʻōlelo Pelekānia.",
 }
 
 # Alignment types accepted into directional SFT. Retention-slice
@@ -113,6 +114,67 @@ def _utcnow_iso() -> str:
 
 def _nfc(s: str) -> str:
     return unicodedata.normalize("NFC", s)
+
+
+# ---------- Template loading (issue #20) ----------
+
+def load_templates(path: Path) -> dict[str, list[str]] | None:
+    """Load instruction template paraphrases from a JSON file.
+
+    Schema: ``{"en->haw": ["...", ...], "haw->en": ["...", ...]}``.
+    Each list must be non-empty. Returns None (with a warning) if the
+    file is absent or malformed — callers fall back to DEFAULT_INSTRUCTIONS.
+    NFC-normalizes all template strings on load so downstream hashing is
+    stable.
+    """
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"warn: failed to load templates from {path}: {e}", file=sys.stderr)
+        return None
+    if not isinstance(raw, dict):
+        print(f"warn: templates file {path} must be a JSON object", file=sys.stderr)
+        return None
+    templates: dict[str, list[str]] = {}
+    for direction in ("en->haw", "haw->en"):
+        entries = raw.get(direction)
+        if not isinstance(entries, list) or not entries:
+            print(
+                f"warn: templates file {path} missing or empty for direction {direction!r}",
+                file=sys.stderr,
+            )
+            return None
+        templates[direction] = [_nfc(str(t)) for t in entries]
+    return templates
+
+
+def pick_template(templates: list[str], pair_id: str) -> str:
+    """Pick a template deterministically by pair_id hash.
+
+    Uses the first 8 hex characters of SHA-256(pair_id) mod len(templates).
+    Stable across runs as long as the template list order is unchanged.
+    """
+    import hashlib
+    h = int(hashlib.sha256(pair_id.encode("utf-8")).hexdigest()[:8], 16)
+    return templates[h % len(templates)]
+
+
+def resolve_instructions(
+    templates: dict[str, list[str]] | None,
+    pair_id: str,
+) -> dict[str, str]:
+    """Return a per-pair instruction dict for both directions.
+
+    When templates are provided, rotates deterministically by pair_id hash.
+    Falls back to DEFAULT_INSTRUCTIONS for any direction not covered.
+    """
+    result: dict[str, str] = dict(DEFAULT_INSTRUCTIONS)
+    if templates:
+        for direction, tlist in templates.items():
+            result[direction] = pick_template(tlist, pair_id)
+    return result
 
 
 # ---------- I/O ----------
@@ -201,6 +263,7 @@ class EmitConfig:
     allow_review_required: bool
     allow_synthetic: bool
     instructions: dict[str, str]
+    templates: dict[str, list[str]] | None = None  # loaded from templates.json
 
 
 def _passes_filters(row: dict, cfg: EmitConfig) -> tuple[bool, str | None]:
@@ -249,6 +312,9 @@ def build_directional_row(
 
     Row shape mirrors docs/data-pipeline.md §"Stage 2 output JSONL"
     exactly so the trainer's reader stays a thin map.
+
+    Instruction is chosen deterministically by pair_id hash when templates
+    are loaded (issue #20); falls back to cfg.instructions otherwise.
     """
     if direction == "en->haw":
         source_lang, target_lang = "en", "haw"
@@ -262,11 +328,12 @@ def build_directional_row(
         raise ValueError(f"Unknown direction: {direction}")
 
     pair_id = row.get("pair_id") or row.get("sha256_pair") or "unknown-pair"
+    per_pair_instructions = resolve_instructions(cfg.templates, pair_id)
     out: dict[str, Any] = {
         "example_id": f"{pair_id}:{suffix}",
         "pair_id": pair_id,
         "direction": direction,
-        "instruction": cfg.instructions[direction],
+        "instruction": per_pair_instructions[direction],
         "source_lang": source_lang,
         "target_lang": target_lang,
         "source_text": source_text,
@@ -406,11 +473,44 @@ def _build_argparser() -> argparse.ArgumentParser:
         action="store_true",
         help="Exit 0 even when zero rows survive filters (default: exit 2).",
     )
+    p.add_argument(
+        "--templates",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=f"JSON file with instruction paraphrases per direction (default: "
+             f"{DEFAULT_TEMPLATES_PATH.relative_to(REPO_ROOT)} when present). "
+             "Pass --no-templates to force fallback to DEFAULT_INSTRUCTIONS.",
+    )
+    p.add_argument(
+        "--no-templates",
+        action="store_true",
+        help="Disable template loading; use DEFAULT_INSTRUCTIONS for all pairs.",
+    )
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_argparser().parse_args(argv)
+
+    # Load instruction templates (issue #20).
+    templates: dict[str, list[str]] | None = None
+    if not args.no_templates:
+        templates_path = args.templates or DEFAULT_TEMPLATES_PATH
+        templates = load_templates(templates_path)
+        if templates is None and (args.templates is not None):
+            # User explicitly pointed at a templates file that failed — hard error.
+            print(
+                f"error: --templates {args.templates} could not be loaded.",
+                file=sys.stderr,
+            )
+            return 1
+        if templates is None:
+            print(
+                f"info: templates not loaded from {templates_path}; "
+                "using DEFAULT_INSTRUCTIONS for all pairs.",
+                file=sys.stderr,
+            )
 
     cfg = EmitConfig(
         splits=args.splits,
@@ -419,6 +519,7 @@ def main(argv: list[str] | None = None) -> int:
         allow_review_required=args.allow_review_required,
         allow_synthetic=args.allow_synthetic,
         instructions=dict(DEFAULT_INSTRUCTIONS),
+        templates=templates,
     )
 
     started = _utcnow_iso()
@@ -436,6 +537,10 @@ def main(argv: list[str] | None = None) -> int:
         "splits": sorted(cfg.splits),
         "directions": sorted(cfg.directions),
         "min_alignment_score": cfg.min_alignment_score,
+        "templates_loaded": templates is not None,
+        "template_counts": (
+            {k: len(v) for k, v in templates.items()} if templates else None
+        ),
         "rows_in": stats.rows_in,
         "pairs_kept": stats.pairs_kept,
         "pairs_skipped": stats.pairs_skipped,

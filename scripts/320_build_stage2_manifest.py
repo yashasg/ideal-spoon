@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage-2 parallel-pair manifest builder skeleton (Linus, 300-phase).
+"""Stage-2 parallel-pair manifest builder (Linus, 300-phase).
 
 Companion to ``301_build_stage1_dataset.py`` and ``310_split_dedupe_fineweb2_haw.py``.
 Owns issues:
@@ -8,24 +8,23 @@ Owns issues:
   * #13 Split-isolation / dedup expectations compatible with the Stage-1
         contamination policy. CI-style assertions live in :func:`run_checks`
         and run via ``--check``.
+  * #18 Wire source adapters into execute path — ingests candidate JSONL
+        files from ``data/stage2/candidates/*.jsonl`` (or explicit paths)
+        and assigns deterministic splits.
 
 **Out of scope (explicitly):** issue #4 — the training-loader contamination
 guard. Squad:Yashas owns wiring the runtime guard inside the trainer dataloader;
 this script only emits the manifest + ledger artefacts that guard will read.
 Do not import this from a training loop.
 
-Status: skeleton. No real Stage-2 source adapters are wired yet (Bible
-verse-aligned, Tatoeba, global-piqa-parallel, Wikipedia-aligned, NLLB-mined,
-back-translation are all TODO and tracked in
-``docs/data-pipeline.md`` §"Stage 2 immediate next steps"). The skeleton:
+Adapter contract (issue #18): each adapter in ``data-sources/<src>/fetch.py``
+produces a ``data/stage2/candidates/<src>.jsonl`` file where every row
+conforms to the Stage-2 manifest schema (all required fields except ``split``
+which may be ``"review-pending"``). The manifest builder validates, replaces
+``"review-pending"`` splits with a deterministic train/dev assignment, then
+writes ``stage2_manifest.jsonl``.
 
-  * Defines the canonical Stage-2 manifest schema (see ``MANIFEST_FIELDS``)
-    matching ``docs/data-pipeline.md`` §"Stage 2 manifest schema".
-  * Iterates a stub source registry and emits zero rows by default — the
-    builder runs end-to-end on an empty corpus so downstream wiring (Rusty's
-    bidirectional JSONL emitter, Basher's training scaffolding) can be
-    plumbed against a real (if empty) artefact path.
-  * Validates each emitted row against the schema (types, enums, required
+  * Validates each ingested row against the schema (types, enums, required
     fields, dependent fields) — fail-conservative like Stage 1.
   * Runs Stage-2 split-isolation / dedup expectations against an existing
     manifest in ``--check`` mode without touching training loops.
@@ -43,6 +42,7 @@ Usage::
 
     python scripts/320_build_stage2_manifest.py --dry-run
     python scripts/320_build_stage2_manifest.py --execute
+    python scripts/320_build_stage2_manifest.py --execute --candidates data/stage2/candidates/tatoeba.jsonl
     python scripts/320_build_stage2_manifest.py --check
     python scripts/320_build_stage2_manifest.py --check --strict
     python scripts/320_build_stage2_manifest.py --print-schema
@@ -61,6 +61,7 @@ import datetime
 import hashlib
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -68,8 +69,27 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_STAGE2 = REPO_ROOT / "data" / "stage2"
 DATA_EVALS = REPO_ROOT / "data" / "evals"
 DATA_FINAL = REPO_ROOT / "data" / "final"
+CANDIDATES_DIR = DATA_STAGE2 / "candidates"
 DEFAULT_STAGE2_MANIFEST = DATA_STAGE2 / "stage2_manifest.jsonl"
 DEFAULT_BUILD_MANIFEST = DATA_STAGE2 / "build_manifest.json"
+DEFAULT_SCORE_SUMMARY = DATA_STAGE2 / "score_summary.json"
+
+# Make `code/` importable so the scorer module loads without packaging.
+_CODE_DIR = REPO_ROOT / "code"
+if str(_CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(_CODE_DIR))
+
+from llm_hawaii.stage2_quality import (  # noqa: E402
+    POLICY_VERSION,
+    PolicyConfig,
+    policy_summary,
+    score_pair,
+)
+
+# Fraction of candidate pairs assigned to dev split deterministically.
+# Hash of pair_id mod DEV_MODULUS == 0 → dev; else train.
+# At 10% (modulus 10) a 1,000-pair corpus yields ~100 dev pairs.
+_DEV_MODULUS = 10
 
 MANIFEST_SCHEMA_VERSION = "stage2.v0"
 
@@ -134,6 +154,15 @@ MANIFEST_FIELDS: list[tuple[str, Any, bool, Any]] = [
     }),
     ("notes",                         (str, type(None)),  False, None),
     ("manifest_schema_version",       str,   True,  None),
+    # ---- Stage-2 alignment-quality policy fields (issue #19) ----
+    # Merged onto every manifest row by `apply_policy()` during ingest.
+    # See `code/llm_hawaii/stage2_quality.py` and
+    # `docs/stage2-alignment-quality.md` for the contract.
+    ("alignment_confidence_tier",     str,   True, {"accept", "review", "reject"}),
+    ("quality_flags",                 list,  True,  None),
+    ("manual_review_reasons",         list,  True,  None),
+    ("alignment_score_components",    dict,  True,  None),
+    ("policy_version",                str,   True,  None),
 ]
 
 REQUIRED_FIELDS: list[str] = [name for (name, _t, req, _e) in MANIFEST_FIELDS if req]
@@ -222,6 +251,69 @@ def validate_row(row: dict[str, Any]) -> list[str]:
             violations.append("dep:sha256_pair_mismatch")
 
     return violations
+
+
+# ---------- alignment-quality policy (issue #19) ----------
+
+# Manifest fields owned by the policy. `apply_policy` overwrites these
+# on every ingested row so the manifest is the single source of truth
+# for the policy verdict — re-running the builder against the same
+# candidates yields identical fields.
+_POLICY_OUTPUT_FIELDS = (
+    "alignment_confidence_tier",
+    "alignment_review_required",
+    "quality_flags",
+    "manual_review_reasons",
+    "alignment_score_components",
+    "policy_version",
+)
+
+# Policy tiers that disqualify a row from train/dev assignment. Such
+# rows are forced to `split="review-pending"` so the SFT emitter skips
+# them by default (it filters split ∉ requested set, and any review-
+# required row is dropped regardless).
+_NON_TRAIN_TIERS = frozenset({"review", "reject"})
+
+
+def apply_policy(
+    row: dict[str, Any],
+    config: PolicyConfig | None = None,
+) -> dict[str, Any]:
+    """Merge alignment-quality policy fields onto a candidate row.
+
+    Returns the same row dict (mutated) for convenience. The policy
+    output fields are *always* overwritten; non-policy fields are left
+    untouched.
+    """
+    annotation = score_pair(row, config)
+    for k in _POLICY_OUTPUT_FIELDS:
+        if k in annotation:
+            row[k] = annotation[k]
+    # `alignment_score` may have been canonicalised by the scorer
+    # (None for non-numeric inputs). Preserve that canonicalisation
+    # only when the row didn't already carry a numeric score.
+    if not isinstance(row.get("alignment_score"), (int, float)):
+        row["alignment_score"] = annotation.get("alignment_score")
+    return row
+
+
+def summarise_policy(rows: Iterable[dict[str, Any]],
+                     config: PolicyConfig | None = None) -> dict[str, Any]:
+    """Aggregate tier + flag counts across scored manifest rows."""
+    tier_counts: Counter[str] = Counter()
+    flag_counts: Counter[str] = Counter()
+    n = 0
+    for r in rows:
+        n += 1
+        tier_counts[r.get("alignment_confidence_tier", "<missing>")] += 1
+        for f in r.get("quality_flags") or ():
+            flag_counts[f] += 1
+    return {
+        "row_count": n,
+        "tier_counts": dict(tier_counts),
+        "flag_counts": dict(flag_counts),
+        "policy": policy_summary(config),
+    }
 
 
 # ---------- contamination / split-isolation checks (issue #13) ----------
@@ -378,26 +470,147 @@ def checks_failed(report: dict[str, Any]) -> bool:
     return False
 
 
-# ---------- source registry (skeleton) ----------
+# ---------- split assignment (issue #18) ----------
 
-def iter_stage2_pairs() -> Iterable[dict[str, Any]]:
-    """Yield Stage-2 manifest rows from registered source adapters.
+def assign_split(pair_id: str, dev_modulus: int = _DEV_MODULUS) -> str:
+    """Deterministically assign a split from pair_id.
 
-    Skeleton: zero adapters wired. Each adapter, when added, must yield
-    rows that pass :func:`validate_row` and must populate ``sha256_pair``
-    via :func:`compute_pair_hash`.
-
-    Planned adapters (tracked in docs/data-pipeline.md §"Stage 2
-    immediate next steps"):
-
-      * ``bible-baibala-x-eng`` — verse-aligned (deterministic; no model).
-      * ``global-piqa-parallel`` — held-out eval anchor (eval-only).
-      * ``tatoeba-haw-eng`` — sentence-aligned, conservative threshold.
-      * ``wiki-aligned-haw-eng`` — LaBSE-aligned with review flag.
-      * ``nllb-mined-haw-eng`` — train-only, comparable.
-      * ``bt-stage1`` — back-translation, cap ≤25%, 0% dev/test.
+    Uses the first 8 hex characters of the SHA-256 of the pair_id string.
+    ``bucket = int(hex8, 16) % dev_modulus``; bucket 0 → "dev", else "train".
+    With the default modulus of 10 this yields ≈10% dev, ≈90% train.
+    This must be stable across runs — do not change the modulus after the
+    first manifest write for a corpus (it will silently reclassify pairs).
     """
-    return iter(())
+    h = int(hashlib.sha256(pair_id.encode("utf-8")).hexdigest()[:8], 16)
+    return "dev" if (h % dev_modulus) == 0 else "train"
+
+
+# ---------- candidate ingestion (issue #18) ----------
+
+def iter_candidate_files(candidate_paths: list[Path]) -> list[Path]:
+    """Resolve candidate JSONL paths, expanding globs if needed.
+
+    Returns an empty list (not an error) when no candidates are found —
+    the empty-manifest case is valid during initial scaffolding.
+    """
+    resolved: list[Path] = []
+    for p in candidate_paths:
+        if p.exists():
+            resolved.append(p)
+        else:
+            # Allow callers to pass a glob string as a Path; expand manually.
+            import glob as _glob
+            expanded = sorted(_glob.glob(str(p)))
+            resolved.extend(Path(e) for e in expanded)
+    seen: set[Path] = set()
+    deduped: list[Path] = []
+    for p in resolved:
+        if p not in seen:
+            seen.add(p)
+            deduped.append(p)
+    return deduped
+
+
+def ingest_candidates(
+    candidate_paths: list[Path],
+    dev_modulus: int = _DEV_MODULUS,
+    strict: bool = False,
+    policy_config: PolicyConfig | None = None,
+) -> tuple[list[dict[str, Any]], list[tuple[str, list[str]]], dict[str, Any]]:
+    """Read candidate JSONL files and return (rows, per_row_violations, provenance).
+
+    For each candidate row:
+    - Runs the Stage-2 alignment-quality scorer (issue #19) and merges
+      policy fields onto the row (`alignment_confidence_tier`,
+      `alignment_review_required`, `quality_flags`,
+      `manual_review_reasons`, `alignment_score_components`,
+      `policy_version`).
+    - Rows whose tier is `review` or `reject` are forced to
+      ``split="review-pending"`` regardless of what the candidate
+      originally carried. The SFT emitter
+      (``scripts/330_emit_stage2_sft_jsonl.py``) skips that split by
+      default and additionally honours `alignment_review_required`.
+    - Rows whose tier is `accept` keep an explicit train/dev/test/
+      held-out split if the candidate already supplied one; an
+      ``"review-pending"`` placeholder is replaced with a deterministic
+      train/dev assignment from `assign_split(pair_id)`.
+    - Validates schema; logs violations; skips violating rows if strict=True.
+
+    Returns:
+        rows: validated manifest rows
+        per_row_violations: list of (pair_id, [violation, ...])
+        provenance: dict with per-source counts and candidate-file SHAs
+    """
+    rows: list[dict[str, Any]] = []
+    per_row_violations: list[tuple[str, list[str]]] = []
+    per_source: dict[str, int] = {}
+    candidate_file_shas: dict[str, str] = {}
+    tier_counts: Counter[str] = Counter()
+
+    for cpath in candidate_paths:
+        file_sha = _file_sha256(cpath)
+        candidate_file_shas[str(cpath)] = file_sha
+        file_row_count = 0
+
+        for row in read_jsonl(cpath):
+            # Run the alignment-quality scorer first so split assignment
+            # can honour the policy tier.
+            apply_policy(row, policy_config)
+            tier = row.get("alignment_confidence_tier", "review")
+            tier_counts[tier] += 1
+
+            if tier in _NON_TRAIN_TIERS:
+                # Quarantine: force review-pending so the SFT emitter
+                # skips the row regardless of upstream split intent.
+                row["split"] = "review-pending"
+            elif row.get("split") == "review-pending":
+                # Accept tier with no explicit split: deterministic
+                # train/dev assignment from pair_id.
+                pair_id = row.get("pair_id") or row.get("sha256_pair", "")
+                row["split"] = assign_split(pair_id, dev_modulus)
+
+            viol = validate_row(row)
+            if viol:
+                per_row_violations.append((row.get("pair_id", "<no-pair-id>"), viol))
+                if strict:
+                    continue  # skip violating rows under --strict
+
+            rows.append(row)
+            file_row_count += 1
+            src = row.get("source", "<unknown>")
+            per_source[src] = per_source.get(src, 0) + 1
+
+        if file_row_count == 0:
+            print(f"warn: {cpath} yielded no rows", file=sys.stderr)
+
+    provenance: dict[str, Any] = {
+        "candidate_files": candidate_file_shas,
+        "per_source_row_counts": per_source,
+        "total_candidates_ingested": len(rows),
+        "total_violations": len(per_row_violations),
+        "dev_modulus": dev_modulus,
+        "policy_version": POLICY_VERSION,
+        "tier_counts": dict(tier_counts),
+    }
+    return rows, per_row_violations, provenance
+
+
+def _file_sha256(path: Path) -> str:
+    """SHA-256 of a file's raw bytes — for build provenance."""
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+# ---------- source registry (issue #18) ----------
+
+def default_candidate_paths() -> list[Path]:
+    """Glob data/stage2/candidates/*.jsonl for registered adapter outputs."""
+    if not CANDIDATES_DIR.exists():
+        return []
+    return sorted(CANDIDATES_DIR.glob("*.jsonl"))
 
 
 # ---------- writers ----------
@@ -426,15 +639,26 @@ def write_build_manifest(payload: dict[str, Any], dry_run: bool) -> str | None:
     return str(out_path)
 
 
+def write_score_summary(summary: dict[str, Any], dry_run: bool) -> str | None:
+    """Persist the run-level alignment-quality summary (issue #19).
+
+    Writes to ``data/stage2/score_summary.json`` (gitignored). Skipped
+    under --dry-run. Resolves the path against ``DATA_STAGE2`` at call
+    time so tests that monkey-patch the data directory take effect.
+    """
+    if dry_run:
+        return None
+    out_path = DATA_STAGE2 / "score_summary.json"
+    DATA_STAGE2.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w", encoding="utf-8") as fh:
+        json.dump(summary, fh, ensure_ascii=False, indent=2)
+    return str(out_path)
+
+
 # ---------- CLI ----------
 
 def _default_eval_hash_paths() -> list[Path]:
-    """Best-effort enumeration of on-disk eval-hash JSONL ledgers.
-
-    The canonical home is ``data/evals/eval_hashes.jsonl``. Prefer it
-    when present; also enumerate legacy per-source JSONL ledgers under
-    ``data/evals/`` / ``data/final/`` during the transition.
-    """
+    """Best-effort enumeration of on-disk eval-hash JSONL ledgers."""
     candidates: list[Path] = []
     canonical = DATA_EVALS / "eval_hashes.jsonl"
     if canonical.exists():
@@ -448,9 +672,17 @@ def _default_eval_hash_paths() -> list[Path]:
     return candidates
 
 
+def _rel(path: Path) -> str:
+    """Return path relative to REPO_ROOT when possible, else absolute str."""
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        description="Stage-2 parallel-pair manifest builder skeleton (issues #11/#13).",
+        description="Stage-2 parallel-pair manifest builder (issues #11/#13/#18).",
     )
     p.add_argument("--dry-run", action="store_true",
                    help="Run pipeline but do not write outputs.")
@@ -458,17 +690,24 @@ def main(argv: list[str] | None = None) -> int:
                    help="Write outputs to disk under data/stage2/.")
     p.add_argument("--check", action="store_true",
                     help="Run schema + split-isolation + dedup expectations "
-                         f"against an existing {DEFAULT_STAGE2_MANIFEST.relative_to(REPO_ROOT)}. "
+                         f"against an existing {_rel(DEFAULT_STAGE2_MANIFEST)}. "
                          "Does not touch training loops (issue #4 is out of scope).")
     p.add_argument("--strict", action="store_true",
                    help="Exit non-zero on any schema or contamination "
                         "violation. Use in CI.")
     p.add_argument("--manifest-in", type=Path, default=None,
                     help="Override manifest path for --check "
-                         f"(default: {DEFAULT_STAGE2_MANIFEST.relative_to(REPO_ROOT)}).")
+                         f"(default: {_rel(DEFAULT_STAGE2_MANIFEST)}).")
     p.add_argument("--eval-hashes", type=Path, action="append", default=None,
                    help="Path(s) to eval-hashes JSONL ledgers. Repeatable. "
                         "Default: data/evals/eval_hashes.jsonl plus legacy per-source ledgers if present.")
+    p.add_argument("--candidates", type=Path, action="append", default=None,
+                   metavar="PATH",
+                   help="Candidate JSONL path(s) to ingest (repeatable). "
+                        f"Default: all *.jsonl in {_rel(CANDIDATES_DIR)}/. "
+                        "Pass explicit paths to restrict to specific adapters.")
+    p.add_argument("--dev-modulus", type=int, default=_DEV_MODULUS,
+                   help=f"Split dev fraction = 1/N (default: {_DEV_MODULUS} → ~10%% dev).")
     p.add_argument("--print-schema", action="store_true",
                    help="Print the canonical Stage-2 manifest schema and exit.")
     args = p.parse_args(argv)
@@ -520,20 +759,27 @@ def main(argv: list[str] | None = None) -> int:
             return 3
         return 0
 
-    # Build path. Skeleton: no adapters → empty manifest, but the run is
-    # otherwise real (validates rows, runs checks, writes provenance).
-    rows: list[dict[str, Any]] = []
-    per_row_violations: list[tuple[str, list[str]]] = []
-    for row in iter_stage2_pairs():
-        viol = validate_row(row)
-        if viol:
-            per_row_violations.append((row.get("pair_id", "<no-pair-id>"), viol))
-            if args.strict:
-                continue
-        rows.append(row)
+    # Build path (issue #18): ingest candidate JSONL files from registered adapters.
+    candidate_paths = (
+        list(args.candidates) if args.candidates else default_candidate_paths()
+    )
+    resolved = iter_candidate_files(candidate_paths)
+    if not resolved:
+        print(
+            f"info: no candidate files found under {CANDIDATES_DIR}; "
+            "manifest will be empty.",
+            file=sys.stderr,
+        )
+
+    rows, per_row_violations, ingest_provenance = ingest_candidates(
+        resolved, dev_modulus=args.dev_modulus, strict=args.strict,
+    )
 
     eval_hashes = load_eval_hashes(eval_hash_paths)
     report = run_checks(rows, eval_hashes)
+
+    score_summary = summarise_policy(rows)
+    score_summary_path = write_score_summary(score_summary, args.dry_run)
 
     written = write_manifest(rows, args.dry_run)
     payload = {
@@ -544,7 +790,9 @@ def main(argv: list[str] | None = None) -> int:
         "rows_skipped_violations": len(per_row_violations),
         "eval_hash_ledgers": [str(p) for p in eval_hash_paths],
         "eval_hashes_loaded": len(eval_hashes),
+        "ingest": ingest_provenance,
         "report": report,
+        "score_summary": score_summary,
         "outputs": written,
         "dry_run": args.dry_run,
         "strict": args.strict,
@@ -552,6 +800,8 @@ def main(argv: list[str] | None = None) -> int:
     build_manifest_path = write_build_manifest(payload, args.dry_run)
     if build_manifest_path:
         payload["outputs"]["build_manifest"] = build_manifest_path
+    if score_summary_path:
+        payload["outputs"]["score_summary"] = score_summary_path
 
     json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")

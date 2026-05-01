@@ -1,0 +1,46 @@
+{
+  "base_model": "Qwen/Qwen2.5-0.5B",
+  "tokenizer_name": null,
+  "unicode_normalization": "NFC",
+
+  "train_path": "../examples/stage2_sft.jsonl.example",
+  "eval_path": null,
+  "text_field": "text",
+  "max_seq_len": 256,
+
+  "sft_instruction_field": "instruction",
+  "sft_source_field": "source_text",
+  "sft_target_field": "target_text",
+
+  "use_qlora": false,
+  "lora_rank": 8,
+  "lora_alpha": 16,
+  "lora_dropout": 0.05,
+  "lora_target_modules": "all-linear",
+
+  "learning_rate": 0.0002,
+  "num_train_epochs": 1.0,
+  "per_device_train_batch_size": 1,
+  "gradient_accumulation_steps": 1,
+  "warmup_ratio": 0.03,
+  "weight_decay": 0.0,
+  "lr_scheduler_type": "cosine",
+  "gradient_checkpointing": true,
+  "bf16": false,
+  "fp16": false,
+  "seed": 7,
+
+  "output_dir": "runs/stage2-smoke",
+  "logging_steps": 1,
+  "save_steps": 50,
+  "eval_steps": null,
+  "save_total_limit": 1,
+
+  "stage": "stage2-sft",
+  "run_name": "qwen25-0.5b-stage2-smoke",
+  "parent_run_dir": null,
+  "notes": {
+    "purpose": "Stage 2 SFT smoke test. 3 example rows; no GPU required. Verify target-only masking and SFT data path before committing GPU time.",
+    "path_note": "train_path is config-relative. Run from repo root: PYTHONPATH=code python -m llm_hawaii.train --config code/configs/stage2_smoke.json --preflight"
+  }
+}

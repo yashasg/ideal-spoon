@@ -314,3 +314,10 @@ the issue acceptance is in place and tested.
 **Action for you:**
 - If Bible adapter produces new candidates for Stage 2, run `python scripts/320_build_stage2_manifest.py --execute` to rebuild the manifest (deterministic 90/10 split, new layout enforced).
 - Manifest builder globs `data/stage2/candidates/*.jsonl` by default; your adapter writes there.
+
+## 2026-05-01 — Stage 2 Alignment-Quality Policy Integration (Issue #19)
+
+**Status:** CROSS-AGENT UPDATE — Template Fixture Corrected
+
+Rusty corrected the haw→en paraphrase templates in `code/tests/fixtures/stage2/templates.json`. The committed fixture had orthographically-inverted instructions (phrasing translation direction backwards). All haw→en paraphrases now correctly phrase the direction as `kēia ʻōlelo Hawaiʻi … i ka ʻōlelo Pelekānia`. No adapter logic changes required. Bible adapter maintains structural output contract.
+

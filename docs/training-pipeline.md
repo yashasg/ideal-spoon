@@ -274,17 +274,31 @@ Under **prototype scope**, gate 4 is *encouraged but not blocking*; gates 1–3 
 
 Every run, prototype or release, produces a run manifest recording the chain. A trained artifact without a complete manifest is treated as garbage and not promoted.
 
-**Recorded per run:**
+**Recorded per run (implemented in `code/llm_hawaii/train.py` `write_run_report`):**
 
 - `base_model`, `base_model_sha` — frozen at Stage 1 start; Stage 2 must match.
-- `tokenizer_sha` — frozen at Stage 1 start; Stage 2 CI asserts identical.
+- `tokenizer_sha` — SHA-256 over canonical tokenizer files (`tokenizer.json`, `tokenizer_config.json`, etc.); frozen at Stage 1 start; Stage 2 CI asserts identical. **Implemented:** `compute_tokenizer_sha()` in `train.py`; `run_stage2_lineage_preflight()` enforces equality before GPU work.
+- `artifact_sha` — SHA-256 of the saved LoRA adapter (`adapter_model.safetensors`); written by each stage so the next stage can reference it as `parent_artifact_sha`.
 - `stage` — `0-smoke` | `1-cpt` | `merge` | `2-sft`.
-- `parent_artifact_sha` — the prior stage's output hash (Stage 2 → merged-base hash → Stage 1 LoRA hash → base SHA).
-- `corpus_manifest_sha` — hash of `stage1_manifest.jsonl` / `stage2_manifest.jsonl` / prototype manifest actually used.
+- `parent_artifact_sha` — the prior stage's artifact_sha; resolved from `parent_run_dir/run_report.json` at Stage 2 train time.
+- `corpus_manifest_sha` — SHA-256 of the training JSONL actually used (convenience top-level field; also in `train.sha256`).
 - `eval_hashes_sha` — hash of `eval_hashes.jsonl` at run time.
 - `intended_use` — `prototype_private` | `release_candidate`. Loader enforces.
 - `seed`, training config, LoRA config, quantization config.
 - Eval-suite version and full per-gate results.
+
+**Stage 2 lineage preflight (`--preflight` on a `stage2-sft` config):**
+
+Set `parent_run_dir` in the config to the Stage 1 / merged-base output dir.  The preflight will:
+1. Load `parent_run_dir/run_report.json` to read the expected `tokenizer_sha`.
+2. Re-hash the tokenizer files in `parent_run_dir` and assert they match.  A single-byte flip in `tokenizer.json` → hard fail before any GPU time is spent.
+3. Record `parent_artifact_sha` from the parent run report into the Stage 2 run manifest.
+
+```bash
+# Stage 2 lineage preflight (no GPU, no model download):
+PYTHONPATH=code python -m llm_hawaii.train \
+  --config code/configs/stage2_prototype.json --preflight
+```
 
 **Lineage chain (hypothetical release-scope run):**
 

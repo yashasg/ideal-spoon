@@ -795,3 +795,12 @@ longer reads it. Final contract logged at
 - **Frank note:** Bible adapter new candidates → rebuild manifest with `scripts/320_build_stage2_manifest.py --execute`.
 
 **Next:** Basher's lineage CI (issue #24) also now complete. Stage 2 readiness depends on Rusty's review of issue #19.
+
+## 2026-05-01 — Stage 2 Alignment-Quality Policy Integration (Issue #19)
+
+**Status:** CROSS-AGENT UPDATE — Action Required
+
+Rusty's manifest builder now scores all rows and emits policy fields. Linus's adapters do NOT need to emit policy fields. Structural-only contract is maintained. When adding new adapters, ensure schema-compatibility tests use `apply_policy(dict(row))` before `validate_row` — see `test_bible_adapter.py` and `test_tatoeba_adapter.py` for the pattern. No changes required to existing adapters.
+
+**Reference:** `code/tests/fixtures/stage2/templates.json` corrected for haw→en template direction.
+

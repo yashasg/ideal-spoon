@@ -788,3 +788,10 @@ QLoRA + bitsandbytes 4-bit cannot use DDP: bitsandbytes wraps parameters in cust
 **Linus coordination:** Manifest ingestion & SFT template rotation (issues #18/#20) also complete.
 
 **Next:** Ralph awaits Rusty's assessment of issue #19 (remaining blocker). Rusty review of Hawaiian-language templates flagged in Linus work.
+
+## 2026-05-01 — Stage 2 Alignment-Quality Policy Integration (Issue #19)
+
+**Status:** CROSS-AGENT UPDATE — No Action Required
+
+Rusty's manifest builder now handles all policy scoring. Basher's emitter needs NO changes. Existing `alignment_review_required` filter and split filter already honor the quarantine (review/reject rows → `review-pending` split). Trainer fields and SFT emission logic unchanged. Quarantine behavior is double-belted via both manifest split override and emitter filter.
+

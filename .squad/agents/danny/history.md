@@ -184,3 +184,10 @@
 **Rationale:** You now have a narrative arc you can present to others: "Here's what I learned building this prototype, here are the hard decisions, here's why they matter." The deck is the story; the scripts/configs/docs are the proof. All cross-linked so you can extend it with slides showing actual code/config artifacts if needed.
 
 **No new team decision written** (this is a documentation artifact summarizing existing ADRs and decisions, not a new strategic choice). This note is logged for your future reference.
+
+## 2026-05-01 — Stage 2 Readiness Final Review
+
+**Status:** APPROVED — Integration complete
+
+Danny reviewed the integrated Stage 2 readiness changeset (including Rusty's #19 policy integration). All validation passed: py_compile on changed modules, targeted integrated unittest slice, scorer self-test, stage2 eval self-test. Verdict: APPROVED for merge. Close issues #17–#24 after commit/push. Keep #15–#16 open per Danny's assessment.
+

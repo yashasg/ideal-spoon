@@ -1,0 +1,5 @@
+{"pair_id": "p1", "direction": "en_to_haw", "source": "Hello, how are you today?", "reference": "Aloha, pehea ʻoe i kēia lā?"}
+{"pair_id": "p2", "direction": "en_to_haw", "source": "What is the history of Hawaiʻi?", "reference": "He aha ka mōʻaukala o Hawaiʻi?"}
+{"pair_id": "p3", "direction": "en_to_haw", "source": "The family gathered for the meal.", "reference": "Ua ʻākoakoa ka ʻohana no ka ʻaina."}
+{"pair_id": "p4", "direction": "haw_to_en", "source": "Aloha mai kākou.", "reference": "Greetings to all of us."}
+{"pair_id": "p5", "direction": "haw_to_en", "source": "He aha ka mōʻaukala o Hawaiʻi?", "reference": "What is the history of Hawaiʻi?"}

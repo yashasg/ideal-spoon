@@ -1218,6 +1218,10 @@ def evaluate_checkpoint(
 #
 # TODO(stage2-chrf): For Stage 2 translation eval, add chrF/chrF++ by
 #   direction (en→haw and haw→en, never averaged). Use sacrebleu.
+#   IMPLEMENTED in `code/llm_hawaii/stage2_eval.py` (issue #23). The CLI
+#   front-end is `scripts/410_stage2_eval.py`. sacrebleu is preferred
+#   when available; a deterministic pure-Python fallback ships with the
+#   module so prototype tests run without compute deps.
 #
 # TODO(leakage-check): Recompute the SHA-256 of every eval reference in
 #   NFC and assert none appear in the training shards. See

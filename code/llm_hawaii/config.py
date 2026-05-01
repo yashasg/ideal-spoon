@@ -82,6 +82,19 @@ class TrainConfig:
     # generic capability check in `model.py` for the runtime story.
     hardware_profile: Optional[str] = None
 
+    # --- Stage 2 SFT data fields ---
+    # Field names in the JSONL produced by scripts/330_emit_stage2_sft_jsonl.py.
+    # Only used when stage == "stage2-sft".
+    sft_instruction_field: str = "instruction"
+    sft_source_field: str = "source_text"
+    sft_target_field: str = "target_text"
+
+    # --- Stage 2 lineage ---
+    # Path to Stage 1 / merged-base output dir (contains saved tokenizer +
+    # run_report.json).  Resolved relative to the config file, like train_path.
+    # Required for stage2-sft lineage preflight checks.
+    parent_run_dir: Optional[str] = None
+
     # --- Free-form notes; populated by the run, not by the user ---
     notes: dict = field(default_factory=dict)
 
@@ -123,7 +136,7 @@ def resolve_data_paths(cfg: TrainConfig, config_path: "str | Path") -> TrainConf
 
     config_dir = Path(config_path).resolve().parent
     updates: dict = {}
-    for field_name in ("train_path", "eval_path"):
+    for field_name in ("train_path", "eval_path", "parent_run_dir"):
         raw = getattr(cfg, field_name)
         if raw is not None:
             p = Path(raw)
