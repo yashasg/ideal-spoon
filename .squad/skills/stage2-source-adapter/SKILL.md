@@ -254,3 +254,78 @@ Keep the original layer as a `dedup_cluster_id`-only signal — emit a
 candidate row with `synthetic=False`, `register="<source-register>"`,
 but mark it `release_eligible=False` and exclude from train sampling
 unless a downstream skill explicitly rehabilitates it.
+
+## Reference instance: Ka Hoʻoilina full enumeration (2026-05-01, raw pull pass)
+
+Confirms and tightens the trilingual-Greenstone sub-pattern above with
+fully enumerated counts.
+
+### Confirmed leaf-OID suffix → spelling layer (uniform across all issues)
+
+For Ka Hoʻoilina (`hooilina.org`, Greenstone `journal` collection), every
+leaf section OID has depth 3 (`HASH<root>.<X>.<Y>.<Z>`) and `Z` selects
+the spelling layer:
+
+| Suffix `Z` | Layer |
+|---|---|
+| `.3` | Original HAW (transcribed from source document; pre-modern spelling) |
+| `.5` | Modernized HAW (paʻi-hewa-corrected; ʻokina + kahakō added) |
+| `.7` | English translation (editorial layer) |
+| `.9` | Optional "kuhia kikokikona" textual notes (sparse — 4/331 sections only) |
+
+Verified across all 4 root issues (vols. 1–4, 2002–2004), 109 sections
+each in `.3` / `.5` / `.7` (= 327 trilingual + 4 notes = 331 leaves).
+
+### Enumerator: classifier walk (CL2 = date browse)
+
+```
+GET /cgi-bin/journal?e=<state>&a=d&cl=CL2&gg=text   # 3 child nodes
+GET /cgi-bin/journal?e=<state>&a=d&cl=CL2.1&gg=text # ~105 doc OIDs
+GET /cgi-bin/journal?e=<state>&a=d&cl=CL2.2&gg=text # ~76
+GET /cgi-bin/journal?e=<state>&a=d&cl=CL2.3&gg=text # ~150
+```
+
+Restrict the recursive walk to children matching `^CL\d+(\.\d+)*$` —
+trailing-dot variants like `CL2.1.` will infinite-loop the walker if not
+filtered (Greenstone tolerates them but emits the same body, re-yielding
+the same children).
+
+### Per-section body URL
+
+```
+https://hooilina.org/cgi-bin/journal
+  ?e=d-0journal--00-0-0-004-Document---0-1--1haw-50---20-frameset---ka--001-0110escapewin
+  &cl=search
+  &d=<HASH<root>.<X>.<Y>.<Z>>
+  &d2=1
+  &gg=text
+```
+
+Returns plain HTML body content, no further frame-walking required.
+
+### Wehewehe PD subset = full PDF over per-entry crawl
+
+For the Wehewehe (`wehewehe.org`, Greenstone `hdict`) PD subset, do NOT
+walk per-entry D-id ranges; the same content is served as a single
+canonical full-text PDF on the books portal:
+
+```
+HEAD https://ulukau.org/ulukau-books/cgi-bin/imageserver.pl?oid=<EBOOK_OID>&getpdf=true
+```
+
+Mapping (PD pre-1925, US):
+
+| EBOOK OID       | wehewehe tag    | Title (year)                            |
+|---              |---              |---                                       |
+| EBOOK-VOCABULARY| textvocabulary  | Andrews — Vocabulary of words (1836)     |
+| EBOOK-emd       | textemd         | "He hoakakaolelo no na huaolelo Beritania" — Emerson attribution (1845) |
+| EBOOK-ANDREW    | textandrew      | Andrews — Dictionary of the Hawaiian language (1865) |
+| EBOOK-CDD       | textcdd         | Dictionary of Biblical Words (1872)     |
+| EBOOK-ehd       | textehd         | Hitchcock — English-Hawaiian dict. (1887) |
+| EBOOK-PARKER    | textparker      | Parker (rev.) (1922)                    |
+
+Modern dictionaries served by the same `hdict` collection (Pukui-Elbert
+1986 / Māmaka Kaiao 2003 / Judd/Pukui/Stokes 1943 / Kent 1986 / Place
+Names 1974 + 2002 / Hawaiian Legal Land-Terms 1995 / Combined 2020) are
+INVENTORY ONLY pending rights-reviewer sign-off — capture only the
+EBOOK landing page, do not pull the PDF.

@@ -1964,3 +1964,35 @@ User corrected the team's discovery direction: Nupepa/newspapers are **monolingu
 - Rusty: Register-fit review on any hooilina/puke bilingual texts Frank finds.
 - Linus (self): Pin wikimedia-cx `stats.mt < 0.5` cutoff (or override); confirm HK statutes bilingual pair + cap.
 
+
+---
+
+## 2026-05-01 — Raw-pull gate review: sources 1, 2, 3
+
+**Task:** Review go/no-go for local raw acquisition and Stage 2 training use of Ka Hoʻoilina, Wehewehe, and Hawaiian Kingdom statutes bilingual. Frank was simultaneously pulling raw data; task was to define preservation posture and engineering rights gates, not to make final legal claims.
+
+### Learnings
+
+**Ka Hoʻoilina (`hooilina.org`)**
+- Rights ground-truth artifact: `data/raw/ulukau-stage2-discovery/20260501/02-hooilina-edintro.txt` — editorial intro page is the ToS snapshot. Save it as `tos_snapshot.txt` when building the adapter.
+- Underlying 19c documents: public domain by age.
+- Modernized HAW + English translation layers: © 2002–2004 Kamehameha Schools. Reuse clause is "free to public with citation of source HAW" — NOT a CC or explicit ML-training grant.
+- Engineering posture: `prototype_only=True`, `release_eligible=False` for KS editorial layers. Local raw pull is acceptable for prototype inventory. Stage 2 training use is provisional — document citation compliance and confirm prototype-internal use is within "noa i ka lehulehu akea" clause. Do NOT release weights trained on this data without explicit KS sign-off.
+- ToS snapshot for any adapter: use `?a=p&p=edintro&gg=text` page, not the home page.
+- Keep all three spelling layers (original HAW, modernized HAW, English) in raw; emit only modernized-HAW × English for Stage 2 training pair.
+
+**Wehewehe (`wehewehe.org`)**
+- PD-safe subset (pre-1925 US imprints): Andrews 1836, Emerson 1845, Andrews 1865, Hitchcock 1887, Parker 1922, Dictionary of Biblical Words 1872. GO for local raw pull and Stage 2 training.
+- Judd/Pukui/Stokes 1943: PENDING — US publication 1943, need copyright renewal status check (if not renewed by 1970-71, PD under pre-1964 renewal doctrine). Inventory-only until resolved.
+- Modern copyrighted dicts (Pukui-Elbert 1986, Māmaka Kaiao 2003, Combined 2020, Kent 1986, Place Names 1974/2002, Legal Land-Terms 1995): BLOCKED for all use beyond smoke-read.
+- Andrews 1865 is already pinned in the fetch plan as `andrews-1865-en-haw-vocab-appendix`. Wehewehe adds: Andrews 1836, Emerson 1845, Hitchcock 1887, Parker 1922 — all PD and incrementally worthwhile.
+- Dictionary-example tier, cap 5k rows combined across all dict sources.
+
+**Hawaiian Kingdom Statutes Bilingual (`archive.org`)**
+- Raw text is on disk in two forms: `hawaiian-kingdom-statutes-bilingual/20260501/` (8 IA item-page HTMLs, ~225–295 KB each) and `hawaiian-kingdom-statutes-paired-imprints/20260501/` (8 djvu.txt OCR files, 192k lines total).
+- Rights: PD — pre-1925 US imprints + sovereign-edicts doctrine on the statutory text. Archive.org IA ToS governs byte distribution; underlying PD text is unencumbered for NLP training.
+- Year-mismatch FLAG: `esrp468790723` is the 1850 Hawaiian Penal Code; `esrp475081650` is labeled 1869 English Penal Code. These are DIFFERENT editions, not a direct translation pair. Must verify whether the 1869 English text is a revision of the 1850 law (in which case section-id pairing still works) or a wholly separate enactment.
+- OCR quality: Cornell items (`esrp*`) are cleaner than Google scans (`*goog`). Prefer Cornell for pinned pairs.
+- Pre-1860 Hawaiian lacks ʻokina/kahakō — set `kahako_recoverable=false` for esrp468790723, hekumukanawaiam00hawagoog, kanawaiikauiaek00ricogoog, statutelawshism00ricogoog.
+- Legal register cap: ≤15% of parallel-train tokens combined across all four code pairs.
+- Adapter needed: `data-sources/hk-statutes/fetch.py` + `111_collect_hk_statutes.py` (not yet written).

@@ -1769,3 +1769,68 @@ a non-bulk enumeration probe (deferred until rights cleared).
 2. Rusty: Register/spelling-layer fit review on Hoʻoilina (secondary decision gate).
 3. Frank (self): After Linus gate, smoke fetch Hoʻoilina one trio + capture Kamehameha Schools ToS; then propose adapter shape.
 
+
+## 2026-05-01 — Stage 2 raw pull for sources 1, 2, 3 (Hoʻoilina + Wehewehe + HK statutes)
+
+Per user directive 2026-05-01T14:02:02-07:00 ("pull 1,2,3 raw data, better
+to get everything and then decide what we need"). Raw acquisition only —
+no normalization, no candidate emission. All artifacts gitignored under
+`data/`.
+
+**Source 1 — Ka Hoʻoilina (`data/raw/hooilina-stage2/20260501/`):**
+- 7 ToS / edintro / about pages, 8 parent doc landings, **331 leaf section
+  HTML bodies** = 109 original-HAW (`.3`) + 109 modernized-HAW (`.5`) +
+  109 English (`.7`) + 4 textual-notes (`.9`). 0 failures. ~4.6 MB.
+- New finding (now fully verified): **leaf-OID suffix → spelling-layer
+  mapping is uniform** across all 4 root issues. `.3` orig HAW, `.5`
+  modernized HAW, `.7` English. The `.9` slot is the optional textual
+  notes per section. The `?a=cl&cl=CL2.<n>.<m>` walk yields all 331 leaves
+  in 22 classifier nodes; `cl=CL1` is alphabetical and contains no docs.
+- Editorial-layer copyright = Kamehameha Schools 2002-2004 (per
+  `tos/edintro.html`); underlying 19c HAW source PD by age. Reuse clause
+  requires citing source HAW alongside any modernized-HAW or English reuse.
+- Manifest: `manifest.jsonl` (348 rows) + `manifest_summary.json`.
+- Fetcher: `scripts/_frank_pull_hooilina.py` (one-off; 1.2s rate limit;
+  stdlib urllib only; respects `Crawl-delay: 1` from robots.txt).
+
+**Source 2 — Wehewehe PD subset (`data/raw/wehewehe-stage2/20260501/`):**
+- Mapped all 14 dictionary tags to wehewehe checkbox values (saved at
+  `tos/`). PD pre-1925 PDFs pulled as full bytes via
+  `https://ulukau.org/ulukau-books/cgi-bin/imageserver.pl?oid=<EBOOK-...>&getpdf=true`:
+  - EBOOK-VOCABULARY (Andrews 1836, 38 MB), EBOOK-emd (Emerson 1845
+    attribution, 24 MB), EBOOK-ANDREW (Andrews 1865, 62 MB), EBOOK-CDD
+    (Biblical Words 1872, 394 MB), EBOOK-ehd (Hitchcock 1887, 283 MB),
+    EBOOK-PARKER (Parker 1922, 148 MB). **Total 849 MB.**
+- Inventory-only landings (no PDF) for: Pukui-Elbert 1986 (PED), Māmaka
+  Kaiao 2003 (MKD), Judd/Pukui/Stokes 1943 (IHL — pending Linus US
+  renewal-status check), Kent 1986 (THW01), Place Names 1974 (PEPN), 2002
+  (CPN), Hawaiian Legal Land-Terms 1995 (DHLLT). Combined Hawaiian
+  Dictionary 2020 (textchd) recorded in manifest as inventory-only without
+  EBOOK fetch.
+- 12 sample-query HTML probes saved at `sample_entries/` for headwords
+  {aloha, wai, akua, iho, mauna, keiki} × {l=haw, l=en} so the per-entry
+  D-id surface is preserved even though no per-entry walk was done.
+- Manifest: `manifest.jsonl` (40 rows) + `manifest_summary.json`.
+- Fetcher: `scripts/_frank_pull_wehewehe.py`.
+
+**Source 3 — HK statutes paired imprints (`data/raw/hawaiian-kingdom-statutes-paired-imprints/20260501/`):**
+- Augmented the prior 8 `_djvu.txt` OCR files (still byte-for-byte
+  preserved) with: 8 IA metadata JSONs, **8 PDFs** (5 IA-Text-PDF + 3
+  Google-Books "Image Container PDF" via follow-up pass for armsgoog /
+  hawagoog / ricogoog items), 8 `_djvu.xml` page-coordinate OCR XMLs
+  (~89 MB), 6 `_hocr_searchtext.txt.gz`, 8 `_meta.xml`, 6 `_marc.xml`. 0
+  failures. ~231 MB total for this dir.
+- Manifest: `manifest_complete.jsonl` + `manifest_summary.json`. Pre-existing
+  `fetch.jsonl` from `scripts/208_fetch_hk_statutes_djvu.py` left
+  untouched.
+- Fetcher: `scripts/_frank_pull_hk_complete.py`.
+
+**Total raw on disk after this session:** ~1.16 GB across the three roots.
+**Failures:** 0 across all three pulls.
+
+**Decision inbox:** `.squad/decisions/inbox/frank-stage2-raw-pull-123.md`.
+
+**Skill update fact (Hoʻoilina):** `.3` / `.5` / `.7` leaf-suffix → orig
+HAW / modernized HAW / English mapping is now CONFIRMED uniform across all
+4 root issues, not just sampled. Future adapter can rely on it directly
+(no per-section disambiguation walk needed).
