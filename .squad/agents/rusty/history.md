@@ -750,3 +750,16 @@ check consumes.
 
 **Next:** Await SFT runner predictions from Basher; validate leakage check against pinned manifest hashes.
 
+
+---
+
+## 2026-05-01 — Stage 2 Readiness handoff [PENDING REVIEW]
+
+**Orchestration:** Ralph's Stage 2 readiness sweep identified one remaining blocker (#19) and routed to you.
+
+**Context:**
+- Issues #18/#20/#24 complete (Linus manifest/templates, Basher lineage CI).
+- **Linus flagged:** Two `haw->en` templates are in Hawaiian; please review orthography before release.
+- **Frank coordination:** If Bible adapter produces new candidates, rebuild manifest with `scripts/320_build_stage2_manifest.py --execute`.
+
+**Action needed:** Assess issue #19 and determine if it blocks Stage 2 go/no-go.

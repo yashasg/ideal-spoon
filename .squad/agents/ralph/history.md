@@ -26,3 +26,17 @@ Remaining open issues intentionally not actionable:
 - **#1:** Release backlog stretch
 
 Board is clear for next phase.
+
+---
+
+## 2026-05-01 — Stage 2 Readiness Round 2 [COMPLETED]
+
+**Orchestration:** Ralph conducted final Stage 2 readiness sweep.
+
+**Identified blockers:**
+- **#18:** Manifest ingestion → Linus ✅ COMPLETED
+- **#20:** Template rotation → Linus ✅ COMPLETED
+- **#24:** Tokenizer lineage CI → Basher ✅ COMPLETED
+- **#19:** Remaining blocker → Routed to Rusty
+
+**Outcome:** Issues #18/#20/#24 now cleared. Stage 2 readiness depends on Rusty's assessment of #19.

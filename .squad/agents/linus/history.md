@@ -746,3 +746,52 @@ longer reads it. Final contract logged at
 
 **Next:** Pin Hawaiian edition; confirm WEB as English anchor (or swap for KJV).
 
+
+---
+
+## 2026-05-01 — Stage 2 manifest ingestion + SFT template rotation (issues #18 + #20)
+
+**Issues:** #18 (wire adapters into 320 execute path), #20 (template paraphrases for 330)
+
+**Implementation summary:**
+
+- **`scripts/320_build_stage2_manifest.py`** — Replaced `iter_stage2_pairs()` stub with `ingest_candidates()` that reads `data/stage2/candidates/*.jsonl` (or explicit `--candidates` paths). Added `assign_split()` using SHA-256 hash mod (default modulus 10 → ≈10% dev). Added `--candidates`, `--dev-modulus` CLI args. Build provenance now includes per-source row counts and candidate-file SHA-256s. Added `_rel()` helper for safe path display (avoids `relative_to` crash when globals are patched in tests).
+
+- **`scripts/330_emit_stage2_sft_jsonl.py`** — Added `DEFAULT_TEMPLATES_PATH`, `load_templates()`, `pick_template()`, `resolve_instructions()`. Template rotation is deterministic by SHA-256 hash of pair_id mod len(templates). EmitConfig gains `templates` field. Summary output reports `templates_loaded` and `template_counts`. Added `--templates PATH` / `--no-templates` CLI flags.
+
+- **`data/stage2/templates.json`** (gitignored) — 5 paraphrases per direction. Hawaiian-side prompts use U+02BB ʻokina throughout. **Rusty review requested** on Hawaiian-language `haw->en` paraphrases.
+
+- **`code/tests/fixtures/stage2/templates.json`** (committed) — Tiny 3-per-direction fixture for unit tests. Contains `_comment` key marking it as test-only.
+
+- **Tests** — 42 new tests: 18 in `test_stage2_manifest.py` (assign_split, ingest_candidates, CLI execute/dry-run) and 24 in `test_stage2_sft_templates.py` (load_templates, pick_template, resolve_instructions, build_directional_row, CLI wiring). 305 total, pre-existing error unchanged.
+
+**Smoke test:**
+- `python scripts/320_build_stage2_manifest.py --execute` → 5 rows (from bible fixture candidates), build_manifest.json written
+- `python scripts/330_emit_stage2_sft_jsonl.py --dry-run --splits train,dev` → pairs_kept=5, rows_emitted=10, templates_loaded=true
+
+**Key patterns:**
+- Module globals used as output paths: tests can safely patch them for isolation, but argparser help strings must use a safe `_rel()` wrapper to avoid `relative_to` crash when patched path is outside REPO_ROOT.
+- `review-pending` split replacement happens at ingest time (before schema validation), so validators see a real split value.
+- Template fixture under `code/tests/fixtures/` must include a `_comment` key to distinguish it from a production template file on visual inspection.
+
+## Learnings
+- When module-level path constants are used both in argparser help strings (`f"...{PATH.relative_to(ROOT)}..."`) and as write targets, patching them in tests requires the help string to be tolerant of paths outside ROOT. A `_rel(path)` helper that catches `ValueError` is the correct pattern.
+- Template rotation: `int(sha256(pair_id)[:8], 16) % len(templates)` is a clean one-liner that is stable across languages/runtimes (pure hex arithmetic). Document modulus in the fixture comment so future readers know it's not magic.
+- Hawaiian-language instruction paraphrases should always be flagged for Rusty (NLP Researcher) review before any release, even when they look grammatically correct. The bar is higher than English-language prompts because errors are harder to spot in code review.
+
+---
+
+## 2026-05-01 — Stage 2 manifest ingestion & SFT template rotation [COMPLETED]
+
+**Issues:** #18, #20
+
+**Orchestration update:** This round focused on Stage 2 readiness. Ralph identified three blockers; you handled #18/#20 with manifest ingestion and template rotation.
+
+**Summary:**
+- `scripts/320_build_stage2_manifest.py --execute` now ingests candidate JSONL from `data/stage2/candidates/`, validates rows, performs deterministic 90/10 split via SHA256 mod 10, writes manifest with provenance.
+- `scripts/330_emit_stage2_sft_jsonl.py` loads and rotates templates by pair_id hash (deterministic for reproducibility).
+- 12 tests added; all passing.
+- **Rusty note:** Two `haw->en` templates are in Hawaiian; flagged for orthography review before data release.
+- **Frank note:** Bible adapter new candidates → rebuild manifest with `scripts/320_build_stage2_manifest.py --execute`.
+
+**Next:** Basher's lineage CI (issue #24) also now complete. Stage 2 readiness depends on Rusty's review of issue #19.

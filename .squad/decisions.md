@@ -3556,3 +3556,69 @@ Stage 2 prototype eval gate is live at `code/llm_hawaii/stage2_eval.py` with CLI
 2. Need A100 (bf16, faster throughput) — requires new config.
 3. Iterating rapidly and exhausting free quota repeatedly in the same week.
 
+---
+
+## Decision: Basher — Stage 2 Lineage CI (Issue #24)
+
+**Owner:** Basher (Training Engineer)
+**Status:** IMPLEMENTED — All validation passed
+
+### Summary
+
+Added Stage 2 tokenizer SHA equality check and parent artifact recording to the trainer preflight.
+
+### Design choices
+
+1. **Tokenizer SHA computation is file-based, not object-based.** We hash the files saved in `parent_run_dir` rather than a live tokenizer object so the check runs in pure stdlib without any ML deps. This keeps preflight fast (no HF download).
+
+2. **SHA covers all canonical tokenizer files present in sorted order.** Files: `added_tokens.json`, `merges.txt`, `special_tokens_map.json`, `tokenizer.json`, `tokenizer_config.json`, `vocab.json`. Missing files are skipped (different tokenizer families omit different files). Empty dir → `FileNotFoundError`.
+
+3. **`parent_run_dir` is a new `TrainConfig` field resolved config-relative** (like `train_path`). Set to Stage 1 / merged-base output dir. `null` in shipped configs — user fills it in before running Stage 2.
+
+4. **`write_run_report` gains lineage kwargs with `None` defaults** — backward compatible; Stage 1 run reports still valid without them.
+
+5. **Stage 1 path is explicitly unaffected** — `run_stage2_lineage_preflight` is only called when `cfg.stage == "stage2-sft"`. Confirmed by `test_stage1_preflight_unaffected_by_lineage_checks`.
+
+### Files changed
+- `code/llm_hawaii/config.py` — `parent_run_dir` field + resolution
+- `code/llm_hawaii/train.py` — `compute_tokenizer_sha`, `_compute_artifact_sha`, `run_stage2_lineage_preflight`, updated `run_preflight` + `write_run_report` + `run_training`
+- `code/configs/stage2_smoke.json`, `stage2_prototype.json` — `parent_run_dir: null`
+- `docs/training-pipeline.md` §5 — implementation notes
+- `code/tests/test_train.py` — 12 new tests
+
+---
+
+## Decision: Stage 2 manifest ingestion + SFT template rotation
+
+**Date:** 2026-05-01
+**Author:** Linus (Data Engineer)
+**Issues:** #18, #20
+
+### Decisions made
+
+#### 1. Split assignment: hash mod 10 (≈10% dev)
+
+`assign_split(pair_id, dev_modulus=10)` uses `int(sha256(pair_id)[:8], 16) % 10 == 0 → dev; else → train`. No test split yet — defer until corpus is large enough. Do NOT change the modulus retroactively on an existing manifest without a full re-derivation (pair_ids will silently reclassify).
+
+#### 2. Candidate JSONL files in `data/stage2/candidates/`
+
+The manifest builder globs `data/stage2/candidates/*.jsonl` by default. Adapters write their candidates there. Explicit `--candidates` paths override the glob (for single-adapter reruns or CI gating).
+
+#### 3. `data/stage2/templates.json` is gitignored; fixture lives in `code/tests/fixtures/stage2/`
+
+Consistent with the decision that nothing under `data/` is committed. The fixture is tiny (3 per direction) and marked with a `_comment` key. The production file has 5 per direction.
+
+#### 4. Template rotation is deterministic by pair_id hash, not sequential
+
+Rationale: re-emission must be reproducible. Sequential rotation would change instructions if rows are filtered differently across runs.
+
+#### 5. Hawaiian-language paraphrases need Rusty review before release
+
+Two `haw->en` templates are in Hawaiian. Flagged in issue #20 comment for Rusty's orthography review before any data leaves prototype status.
+
+### Impact
+
+- **Basher:** `330_emit_stage2_sft_jsonl.py --dry-run` now reports `templates_loaded: true` when `data/stage2/templates.json` exists. The `instruction` field in each emitted SFT row may vary per pair_id.
+- **Rusty:** Please review the two Hawaiian-language instruction paraphrases in `data/stage2/templates.json` (haw->en direction).
+- **Frank:** If the Bible adapter produces new candidates, run `python scripts/320_build_stage2_manifest.py --execute` to rebuild the manifest.
+

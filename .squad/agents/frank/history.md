@@ -304,3 +304,13 @@ the issue acceptance is in place and tested.
 
 **Next:** Linus pins Hawaiian edition in `source_registry.json` to unblock your live fetcher.
 
+
+---
+
+## 2026-05-01 — Stage 2 coordination [AWARENESS]
+
+**Orchestration:** Stage 2 readiness round complete (issues #18/#20/#24 resolved).
+
+**Action for you:**
+- If Bible adapter produces new candidates for Stage 2, run `python scripts/320_build_stage2_manifest.py --execute` to rebuild the manifest (deterministic 90/10 split, new layout enforced).
+- Manifest builder globs `data/stage2/candidates/*.jsonl` by default; your adapter writes there.

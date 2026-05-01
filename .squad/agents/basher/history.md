@@ -750,3 +750,41 @@ QLoRA + bitsandbytes 4-bit cannot use DDP: bitsandbytes wraps parameters in cust
 
 **Next:** Emit SFT predictions keyed by `pair_id`; coordinate with Rusty on eval gate intake format.
 
+
+---
+
+## 2026-05-XX — Stage 2 Lineage CI (Issue #24)
+
+**Context:** Implemented tokenizer SHA equality check and parent_artifact_sha recording for Stage 2 preflight, per §5 of docs/training-pipeline.md.
+
+**What was implemented:**
+- `compute_tokenizer_sha(dir)` — hashes canonical tokenizer files (sorted, deterministic). Hard fails on empty dir.
+- `_compute_artifact_sha(dir)` — hashes `adapter_model.safetensors` or `.bin` for lineage chain.
+- `run_stage2_lineage_preflight(cfg)` — validates `parent_run_dir` exists, loads its `run_report.json`, asserts tokenizer SHA equality (single-byte tamper → hard fail), records `parent_artifact_sha` and `corpus_manifest_sha`.
+- `run_preflight` dispatches to lineage check for `stage2-sft`; Stage 1 path unaffected.
+- `write_run_report` updated with lineage kwargs: `tokenizer_sha`, `artifact_sha`, `parent_artifact_sha`, `corpus_manifest_sha` (all backward-compatible None defaults).
+- `TrainConfig` gains `parent_run_dir` (resolved config-relative like `train_path`).
+
+**Lesson:** Lineage checks are pure stdlib (hashlib, json, pathlib) — no ML deps. Run them in preflight before any tokenizer/model load to fail fast and cheap. The SHA computation must hash file *contents* keyed by *filename* in sorted order for the digest to be deterministic across OS/filesystem.
+
+**Test count:** +12 tests in `TestStage2LineagePreflight` + 3 in `TestRunReportMetadata`. 263 total.
+
+---
+
+## 2026-05-01 — Stage 2 Lineage CI [COMPLETED]
+
+**Issue:** #24
+
+**Orchestration update:** Ralph's Stage 2 readiness review identified three blockers. You handled #24 (tokenizer lineage CI).
+
+**Summary:**
+- Implemented Stage 2 preflight: tokenizer SHA equality check + parent artifact recording.
+- `parent_run_dir` new TrainConfig field (resolved config-relative, set to Stage 1 output); null in shipped configs.
+- Tokenizer SHA file-based (no ML deps): canonical files in parent_run_dir hashed in sorted order.
+- `write_run_report` gains lineage kwargs (None default, backward compatible).
+- Stage 1 unaffected (lineage check only when `cfg.stage == "stage2-sft"`).
+- 12 tests; all passing.
+
+**Linus coordination:** Manifest ingestion & SFT template rotation (issues #18/#20) also complete.
+
+**Next:** Ralph awaits Rusty's assessment of issue #19 (remaining blocker). Rusty review of Hawaiian-language templates flagged in Linus work.
