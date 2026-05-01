@@ -1903,3 +1903,64 @@ Completed conversion of haw1868 USFM + KJV TSV to `data/stage2/candidates/bible_
 - Extend `322_build_bible_candidates.py` with `--from-biblenlp-jsonl` mode
 - Confirm manifest builder dedup-cluster collapse or add if missing
 
+
+---
+
+## Session: Stage 2 Source Filter — Ulukau-Family Focus Correction (2026-05-03)
+
+### Context
+
+User corrected the team's discovery direction: Nupepa/newspapers are **monolingual OCR** and should NOT be the first target for Stage 2. Stage 2 needs bilingual/parallel or SFT-suitable data. Existing Stage 2 stands at 11,828 canonical manifest rows / 9,330 directional SFT rows; 80k target requires major expansion beyond the current Bible-heavy base.
+
+### Learnings
+
+1. **Newspapers are Stage 1, not Stage 2.** Any Veridian/Greenstone OCR source that is purely Hawaiian-language text feeds Stage 1 (monolingual) or BT/synthetic pipeline — not the parallel manifest directly. Do not route Frank's search toward these collections for Stage 2.
+
+2. **Stage 2 acceptance gate is strict:** a source must have both a Hawaiian side and an English side with a plausible sentence- or verse-level alignment. OCR-only monolingual does not qualify.
+
+3. **Ulukau-family Stage 2 candidates** to prioritize: wehewehe.org dictionary examples (Andrews + Parker entry pairs), any Ulukau-hosted bilingual moolelo (ʻōlelo nūpepa with English translation companion), statutes already in plan, and any hooilina.org / puke.ulukau.org bilingual texts.
+
+4. **Synthetic SFT (alpaca-hawaiian-cleaned)** is already downloaded but not merged; its budget is capped at ≤15% of directional SFT rows per pipeline policy.
+
+5. **Highest leverage remaining non-Bible, non-synthetic sources:** wikimedia-cx published translations, HK statutes bilingual, kaikki Wiktionary examples, Andrews vocabulary appendix — all already in the fetch plan and ready to pilot.
+
+6. **Dedup constraint:** 1868 Bible overlaps 1839 by 10,221 verses. Net-new from 1868 is ~20,880 rows. After merging both Bible editions, Bible-token-share will approach or exceed the 30% cap; do not add more Bible sources without checking the cap.
+
+7. **Priority for Frank's next Ulukau discovery pass:** wehewehe.org (full dictionary, bilingual example sentences) and any Ulukau-hosted paired-text collection. Redirect from nupepa/newspaper search immediately.
+
+### Decisions Written
+
+- `.squad/decisions/inbox/linus-stage2-source-filter.md` — Stage 2 acceptance filter + ranked discovery target list for Frank.
+
+## 2026-05-01T20:34:18Z — Stage 2 Source Filter: Acceptance Criteria & Discovery Target List
+
+**Task:** Define Stage 2 acceptance filter and discovery priorities after user directive that Nupepa/newspaper OCR is not Stage 2-first. Operationalize the transition to bilingual/parallel data focus.
+
+**Outcome:** PROPOSAL — staged to `.squad/decisions.md`
+
+**Deliverables:**
+1. **Stage 2 Acceptance Filter** — bilingual alignment criteria, rights gates (open or explicit prototype-only sign-off), register taxonomy, alignment sub-tiers (Tier A/B/C/D).
+2. **Reject/Deprioritize List** — explicit disposition matrix for 14 source classes (Nupepa Stage 1-only, OCR-only, mC4, OSCAR, restrictive-rights, sparse community, social, ungrounded synthetic, unflagged MT, eval-protected).
+3. **Ranked Target List** — 8 sources across Tier A (search now) and Tier B (search next), with yield estimates and rights posture.
+4. **Metadata Caps** — 5 hard caps: Bible ≤30% token share, dictionary ≤5k rows, synthetic ≤15% rows, mined never dev/test, specific register support.
+5. **Recommended Pilot Adapter** — `wikimedia-cx-en-haw-published` (CC BY-SA, `parallel-doc`, 1–3k pairs, unblocks doc-level LaBSE scoring).
+
+**Key Rationale:**
+- Nupepa is monolingual Hawaiian OCR; route to Stage 1 only (or tiny eval-slice if <1k bilingual articles found).
+- Stage 2 must hold bilingual pairs with traceable alignment (verse-id, line-num, filename-pair, TMX, or LaBSE ≥0.75 for mined).
+- Rights must be open or have explicit prototype-only sign-off; no bare "All Rights Reserved" without escalation.
+- Bible token-share capped at 30% to force discovery breadth (Bible now ~32% of 11.8k manifest rows; need 68.2k more from non-Bible to reach 80k target).
+- Dictionary examples capped at 5k rows (narrow register).
+- Synthetic (BT + FT combined) capped at 15% of rows; never dev/test.
+- Mined sources (comparable-aligned, NLLB) require LaBSE ≥0.75 gate and never dev/test.
+
+**Dependencies unblocked:**
+- Frank's Ulukau-family discovery pass with clear Stage 2 fit criteria.
+- Rusty's register-fit review with explicit register taxonomy.
+- Linus self-task: wikimedia-cx pin + HK statutes bilingual pair + cap confirmation.
+
+**Next steps:**
+- Frank: Redirect Ulukau discovery to wehewehe.org, hooilina.org, puke.ulukau.org bilingual texts; confirm `wikimedia-cx-en-haw-published` pilot-ready.
+- Rusty: Register-fit review on any hooilina/puke bilingual texts Frank finds.
+- Linus (self): Pin wikimedia-cx `stats.mt < 0.5` cutoff (or override); confirm HK statutes bilingual pair + cap.
+

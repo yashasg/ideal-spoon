@@ -1565,3 +1565,207 @@ Inbox note written: `.squad/decisions/inbox/frank-hub-dataset-row-counts.md`.
 **Inbox consolidated:** `.squad/decisions/inbox/frank-hub-dataset-row-counts.md` merged; file deleted.
 
 **Next:** Linus rights review on MADLAD-400, Glot500, GlotCC-V1.
+
+## 2026-05-03 — Ulukau / Nupepa.org live discovery (signed-in Chrome via CDP)
+
+**Status:** DISCOVERY — no bulk fetch, no commits, no rights commitment. Provenance artifacts under `data/raw/ulukau-discovery/` (gitignored).
+
+### Source identification
+
+`https://www.nupepa.org/` is the public face of the Ulukau **Hawaiian Newspaper Collection** (Ka ʻOhina Nūpepa ʻŌlelo Hawaiʻi). Backend is **Veridian (CVS-D2024.05.10) over Greenstone**, descended from NZDL Niupepa. Same query-param family as the Baibala collection we already pull (`?a=`/`?d=`/`?cl=`).
+
+### Endpoints (URL grammar)
+
+State suffix is mandatory: `e=-------haw-20--1--txt-txIN%7CtxNU%7CtxTR%7CtxTI---------`
+
+| Verb | URL | What it returns |
+|---|---|---|
+| Issue | `/?a=d&d=<OID>` | HTML issue-viewer shell |
+| Section text | `/?a=da&command=getSectionText&d=<OID>&f=AJAX&<state>` | **XML** with HTML-inside-CDATA: `<SectionText>` = the article OCR (Hawaiian) |
+| Issue TOC | `/?a=da&command=getDocumentContents&d=<ISSUE_OID>&f=AJAX&<state>` | XML/HTML — per-page article list |
+| Section metadata | `/?a=da&command=getSectionMetadata&d=<OID>&f=AJAX&<state>` | XML |
+| User translation | `/?a=da&command=getUserTranslation&d=<OID>&f=AJAX&<state>` | XML — community-contributed English (sparse) |
+| Persistent link | `/?a=da&command=getPersistentLink&d=<OID>&f=AJAX&<state>` | XML — canonical citation URL |
+| Title browse | `/?a=cl&cl=CL1[&sp=<PAPER>][&ai=1]` | HTML — calendar / large article index |
+| Date browse | `/?a=cl&cl=CL2[.<YYYY>[.<MM>]][&sp=<PAPER>]` | HTML |
+| Place browse | `/?a=pcl&pcl=PCL1` | HTML |
+| Search | `/?a=q&q=<term>&adv={0,1}` | HTML, faceted |
+
+OID grammar: `<PAPER><YYYYMMDD>-<ISSUE>(.<page>(.<article>(.<sub>)?)?)?`. Example: `KNK19040722-01.2.16.3` = Ka Nupepa Kuokoa, 22 July 1904, page 2, article 16, sub 3.
+
+### Scale
+
+Per the public Help page (saved as `09-nupepa-help-en.txt`):
+
+* ~**69,000 pages** total in the collection.
+* **100%** of pages have **automatic OCR article text** (article-segmented; headlines human-corrected).
+* ~**21,000 pages** also have human-keyed transcribed text.
+* User translations exist for a small number of articles.
+* 50+ newspaper title codes spanning roughly 1834–1948. Ka Nupepa Kuokoa (KNK) alone shows **3,316 articles** in its title index badge.
+
+### Text format
+
+Article text is delivered as an **HTML fragment, entity-encoded inside an XML envelope**. Smoke-tested on `KNK19040722-01.2.1`: ~2.7 KB XML, ~900 chars of (mediocre) Hawaiian OCR after de-tagging. Quality matches the standard Niupepa OCR baseline. No JSON API. No bulk corpus dump exposed by the UI; page imagery is OpenSeadragon DZI (not probed).
+
+### Rights snapshot — DO NOT TREAT AS LEGAL CONCLUSION
+
+Ulukau site-wide TOS (Aug 21, 2018, captured `08-copyright.txt`):
+
+* Copyright owners: Ka Haka ʻUla O Keʻelikōlani College of Hawaiian Language (UH Hilo) + ALU LIKE, Inc.
+* "All Rights Reserved." **Personal use only; no commercial use; no copying to other websites.**
+* Users responsible for their own fair-use determination; written permission required for redistribution.
+* No machine-readable license; no per-page rights metadata in the AJAX responses.
+
+Backend originally NZDL Niupepa — the underlying scans and OCR derive from the Bishop Museum / Awaiaulu / Hale Kuamoʻo digitization program. Some upstream pages may carry separate rights.
+
+### Recommendation for next adapter step
+
+1. **Block** on Linus rights review before any `--execute` run. Site TOS is restrictive and explicitly bars copying to other websites. We can keep this for **prototype/internal** use only, never released or republished.
+2. If Linus clears (with prototype-only flag): build `data-sources/nupepa/fetch.py` modeled on `data-sources/bible/` adapter:
+   * Pin enumeration via CL1 (per-paper) + CL2.YYYY.MM (per-month) → issue OID list → per-section AJAX `getSectionText` → strip HTML → NFC + ʻokina canonicalize → SHA256 raw + clean.
+   * Polite rate (≥1 s between AJAX hits) — the underlying Greenstone is single-host shared infra; bulk = noisy.
+   * Cloudflare interstitial active on first request: adapter must do the Cloudflare-cleared GET via the same browser channel OR via a long-lived `requests.Session` with sane UA + retries (not yet validated).
+   * Save raw XML response per OID to `data/raw/nupepa/<paper>/<issue>/<section>.xml` for provenance, plus the parsed text alongside.
+3. Stage 2 fit: this is **monolingual Hawaiian** — feeds Stage 1 + downstream BT pipelines, not Stage 2 parallel target directly. The "translation" facility is sparse user-contributed English and not a meaningful parallel source on its own. Treat user translations as a tiny (<<1k) eval-only candidate set if Linus/Rusty want a domain-news eval slice.
+4. Image/DZI ingestion is not justified for the LLM track.
+
+### Provenance saved
+
+`data/raw/ulukau-discovery/` (gitignored):
+* `01-homepage.html`, `02-nupepa-home.html`, `03-nupepa-doc.html`, `05-section-text.{xml,html}`
+* `06-classifier-CL1.html`, `07-knk-list.html`, `07-knk-body.html`
+* `08-{copyright,privacy,about,nupepa_terms}.{html,txt}`
+* `09-nupepa-help-en.{html,txt}` (full Help page with OCR coverage numbers)
+* `veridian-doc.js`, `pdnupepa.min.js` (vendor JS confirming AJAX URLs)
+* `cdp.py`, `README.md` (this discovery's index)
+
+No cookies, auth headers, local storage or session secrets were read or recorded.
+
+### No commits, no fetches into the corpus.
+
+## 2026-05-01T13:35Z — Stage 2 Ulukau-family pivot away from Nupepa
+
+User correction landed (decisions.md 2026-05-01T13:28:17-07:00):
+Nupepa/newspapers are HAW-monolingual OCR, not Stage 2 candidates.
+Pivoted Ulukau-family Stage 2 discovery to bilingual/parallel surfaces.
+
+### Learnings — Ulukau-family Stage 2 surface map
+
+- **Ka Hoʻoilina (`hooilina.org`)** is the only Ulukau-family resource
+  *explicitly designed* as bilingual: every document is published in
+  three versions (original HAW transcription, modernized HAW, English
+  translation) with editorial cross-references and per-version textual
+  notes. Greenstone CGI on the same Veridian AJAX surface family as
+  Nupepa/Baibala — `?a=da&command=getSectionText|getDocumentContents`
+  endpoints work the same; only the OID grammar and `e=` state suffix
+  differ. Editorial intro at
+  `?a=p&p=edintro&gg=text` is the canonical rights+structure source.
+  Editorial-layer copyright: Kamehameha Schools 2002–2004; reuse
+  clause "noa i ka lehulehu akea ... me ke koina nae" requires source
+  HAW citation alongside any reuse of modernized HAW or English.
+  Underlying 19c source documents are PD by age.
+
+- **Wehewehe (`wehewehe.org`)** = Greenstone `hdict` CGI fronting 14
+  dictionaries. Per-entry doc IDs `D<numeric>` carry side tag
+  `(Hawaiʻi)` vs `(Pelekānia)` — clean structural haw↔en pair surface.
+  Lookup endpoint: `?a=q&q=<word>&l=haw`; entry: `?a=d&d=D<id>`. PD
+  subset = Andrews 1836, Emerson 1845, Andrews 1865, Hitchcock 1887,
+  Parker 1922, Dictionary of Biblical Words 1872. Modern dicts
+  (Pukui-Elbert 1986, Māmaka Kaiao 2003, Combined 2020,
+  Place Names 1974/2002, Kent 1986, Legal Land-Terms 1995) are
+  copyrighted and out of scope without explicit clearance.
+  Judd/Pukui/Stokes 1943 needs renewal-status check (Linus).
+
+- **Puke / Nā Puke (`puke.ulukau.org`)** = Ulukau-Books custom UI on
+  `?a=d&d=EBOOK-<ID>`. Per-book metadata field `ʻŌlelo` exposes
+  monolingual-HAW vs monolingual-EN vs bilingual at the listing level —
+  this is the only Ulukau-family collection where the "is it bilingual?"
+  question is answered structurally before fetching the body. Bilingual
+  subset is small; manual rights triage required per book; rank below
+  Hoʻoilina + Wehewehe-PD.
+
+- **Ulukau portal `ulukau.org`** is just a federated landing page for
+  the above. The `gsdl2.85/cgi-bin/library.cgi` Greenstone instance
+  serves several smaller bilingual collections (`ahcchist`, `ahccreso`)
+  that overlap with the Hawaiian Kingdom statutes already in the
+  fetch plan; they share the Hoʻoilina pilot adapter shape.
+
+- **Nupepa.org**: confirmed monolingual HAW OCR, NOT a Stage 2 source.
+  Existing `data/raw/ulukau-discovery/` snapshot retained as a
+  Veridian/Greenstone protocol reference for adapter pattern reuse,
+  not as a Stage 2 candidate.
+
+- **Mele / Kaniʻāina / Algene / Photos**: out of Stage 2 text scope
+  (cultural-escalate categories, audio/video, image, or genealogical).
+
+### Recommended adapter-pilot
+
+Ka Hoʻoilina, gated on Linus rights review of Kamehameha Schools
+editorial-layer reuse clause. Reuses ~80% of the Veridian discovery
+already done. Honest pair-yield estimate: O(low-thousands) of
+paragraph-level haw↔eng pairs after segmentation; firm number requires
+a non-bulk enumeration probe (deferred until rights cleared).
+
+### Anti-actions
+
+- Did not bulk fetch.
+- Did not capture cookies/auth headers via CDP.
+- Did not modify `data-sources/stage2-parallel-fetch-plan.json` —
+  Hoʻoilina addition awaits Linus review.
+- Did not touch `requirements.txt` or add any tooling.
+
+### Artifacts
+
+- Discovery snapshot: `data/raw/ulukau-stage2-discovery/20260501/`
+- Decision proposal: `.squad/decisions/inbox/frank-stage2-ulukau-focus.md`
+
+## 2026-05-01T20:34:18Z — Stage 2 Ulukau-family Focus (Pivot from Nupepa)
+
+**Task:** Find concrete Ulukau-family Stage 2 source candidates after user directive pivoting away from Nupepa. Rank candidates by parallel-pair density, extraction cleanliness, rights posture, and novelty.
+
+**Outcome:** PROPOSAL — 5 sources ranked + 1 adapter-pilot pick + gates staged
+
+**Deliverables:**
+1. **Pivot Decision** — Confirmed Nupepa is Stage 1-only (monolingual Hawaiian OCR). Kept Veridian/Greenstone protocol notes for adapter pattern reuse; removed newspapers from Stage 2 rotation.
+
+2. **Ranked Stage 2 Candidates (Ulukau family):**
+   - **1. Ka Hoʻoilina (`hooilina.org`)** ★★★★★ — `parallel-doc` trilingual (original HAW ↔ modernized HAW ↔ English translation), ~O(low-thousands) paragraph pairs, Greenstone CGI surface (80% reuse from Veridian protocol), explicit citation requirement (Kamehameha Schools editorial, 2002–2004). **NEW, recommended pilot.**
+   - **2. Wehewehe combined dictionary (`wehewehe.org`)** ★★★★ — `dictionary-example` haw↔en pairs + example sentences, 14-dictionary set, Greenstone CGI, public-domain subset (Andrews/Emerson/Hitchcock/Parker pre-1925), ~5–15k pairs capped at 5k.
+   - **3. Hawaiian Kingdom statutes** ★★★★ — `parallel-doc` bilingual government text, already in fetch plan as `hawaiian-kingdom-statutes-bilingual`, Greenstone surface, public domain (sovereign edicts, pre-1925).
+   - **4. Nā Puke / Ulukau ebooks (`puke.ulukau.org`)** ★★ — mixed: bilingual subset = `dictionary-example` or `parallel-doc` candidates; custom Ulukau Books UI; manual rights triage required; **defer until top three shipped** (lower yield-per-hour).
+   - **5. Baibala (`baibala.org`)** — `parallel-verse` Bible, already in plan (Tier A), no new work.
+
+3. **Not Stage 2 fit (de-prioritized):**
+   - Nupepa.org + tagged-newspaper collections (HAW-monolingual OCR; Stage 1 only, already covered by FineWeb-2 + Wiki).
+   - Ka Waihona Mele (songs; cultural hard-escalate).
+   - Kaniʻāina (audio/video; out of text scope).
+   - Ka ʻOhina Kiʻi (photographs; not text).
+   - Algene (genealogies; cultural hard-escalate).
+   - HPN (Hawaiian Place Names; dictionary glossary at best, not bilingual pairs).
+
+4. **Recommended Adapter-Pilot Pick** — **Ka Hoʻoilina (`hooilina.org`)**
+   - Rationale: highest parallel-pair density; reuses 80% of Veridian/Greenstone discovery work; explicit trilingual design (vs. "hope an English version exists"); clearer rights posture than newspaper OCR; register diversity (HEN, gov't, newspapers, literary, student texts).
+   - Pre-pilot gates (Linus to rule): (a) citation requirement OK for prototype-only? (b) confirm modernized-HAW × English as primary pair? (c) smoke fetch one document trio + capture ToS snapshot?
+
+**Discovery Artifacts:**
+- Saved under `data/raw/ulukau-stage2-discovery/20260501/`: editorial intro, document family browser, Wehewehe lookup + sample entry, Puke ebook sample listing, small snapshot files (landing pages, AJAX samples) — all small, no bulk fetch.
+
+**Anti-Actions (for record):**
+- Did NOT treat Nupepa as Stage 2.
+- Did NOT bulk-fetch any Hoʻoilina, Wehewehe, or Puke document. Only landing pages + editorial intro + one dictionary lookup + one books listing retrieved.
+- Did NOT read/persist cookies, localStorage, or auth headers.
+- Did NOT modify `data-sources/stage2-parallel-fetch-plan.json` yet — Hoʻoilina after Linus rights review.
+- Did NOT add tooling to `requirements.txt`.
+
+**Supersedes:**
+- Previous decision in inbox `frank-ulukau-nupepa-discovery.md` — which treated Nupepa as a Stage 2 candidate pending rights review. **Now explicitly Stage 1-only per Linus Stage 2 Source Filter.**
+
+**Dependencies:**
+- **Linus:** Rights/posture review on Hoʻoilina (citation requirement for Kamehameha Schools editorial layer) + Wehewehe per-dictionary PD cutoff.
+- **Rusty:** Sanity-check whether Hoʻoilina "modernized HAW" spelling layer is right Hawaiian-side surface for Stage 2 training (vs. original-HAW).
+
+**Next steps (Team):**
+1. Linus: Rights review on Hoʻoilina + Wehewehe PD cutoff (P1 unblocker).
+2. Rusty: Register/spelling-layer fit review on Hoʻoilina (secondary decision gate).
+3. Frank (self): After Linus gate, smoke fetch Hoʻoilina one trio + capture Kamehameha Schools ToS; then propose adapter shape.
+

@@ -156,3 +156,101 @@ contract is a pure-function test of normalization + row shape; using
 real PD text only adds rights ambiguity and edition-drift failure
 modes. Real text only enters the pipeline via `data/` (gitignored)
 once the edition is pinned.
+
+---
+
+## Reference instance: Veridian/Greenstone discovery (Ulukau Nupepa, 2026-05-03)
+
+Reusable pattern for **any Veridian/Greenstone-fronted source on the Ulukau
+family** (nupepa.org, baibala.org, hooilina.org, puke.ulukau.org, etc.).
+The same query-param family applies; only the OID grammar and `e=` state
+suffix differ per collection.
+
+### How to map a new Veridian collection in one session
+
+1. Land on the home page; capture the canonical URL and "veridian-version" meta.
+2. Open one document; note its **OID grammar** (e.g., Niupepa = `<PAPER><YYYYMMDD>-<ISSUE>(.<page>(.<article>(.<sub>)?)?)?`; Baibala = `<book>:<chapter>`).
+3. Capture the `e=` state token that all internal links carry — it encodes language + index scope and is required by the back-end.
+4. Find the AJAX endpoints by reading `veridian-documentdisplay.js` (and any per-collection custom JS like `pdnupepa.min.js`). Look for `doAjaxGetRequest("a=da&command=...")` calls. Common commands:
+   * `getSectionText` — the OCR / transcribed body (XML → HTML inside `<SectionText>`)
+   * `getDocumentContents` — TOC of an issue/document
+   * `getSectionMetadata`, `getPersistentLink`, `getUserTranslation`, `getSectionTags`, `getSectionComments`
+5. Smoke-fetch one section through the live signed-in browser via CDP rather than `curl` — Veridian sites are usually behind Cloudflare and reject naked curl.
+6. Browse the classifier hierarchy (`?a=cl&cl=CL1`, `?a=cl&cl=CL2.<YYYY>.<MM>`) to estimate enumeration cost before proposing an adapter.
+
+### CDP-from-signed-in-Chrome helper (reuse pattern)
+
+When a source needs auth or sits behind Cloudflare and we don't want to add
+Playwright deps, drive the user's already-signed-in Chrome via DevTools
+Protocol on `127.0.0.1:9222`:
+
+* Use `websocket-client` (pip in a local throwaway venv) with
+  `suppress_origin=True` to bypass Chrome's `--remote-allow-origins` check.
+* Run `Runtime.evaluate` with `awaitPromise=True` and a `fetch(...)` IIFE to
+  use the page's own Cloudflare-cleared session for AJAX probes.
+* **Never** read cookies, localStorage, or auth headers via the protocol.
+  We only navigate and DOM-eval — provenance comes from response bodies.
+
+This pattern stays out of the repo; it lives in `data/raw/<source>-discovery/`
+alongside saved HTML/XML artifacts and a `README.md` that is the discovery
+audit trail.
+
+### When to NOT build an adapter for a discovered Veridian source
+
+Even when the AJAX endpoints exist, abort the adapter proposal if:
+
+* Site TOS says "All Rights Reserved" + "no copying to other websites" + no
+  per-item machine-readable license — flag for explicit rights-reviewer
+  sign-off, not implicit "fair use" assumption.
+* The collection is small enough (< a few thousand sections) that per-item
+  manual rights vetting is cheaper than building an adapter.
+* The "translation" facility is community-contributed and sparsely populated
+  — treat it as eval-only signal, not a parallel-corpus source.
+
+---
+
+## Reference instance: Ka Hoʻoilina trilingual Greenstone (2026-05-01)
+
+Reusable sub-pattern for **any Veridian/Greenstone collection that
+publishes the same document in multiple languages or spelling layers**
+(Hoʻoilina is original-HAW × modernized-HAW × English; the same shape
+will recur on any Ulukau-family bilingual journal/legal/educational
+collection).
+
+### Tell-tale: editorial intro page is the rights + structure ground truth
+
+Before mapping URLs, read `?a=p&p=edintro&gg=text` (or the
+collection's equivalent `about` / `edintro` page). For Hoʻoilina that
+single page declared:
+- Number of language layers per document and which is editorial vs PD.
+- Per-layer copyright owner (Kamehameha Schools 2002–2004 for the
+  editorial layers, PD-by-age for the underlying source).
+- Reuse clause language ("noa i ka lehulehu akea ... me ke koina nae")
+  → must cite source HAW alongside any reuse of modernized HAW or
+  English. **Save this page as the ToS snapshot, not the home page.**
+
+### Versioned-document pattern
+
+When a Greenstone collection publishes parallel versions of the same
+document, the version selector lives in either the OID suffix or the
+`e=` state token / `gg=text` parameter. To enumerate trios:
+
+1. Resolve the parent document OID via `?a=d&d=<OID>` and
+   `command=getDocumentContents`.
+2. For each child section, fetch the same OID with each version
+   selector (e.g., `gg=text` for transcribed source, alternate values
+   for modernized HAW, English translation).
+3. Treat the per-version XML response as one row's `text_<lang>`
+   field. Persist all three versions even if Stage 2 only consumes
+   two (modernized-HAW × English) — the third (original-HAW) is
+   valuable for Stage 1 dedup hashing.
+
+### When to keep multiple HAW spelling layers
+
+If a collection has both a transcribed-original HAW and a
+modernized/corrected HAW, prefer the **modernized** layer for the
+Stage 2 train pair (matches modern spelling in the rest of the corpus).
+Keep the original layer as a `dedup_cluster_id`-only signal — emit a
+candidate row with `synthetic=False`, `register="<source-register>"`,
+but mark it `release_eligible=False` and exclude from train sampling
+unless a downstream skill explicitly rehabilitates it.

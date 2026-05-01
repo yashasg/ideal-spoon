@@ -1,5 +1,7 @@
 # Decisions
 
+> Updated 2026-05-01T20:34:18Z: Merged Linus Stage 2 source filter + Frank Ulukau Stage 2 pivot. Outcome: Linus designed Stage 2 acceptance filter (bilingual alignment, rights gates, register taxonomy, 5 hard caps: Bible ≤30% token, dict ≤5k, synthetic ≤15%, mined never dev/test). Ranked 8 discovery targets across Tier A (search now) and Tier B (search next); recommended pilot `wikimedia-cx-en-haw-published` (CC BY-SA, 1–3k pairs, unblocks doc-level LaBSE). Frank confirmed Nupepa is Stage 1-only (monolingual Hawaiian OCR); ranked Ulukau-family candidates: Ka Hoʻoilina (★★★★★, 80% Veridian surface reuse, highest parallel-pair density), Wehewehe dictionary (★★★★, PD pre-1925 subset), HK statutes (★★★★, already in plan), Nā Puke (★★, defer), Baibala (in plan). Recommended adapter-pilot: Ka Hoʻoilina with 3 pre-pilot gates (Linus: citation OK for prototype-only? modernized-HAW primary? smoke test + ToS snapshot?). User directive (2026-05-01T13:28:17-07:00) captured: Stage 2 should focus on bilingual/parallel data, not monolingual newspaper OCR. Dependencies staged: Linus rights review (P1, Hoʻoilina + Wehewehe PD cutoff), Rusty register-fit review (Hoʻoilina spelling layer). Full reports in `.squad/decisions/inbox/linus-stage2-source-filter.md` and `.squad/decisions/inbox/frank-stage2-ulukau-focus.md`.
+>
 > Updated 2026-05-01T09:06:22Z: Merged Frank hub dataset row counts + corrections. Outcome: Confirmed monolingual counts (FineWeb-2 haw_Latn 96,394 docs; Glot500 haw_Latn 1,053,668; GlotCC-V1 haw-Latn 7,058; mC4 haw 84,398) and parallel counts (OPUS translatewiki 2,219 pairs, wikimedia 374, QED 167, Tatoeba 93; BibleNLP mmteb eng-haw 1,955). Three corrections: (1) mC4 present, move from "absent" to "deprioritized" (overlap with FineWeb-2); (2) HPLT v2 cleaned lacks haw_Latn config, drop from candidate-add; (3) OPUS bible-uedin haw nonexistent. Updated Stage 1 candidate-add for Linus: MADLAD-400, Glot500, GlotCC-V1. Stage 2 execution order unchanged. Full report in `.squad/decisions/inbox/frank-hub-dataset-row-counts.md`.
 >
 > Updated 2026-05-01T08:52:06Z: Merged Frank ready-made Hawaiian dataset sweep. Outcome: Stage 2 hub sources well covered (Tatoeba, OPUS, NLLB, BibleNLP, Global-PIQA, Taxi1500 in plan; FLORES+/Belebele/WMT24++ verified absent). Stage 1 hub sources not previously surveyed; confirmed present: MADLAD-400 (~109k tokens), Glot500-c, GlotCC-v1, HPLT v2 cleaned (all haw_Latn); confirmed absent: CC100, mC4, WikiMatrix, NTREX-128, likely CulturaX. Recommend Stage 2 execution order: NLLB mined (largest yield) → BibleNLP haw1868 (31k verses) → OPUS bible-uedin (dedup cross-check). Stage 1 three probes (MADLAD-400, Glot500-c, HPLT v2) require Linus rights sign-off before adapter implementation. Full report in `.squad/decisions/inbox/frank-ready-dataset-sweep.md`. **[SUPERSEDED by 2026-05-01T09:06:22Z correction above.]**
@@ -5293,4 +5295,204 @@ Do not keep both the 1839 and 1868 Bible as independent Stage 2 training pairs; 
 **By:** yashasg (via Copilot)
 
 Treat the deduped Stage 2 total as roughly 32k canonical rows after collapsing overlapping 1839/1868 Bible verses; next Stage 2 data expansion should use Playwright to pull data from Nupepa. Captured for team record.
+
+
+---
+
+## User Directive: Stage 2 discovery pivot to bilingual/parallel data (2026-05-01T13:28:17-07:00)
+
+**By:** yashasg (via Copilot)
+
+**What:** Stage 2 data discovery should focus on bilingual/parallel or SFT-suitable data, not monolingual newspaper OCR. Nupepa/newspapers are monolingual and OCR-faulty, so they are not the first place to look for Stage 2.
+
+**Why:** User request — captured for team memory
+
+**Status:** IMPLEMENTED — Linus and Frank spawned to operationalize; decisions staged in inbox.
+
+---
+
+## Decision: Linus — Stage 2 Source Filter: Acceptance Criteria & Discovery Target List (2026-05-01)
+
+**Owner:** Linus (Data Engineer)  
+**Date:** 2026-05-01  
+**Status:** PROPOSAL — for Frank's next Ulukau-family discovery pass and team alignment  
+**Triggered by:** User correction that Nupepa/newspapers are monolingual OCR and should not be the primary Stage 2 discovery target.
+
+### Summary
+
+Stage 2 currently holds **11,828 canonical manifest rows / 9,330 directional SFT rows** against an **80k directional SFT row target**. The corpus is heavily Bible-weighted. Bible token-share approaches the 30% cap once both 1839 and 1868 editions are merged (~32k combined after dedup). All remaining volume must come from non-Bible sources. The prior discovery session was routed toward Nupepa newspaper OCR — correct for Stage 1 monolingual signal, wrong for Stage 2 parallel expansion.
+
+### Stage 2 Acceptance Filter
+
+A source qualifies for **Stage 2 (parallel manifest)** if and only if **all** of the following hold:
+
+| Gate | Requirement |
+|---|---|
+| **Both sides present** | Source contains both a Hawaiian (haw) and English (en) text for each record. One side cannot be auto-inferred or MT-generated without being flagged `synthetic=true`. |
+| **Alignment traceable** | Pair alignment is deterministic (verse-id, line-number, filename-pair, TMX) or score-gated (LaBSE ≥0.75 for comparable sources, per pipeline policy). Community/crowd translations only if density ≥50% of records have an English companion. |
+| **Rights clear for prototype** | License is open (CC BY*, CC0, public domain) OR a rights-review decision exists on disk confirming prototype-only posture is covered. No "All Rights Reserved" sources without explicit sign-off. |
+| **Not eval-contaminated** | Source records not already in `data/evals/eval_hashes.jsonl`. Eval-only sources (FLORES+, Global-PIQA) must hash into eval first and never enter train. |
+| **Register supported** | `register` value must be one of: `religious`, `software-l10n`, `encyclopedic`, `educational`, `news`, `dictionary-example`, `unknown`. |
+
+### Alignment type sub-tiers
+
+| alignment_type | Accepted for Stage 2? | Notes |
+|---|---|---|
+| `parallel-verse` | ✅ Tier A | Bible only; 30% token cap enforced. |
+| `parallel-sentence` | ✅ Tier A | Tatoeba, OPUS TMX lines. Best quality. |
+| `parallel-doc` | ✅ Tier B | Document-level pairs (statutes, bilingual moolelo); needs sentence segmentation pass. LaBSE score recommended. |
+| `dictionary-example` | ✅ Tier B | Andrews, Parker, Wiktionary. Cap at 5k rows; never dev/test. |
+| `comparable-aligned` | ✅ Tier C (score-gated) | Must have LaBSE ≥0.75. NLLB mined lives here. |
+| `synthetic-bt` | ✅ Tier D (capped) | Back-translation; ≤15% of directional SFT rows; never dev/test. |
+| `synthetic-ft` | ✅ Tier D (tighter cap) | Forward-translation; ≤10% of directional SFT rows; never dev/test. |
+| `monolingual-ocr` | ❌ **Not Stage 2** | Route to Stage 1 only. |
+| `community-translation-sparse` | ❌ **Eval-only** | If density <50% aligned, treat as eval signal only. |
+
+### Reject / Deprioritize List
+
+| Source class | Disposition | Reason |
+|---|---|---|
+| **Nupepa.org Hawaiian newspapers** | ❌ Stage 1 only (or eval-slice if <1k bilingual articles found) | Monolingual Hawaiian OCR. English user-translations are sparse (<1k articles estimated). Rights also restrictive (All Rights Reserved). |
+| **Other Veridian/Greenstone OCR-only collections** | ❌ Stage 1 only | Same class as Nupepa. If a collection has zero English companion text, it is monolingual by definition. |
+| **mC4 haw** | ❌ Deprioritized Stage 1 | CommonCrawl overlap with FineWeb-2. Already captured. |
+| **OSCAR-2301 haw** | ❌ Skip | Heavy FineWeb-2 overlap. |
+| **Rights-restricted bulk pages** | ❌ Do not fetch | "All Rights Reserved" + "no copying" = cannot use even prototype-only without explicit institution sign-off. |
+| **Community-contributed sparse translations** (Veridian `getUserTranslation`) | ⚠️ Eval-only | If density <50% of articles have an English companion, use only for eval, never train. Hash into eval_hashes.jsonl before any other ingest. |
+| **Social media / forum bilingual** | ❌ Excluded | No per-poster permission; excluded by pipeline global policy. |
+| **LLM-generated synthetic Hawaiian not grounded in source pair** | ❌ Excluded | Violates pipeline policy; no provenance chain. |
+| **Auto-MT outputs not flagged synthetic** | ❌ Excluded | Must carry `synthetic=true` on both sides if MT-generated; otherwise excluded. |
+| **FLORES+ / Belebele / Global-PIQA / Taxi1500** | 🔒 Eval-only | Confirmed in plan. Hash before any other use. Never train. |
+
+### Ranked Target List for Frank's Ulukau-Family Discovery Pass
+
+Priority: **density of bilingual alignment × rights posture × likely row yield × dedup novelty vs existing plan.**
+
+**Tier A — Search now:**
+
+| Rank | Source class | URL | alignment_type | Expected yield | Rights |
+|---|---|---|---|---|---|
+| 1 | **wehewehe.org full dictionary** (Andrews 1865 + Parker 1922 entries with example sentences) | wehewehe.org | `dictionary-example` | 5–15k examples, cap 5k | Public domain (pre-1925) |
+| 2 | **Ulukau bilingual moolelo / paired texts** (hooilina.org, puke.ulukau.org with English companion) | hooilina.org, puke.ulukau.org | `parallel-doc` | Unknown; pilot 1–2 first | Likely PD or institution permission |
+| 3 | **Hawaiian Kingdom statutes bilingual** (already in fetch plan) | Various | `parallel-doc` | 2–5k sentence pairs | Public domain (pre-1925) |
+| 4 | **Wikimedia Content Exchange haw-en published** (already in fetch plan) | commons.wikimedia.org | `parallel-doc` | 1–3k confirmed pairs | CC BY-SA 4.0 |
+
+**Tier B — Search next:** OPUS haw, UH Mānoa bilingual texts, translatewiki + wikimedia, NLLB mined (score-gated).
+
+### Metadata Tags and Caps
+
+| Source class | alignment_type | register | synthetic | Cap | dev/test eligible? |
+|---|---|---|---|---|---|
+| Bible (1839+1868 deduped) | `parallel-verse` | `religious` | false | **≤30% token share** | No |
+| Dictionary examples (Andrews, Wiktionary) | `dictionary-example` | `dictionary-example` | false | **≤5k rows total** | No |
+| HK statutes / bilingual docs | `parallel-doc` | `educational` or `encyclopedic` | false | None; LaBSE ≥0.75 required | Yes if score ≥0.75 |
+| NLLB mined | `comparable-aligned` | `unknown` | false | **≤25% combined mined** | No |
+| Alpaca-hawaiian-cleaned synthetic | `synthetic-ft` | `unknown` | true | **≤15% directional rows** (combined BT+FT) | No |
+| BT synthetic Stage 1 | `synthetic-bt` | per source | true | **≤15% directional rows** | No |
+| Nupepa OCR | *(Stage 1 only)* | `news` | false | N/A for Stage 2 | N/A |
+
+### Recommended Immediate Next Pilot Adapter
+
+**Recommendation: `wikimedia-cx-en-haw-published`**
+
+Rationale:
+- Already in fetch plan, endpoint verified
+- CC BY-SA 4.0 license; clean rights
+- `parallel-doc` alignment type — scaffold pattern same as statutes adapter
+- Yield 1–3k pairs; small enough for fast pilot, large enough to validate doc-level alignment
+- Unblocks `parallel-doc` → LaBSE scoring path for all remaining doc-level sources
+- Pinned gate: Frank's `stats.mt < 0.5` cutoff — Linus to confirm before `--execute`
+
+### Asks
+
+- **Frank:** Redirect Ulukau-family discovery from Nupepa/newspapers to: (1) wehewehe.org full dictionary bilingual examples, (2) any hooilina.org / puke.ulukau.org text with English companion, (3) other Ulukau-hosted bilingual paired text. Report findings before fetching.
+- **Frank:** Confirm `wikimedia-cx-en-haw-published` adapter ready for pilot. If yes, proceed to `--execute`.
+- **Linus (self):** Pin `stats.mt < 0.5` cutoff for wikimedia-cx (or override) before `--execute`. Confirm HK statutes bilingual pair and cap.
+- **Rusty:** Register-fit review on hooilina/puke.ulukau.org bilingual texts if Frank finds any.
+
+---
+
+## Decision: Frank — Stage 2 Ulukau-family focus (pivot from Nupepa) (2026-05-01)
+
+**Owner:** Frank (Hawaiian Data Collector)  
+**Date:** 2026-05-01  
+**Status:** PROPOSAL — ranked candidates + 1 adapter-pilot pick
+
+### Summary
+
+Pivot Ulukau-family Stage 2 discovery off newspaper OCR. Newspapers (Nupepa.org, Kauakūkalahale, Kanihoa-tagged collections) are HAW-monolingual machine OCR with mixed human correction; they are a Stage 1 candidate at best, not Stage 2. They are already adequately captured by Wikipedia/FineWeb-2/Glot500 for Stage 1. **Keep the Veridian/Greenstone protocol notes for adapter pattern reuse; remove newspapers from Stage 2 sourcing rotation.**
+
+Within the Ulukau family, four Stage 2-fit surfaces exist (one already in plan, three new). Ranking below.
+
+### Ranked Stage 2 candidates (Ulukau family)
+
+**1. Ka Hoʻoilina (`hooilina.org`)** ★★★★★ *(NEW, recommended pilot)*
+
+- **Classification:** `parallel-doc` (per-section: original HAW ↔ modernized HAW ↔ English translation, all three versions human-curated and explicitly cross-referenced). Modernized-HAW × English is cleanest Stage 2 pair; original-HAW × English also valid (spelling-variant signal for Stage 1 dedup).
+- **Extraction surface:** Greenstone CGI (`/cgi-bin/journal?a=...`) with same Veridian-family AJAX shape as Nupepa (`a=da&command=getSectionText`, `a=da&command=getDocumentContents`). Per-document HTML/XML body for text. Each text version is separate Greenstone document under one parent ID; `mana` (version) selector is in `e=` state token / `gg=text` parameter.
+- **Expected yield:** ~O(low-thousands) of paragraph-level haw↔eng pairs after sentence segmentation; needs proper enumeration probe.
+- **Rights / ToS:** Editorial intro page carries free-to-public-with-citation clause: reuse of modernized HAW or English requires citation of source HAW. Cover-page footer: `Kuleana kope © 2002-2004 na Nā Kula ʻo Kamehameha` (Kamehameha Schools holds editorial layer). Underlying 19c Hawaiian documents are public domain by age.
+- **Open question for Linus:** Does citation requirement satisfy prototype-only posture, or do we need explicit Kamehameha Schools sign-off? Proposed: modernized-HAW and English-translation layers are creative work owned by KS; safer as prototype-only cap.
+- **Why pilot first:** Highest parallel-pair density per Ulukau-domain document; structure explicitly designed for parallelism; reuses 80% of Veridian/Greenstone discovery work already mapped; large code reuse, low new risk.
+
+**2. Wehewehe combined dictionary (`wehewehe.org`)** ★★★★
+
+- **Classification:** `dictionary-example` for entry-level haw↔en pairs; some dictionaries include example sentences inside entries (worth probing) = `parallel-sentence` cap-counted.
+- **Extraction surface:** Greenstone `hdict` CGI; query at `https://wehewehe.org/gsdl2.85/cgi-bin/hdict?a=q&q=<word>&l=haw` returns list of `D<id>` document IDs tagged with source dictionary and side language.
+- **Expected yield:** PD-only subset (Andrews 1836, Andrews 1865, Emerson 1845, Hitchcock 1887, Parker 1922, Judd/Pukui/Stokes 1943) yields bulk of usable Stage 2 rows; modern dictionaries (Pukui-Elbert 1986, Māmaka Kaiao 2003, Combined 2020) are copyright-restricted.
+- **Rights / ToS:** No site-wide ToS link; per-dictionary copyright implicit in publication date. **Linus to:** (a) walk dict landing page to confirm per-dict rights matrix, (b) draw PD line at pre-1925 US imprints, (c) decide Judd/Pukui/Stokes 1943 (US pre-1978 + post-1925 → renewal-status check needed).
+- **Note:** `andrews-1865-en-haw-vocab-appendix` already in fetch plan as `dictionary-example`. Wehewehe access to Andrews 1865 is same source via different surface — adopt whichever extracts cleanest.
+
+**3. Hawaiian Kingdom statutes** ★★★★ *(already in plan)*
+
+- **Classification:** `parallel-doc` (long-form bilingual government text, official-translation register).
+- **Status:** Already in `data-sources/stage2-parallel-fetch-plan.json` as `hawaiian-kingdom-statutes-bilingual`. Within Ulukau family reachable through `ahcchist` / `ahccreso` Greenstone collections.
+- **Reuse note:** Same Greenstone surface as Hoʻoilina/Wehewehe. Hoʻoilina pilot adapter generalizes here.
+
+**4. Nā Puke / Ulukau ebooks (`puke.ulukau.org`)** ★★
+
+- **Classification:** mixed; per-book `ʻŌlelo` metadata field exposes language. Books tagged `ʻŌlelo Hawaiʻi` only = Stage 1 mono. **Bilingual subset** = `dictionary-example` or `parallel-doc` candidates.
+- **Extraction surface:** custom `/ulukau-books/?a=d&d=EBOOK-<ID>` UI with rights tagging per-book (not always machine-readable — manual rights triage required, lower-yield-per-hour than top three).
+- **Recommendation:** Defer until Hoʻoilina + Wehewehe-PD shipped; revisit only for `EBOOK-DHLLT` glossary + statutes companion volumes if Stage 2 row count still short.
+
+**5. Baibala (`baibala.org`)** *(already in plan, Tier A)*
+
+- `parallel-verse`, `bible-haw-baibala-pinned-edition` already pinned to 1839 edition, adapter live.
+
+### Not Stage 2 fit (de-prioritize)
+
+- **Nupepa.org + tagged-newspaper collections** — HAW-monolingual OCR, Stage 1 only, already covered by FineWeb-2 + Wiki.
+- **Ka Waihona Mele** — songs; cultural hard-escalate per `docs/data-pipeline.md` §52.
+- **Kaniʻāina** — audio/video; out of text scope.
+- **Ka ʻOhina Kiʻi** — photographs; not text.
+- **Algene** — genealogies; cultural hard-escalate.
+- **HPN (Hawaiian Place Names)** — searchable index, not bilingual pairs; dictionary glossary at best.
+
+### Recommended adapter-pilot pick
+
+**Pilot: Ka Hoʻoilina (`hooilina.org`).**
+
+**Why:**
+1. Highest parallel-pair density per fetched document among Ulukau-family surfaces.
+2. Reuses 80% of Veridian/Greenstone discovery already mapped. Same `getSectionText` / `getDocumentContents` AJAX endpoints work; only OID grammar and `e=` state suffix change.
+3. Rights clearer than newspaper OCR: editorial layer copyright explicitly Kamehameha Schools 2002–2004; reuse clause published; underlying 19c documents PD by age.
+4. Register diversity (HEN, gov't, newspapers, literary, student texts) — gives SFT mix more breadth than Bible-only or dictionary-only.
+5. Pair is human translation (not OCR + alignment), so `alignment_method` is `manual` / `tmx-line` style, no LaBSE thresholding required for train side.
+
+**Pre-pilot gates I will not bypass:**
+- (a) Linus to rule on citation requirement → proposed adapter posture: `prototype_only=true`, `release_eligible=false`, cite Kamehameha Schools + Kalena Silva editorial in per-row provenance.
+- (b) Linus to confirm modernized-HAW × English as primary pair and original-HAW × English as secondary for Stage 1 dedup.
+- (c) Smoke fetch ONE document trio first, capture ToS snapshot from copyright page, propose adapter shape.
+
+### Asks
+
+- **Linus:** Rights/posture review on Hoʻoilina and Wehewehe per-dictionary PD cutoff.
+- **Rusty:** Sanity-check whether Hoʻoilina "modernized HAW" spelling layer is right Hawaiian-side surface for Stage 2 (vs. original-HAW), given rest of our HAW data is modern-spelling.
+
+### Anti-actions taken
+
+- Did NOT treat Nupepa as Stage 2.
+- Did NOT bulk-fetch any Hoʻoilina, Wehewehe, or Puke document. Only landing pages + editorial intro + one dictionary lookup + one books listing retrieved; all small, saved under `data/raw/ulukau-stage2-discovery/20260501/`.
+- Did NOT read/persist cookies, localStorage, or auth headers.
+- Did NOT modify `data-sources/stage2-parallel-fetch-plan.json` yet — Hoʻoilina goes in only after Linus rights review.
+- Did NOT add tooling to `requirements.txt`.
 
