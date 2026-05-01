@@ -1834,3 +1834,357 @@ no normalization, no candidate emission. All artifacts gitignored under
 HAW / modernized HAW / English mapping is now CONFIRMED uniform across all
 4 root issues, not just sampled. Future adapter can rely on it directly
 (no per-section disambiguation walk needed).
+
+## 2026-05-01T22:?? — Stage 2 raw provenance check (sources 1, 2, 3)
+
+User asked Linus to do the structured-count pass for Stage 2; Frank's
+parallel job was provenance/layout validation only. No raw data deleted;
+no auth/cookie traffic; no scripts re-run.
+
+### Results per root
+
+**hooilina-stage2/20260501** — manifest.jsonl 346 entries (7 ToS + 8
+parent docs + 331 sections). 346/346 local_path present on disk; sha256
+verified on a 4-row sample. 0 failures. ToS/edintro snapshots present.
+1 unmanifested orphan: `classifier/all_classifier_nodes.json` (full
+classifier-walk dump used to enumerate leaves) — keep, useful re-run
+audit. **Stage 2 pairable surface: 109 modernized HAW × 109 English =
+327 trilingual sections (with the 109 original-HAW retained for dedup
+hashing); 4 textual-notes (.9) supplementary.** Note: prior history
+note said "348" — actual is 346 (history note off by 2).
+
+**wehewehe-stage2/20260501** — manifest.jsonl 41 entries. 40/41 have
+local_path+sha256; the 1 without is the `textchd` "Combined Hawaiian
+Dictionary 2020" aggregator row, correctly marked
+`mode="inventory_only"` with no body fetched. 0 failures. 9 ToS pages
+present incl. ulukau disclaimer/privacy + hdict about/help. **Stage 2
+candidate surface: 6 PD-pre-1925 dictionary PDFs (Andrews 1836, Emerson
+1845, Andrews 1865, Biblical Words 1872, Hitchcock 1887, Parker 1922)
++ 6 landing pages.** 8 inventory-only rows (modern dictionaries —
+INVENTORY ONLY, not extractable). 12 sample-query smoke probes —
+discovery aid only, not pair candidates. Note: prior history note
+said "40" — actual is 41 (the `textchd` aggregator row is included).
+
+**hawaiian-kingdom-statutes-paired-imprints/20260501** —
+manifest_complete.jsonl 53 entries. 53/53 local_path present on disk;
+sha256 verified on sample (incl. PDFs). 0 failures. IA ToS snapshot
+captured. **Stage 2 candidate surface: 4 paired imprints (1846/1859/
+1869/1897) = 8 IA items, 8 PDFs (5 IA-Text-PDF + 3 Google-Books
+"Image Container PDF"), 8 OCR `_djvu.txt`, 8 OCR `_djvu.xml`, 6
+`_hocr_searchtext.txt.gz`, 8 `_meta.xml`, 6 `_marc.xml`, 8 IA-metadata
+JSONs.** Pre-existing `fetch.jsonl` from `scripts/208_fetch_hk_statutes_djvu.py`
+remains untouched alongside `manifest_complete.jsonl` (intentional —
+legacy artifact, not part of complete manifest).
+
+### CLEANUP_NOTES.json written
+
+Non-destructive provenance audit dropped at:
+- `data/raw/hooilina-stage2/20260501/CLEANUP_NOTES.json`
+- `data/raw/wehewehe-stage2/20260501/CLEANUP_NOTES.json`
+- `data/raw/hawaiian-kingdom-statutes-paired-imprints/20260501/CLEANUP_NOTES.json`
+
+Each notes manifest size, local_path coverage, ToS presence, failure
+count, orphan disposition, and the full / inventory-only / smoke split
+so Linus's structured-count pass has a single canonical reference.
+
+### Learnings — Stage-2 raw-provenance contract (durable)
+
+1. Every file under a Stage-2 raw root should be either (a) referenced
+   by a `local_path` in that root's manifest, or (b) explicitly logged
+   under a `kind` that says it isn't a corpus byte (e.g.,
+   `discovery_aux`). The hooilina classifier walk dump is the case in
+   point — useful, harmless, but currently un-manifested.
+2. Inventory-only rows must omit `local_path` and `sha256` (no
+   placeholder zeros) and carry `mode="inventory_only"` plus a
+   `rights_note`. Confirmed pattern in wehewehe `textchd` row.
+3. Manifest counts in summary docs are the authoritative source of
+   truth — agent prose summaries drift (off-by-2 here on hooilina,
+   off-by-1 on wehewehe). Linus should count from the JSONL, not from
+   prose.
+4. For sources with paired imprints, keep `paired_imprints` in
+   `manifest_summary.json` so Linus can join pairs without re-deriving
+   from filenames. Confirmed clean on HK statutes.
+
+### Anti-actions
+
+- Did not delete any raw bytes.
+- Did not re-fetch any source.
+- Did not touch cookies, tokens, or session state.
+- Did not modify the manifests themselves (CLEANUP_NOTES.json is a
+  sidecar, not an edit).
+- Did not encroach on Linus's count/structuring scope.
+
+### Decision proposal
+
+`.squad/decisions/inbox/frank-stage2-raw-provenance-check.md` — proposes
+the durable manifest-coverage rule above so future raw-pull adapters
+register every byte, including discovery aux dumps.
+
+## 2026-05-03 — Wehewehe PD PDF Extraction Feasibility Assessment
+
+**Task:** Process already-local Wehewehe PD raw pull (6 PD-pre-1925 dictionary PDFs)
+into Stage 2 candidate rows.
+
+**Result: 0 candidate rows emitted.** Blocker: all 6 PDFs are scanned image-only.
+
+### Findings
+
+1. **PDFs are image-only (scanned).** PyMuPDF (fitz) returns 0 text characters from
+   every page of every PDF tested (EBOOK-VOCABULARY 139 pages: 0 chars; EBOOK-ANDREW
+   559 pages: 0 chars fully confirmed). PDF creator metadata: `pdftk 1.41` /
+   `itext-paulo-155`, creation date 2009 — these are digitized-scan wrappers, no
+   text layer.
+
+2. **No OCR tooling available.** pdftotext, tesseract, and pytesseract are all absent.
+   PIL is installed but cannot do OCR without tesseract. Do not install tesseract as a
+   system dependency for this task — the IA djvu.txt path is faster and already proven.
+
+3. **No text sidecars.** entries/, classifier/, meta/ dirs are empty. Sample entry HTML
+   pages contain search results (headword lists only, no definition text). TOC landing
+   pages have no embedded entry content.
+
+4. **Andrews 1865 already covered.** `data/stage2/candidates/andrews_1865_vocab.jsonl`
+   has 1,194 rows built from IA djvu.txt (item cu31924026916167, script
+   `324_build_andrews_vocab_candidates.py`). Local PDF extraction for this dict would
+   duplicate — skipped.
+
+5. **Dict cap status.** ≤5,000 rows total cap; Andrews 1865 consumes 1,194; 3,806
+   rows of budget remain for the other 5 PD dicts.
+
+### Forward Path
+
+The Internet Archive hosts `_djvu.txt` OCR for these same historical titles (same
+pattern used for Andrews 1865). Remaining 5 dicts need a targeted IA item-ID discovery
+pass, then a 324-style builder script per dict.
+
+**Priority:**
+- Hitchcock 1887 (EN→HAW direction — highest structural value)
+- Andrews 1836 (shorter vocab list)
+- Parker 1922 (HAW-EN revised)
+- Emerson 1845 (HAW-EN short)
+- Dict. of Biblical Words 1872 (specialized register, lower priority)
+
+### Files Written
+
+- `data/raw/wehewehe-stage2/20260501/EXTRACTION_REPORT.json` — per-PDF probe results,
+  tooling status, forward path (sidecar; raw originals untouched)
+- `.squad/decisions/inbox/frank-wehewehe-pd-processing.md` — durable proposal
+
+### Learnings (durable)
+
+1. **Ulukau/puke.ulukau.org PDFs are image-only scans (2009 digitization).** Do not
+   attempt fitz/pdftotext text extraction on them — the tool will return 0 bytes and
+   silently succeed. Always probe 5+ pages before concluding a PDF has a text layer.
+
+2. **IA djvu.txt is the correct path for these PD Hawaiian dictionaries.** Archive.org
+   holds djvu OCR for the same titles; the `internetarchive` lib (already in
+   requirements.txt) can fetch them without a separate download step. Pattern proven
+   by `324_build_andrews_vocab_candidates.py`.
+
+3. **Empty candidate file = don't create it.** When 0 rows are emittable, do not
+   create the candidates JSONL file. An empty file would confuse the manifest builder
+   (counts 0 rows but still injects source metadata). Create the file only when rows
+   are actually ready to emit.
+
+4. **Dict cap accounting.** The ≤5k combined wehewehe PD dict cap includes all
+   pre-1925 imprints. Track budget explicitly: Andrews 1865 = 1,194 rows consumed,
+   3,806 remaining. Flag this in any new adapter for these dicts.
+
+## 2026-05-01T22:33:20Z — More Ulukau SFT Data Discovery (Round 4)
+
+**Trigger:** User: "ok go find more sft training data in ulukau."
+
+### What I did
+
+Systematic survey of all Ulukau-family collections (20+ collections on ulukau.org,
+puke.ulukau.org, and related sites) plus targeted IA pre-1925 bilingual Hawaiian↔English
+text searches. No raw bytes pulled. Discovery manifest written to
+`data/raw/ulukau-stage2-discovery/20260501/manifest.json`.
+
+### What I found
+
+**6 new candidates not previously in the fetch plan:**
+
+1. **Hawaiian Phrase Book (1881)** `hawaiianphrasebo00bishrich` — 181 KB djvu.txt.
+   Explicit EN/HAW two-column format. ~800-2k phrase pairs. PD-clear. No rights gate.
+   **Rank 1 — ready for adapter immediately.**
+
+2. **HK Constitution+Laws 1852 pair** — `hekumukanawaiam00hawagoog` (HAW, 222KB) +
+   `constitutionand00hawagoog` (EN, 238KB). Same year (1852) = no year-mismatch risk.
+   Extends existing HK statutes adapter. ~200-600 section pairs. PD (sovereign-edicts).
+
+3. **HK Statute Laws 1847/1845-47 pair** — `kanawaiikauiaek00ricogoog` (HAW 1847) +
+   `statutelawshism00ricogoog` (EN 1845-47, 1.5 MB). Year-range verification required
+   first (like existing 1850/1869 year-mismatch). ~100-400 pairs. Inventory-only until
+   Linus reviews.
+
+4. **Gospel of John Parallel Columns (1854)** `gospelaccordingt00hawarich` — 274 KB.
+   Explicit parallel columns, verse-id aligned, ~880 verses. BUT overlaps with Baibala
+   plan. Recommend: use as supplementary English anchor, not additive HAW source.
+
+5. **Sanitary Instructions for Hawaiians (1881)** `63140380R.nlm.nih.gov` — 274 KB.
+   EN+HAW in two separate half-volumes. Health/medical register. Comparable-aligned.
+   Requires LaBSE. ~200-800 paragraph pairs.
+
+6. **Diglot New Testament (1859)** `HAWPDF_DBS_HS` — 2.4 MB djvu.txt, full NT. BUT OCR
+   is severely garbled from two-column layout. hOCR column extraction needed. Deferred.
+
+### What was blocked (confirmed this session)
+
+Every other Ulukau collection is either copyrighted (Hawaiian Place Names © 2002-2019,
+Kauakūkalahale © 2002-2004, Curriculum Materials © by owners, Māhele Database ©
+2000-2005, AHCC History © 2013, EBOOK-DHLLT © 1995+2022) or monolingual Hawaiian
+(Wehi ʻŌlelo). Graduate Papers (38 theses) likely © individual authors/UH.
+
+### Yield outlook (incremental)
+
+Realistic new confirmed pairs: 1,000-3,000 across Ranks 1-3. If Sanitary Instructions
+and Gospel of John are also cleared: potentially 2,000-5,000 total.
+
+### Artifacts
+
+- `data/raw/ulukau-stage2-discovery/20260501/manifest.json` (6 ranked candidates +
+  blocked list + collections surveyed)
+- `data/raw/ulukau-stage2-discovery/20260501/README.md` (updated with findings table)
+- `.squad/decisions/inbox/frank-more-ulukau-sft-data.md` (proposal for Linus + team)
+
+## Learnings
+
+- **Hawaiian Phrase Book (1881, IA `hawaiianphrasebo00bishrich`):** Confirmed PD, 181 KB
+  djvu.txt, 4th edition. Two-column EN/HAW layout with explicit "ENGLISH | HAWAIIAN"
+  headers. Parse on column-gap between EN and HAW halves. Filter entries < 3 chars on
+  HAW side. Covers ~20 topic domains. dictionary-example Tier C.
+
+- **IA `hehoakakaolelono00emer` (1845 Emerson) = same as `EBOOK-emd` on Wehewehe.** IA
+  djvu.txt is already covered by the Wehewehe PD subset plan. Don't count twice.
+
+- **1852 Hawaiian Constitution and Laws** has confirmed IA pair with no year-mismatch.
+  HAW scan has some "W→AV" OCR substitutions (Google scan). Cornell-quality scans
+  preferred for pairing — check if Cornell scan exists before defaulting to Google.
+
+- **Sanitary Instructions (1881, IA `63140380R.nlm.nih.gov`):** Two-part structure —
+  NOT interleaved parallel text. EN version first, HAW version second. Volume boundary
+  detection is step 1 of adapter. Chapter-title alignment is deterministic key; paragraph
+  alignment within chapters requires LaBSE.
+
+- **Diglot (two-column) OCR is unreliable from djvu.txt.** Both `HAWPDF_DBS_HS` (1859)
+  and `gospelaccordingt00hawarich` (1854 parallel columns) show that parallel-column
+  scans interleave columns in OCR output. For parallel-column sources, prefer hOCR
+  bounding-box extraction or use explicit verse anchors (like Greenstone) rather than
+  OCR text.
+
+- **Kauakūkalahale** (Honolulu Star-Bulletin modern Hawaiian column, 2002-present) is
+  copyright-blocked. It is NOT a PD source despite being on Ulukau.
+
+- **Most modern Ulukau collections are copyrighted databases** — rights do not pass even
+  if underlying government records are PD. The PD "window" for Ulukau is basically:
+  pre-1925 IA items, Ka Hoʻoilina KS editorial layer (provisional/prototype-only), and
+  the Wehewehe PD dictionary subset.
+
+## 2026-05-01T23:05Z — Ulukau-family SFT candidates: raw pull + dedup pass
+
+**Trigger:** User: "pull all ulukau family sft candidates raw data, clean and dedupe with
+existing data and tell me how many total structured rows we have."
+
+### What was done
+
+Full raw acquisition for all 6 Ulukau-family SFT candidates discovered in
+`data/raw/ulukau-stage2-discovery/20260501/manifest.json`. Pull script:
+`scripts/_frank_pull_ulukau_family_sft.py`. Output root:
+`data/raw/ulukau-family-sft-candidates/20260501/`.
+
+### Per-source disposition
+
+| source_id | item_id | status | assets | bytes |
+|---|---|---|---|---|
+| ia-hawaiian-phrase-book-1881 | hawaiianphrasebo00bishrich | full | djvu.txt 181KB + PDF 8MB + meta.xml + marc.xml + ia_metadata.json | 8.2 MB |
+| ia-hk-constitution-1852-en | constitutionand00hawagoog | full | djvu.txt 238KB + meta.xml + ia_metadata.json (PDF HTTP 500 on IA; no marc.xml on Google scan) | 246 KB |
+| ia-gospel-john-parallel-columns-1854 | gospelaccordingt00hawarich | raw | djvu.txt 274KB + PDF 12.9MB + meta.xml + marc.xml + ia_metadata.json | 13.2 MB |
+| ia-sanitary-instructions-1881 | 63140380R.nlm.nih.gov | raw | djvu.txt 274KB + PDF 7.7MB + meta.xml + ia_metadata.json | 8.0 MB |
+| ia-diglot-nt-1859 | HAWPDF_DBS_HS | inventory_only | ia_metadata.json only | 7 KB |
+| ia-hk-constitution-1852-haw | hekumukanawaiam00hawagoog | reused | 5 files from HK statutes dir | 6.4 MB |
+| ia-hk-statute-laws-1847-haw | kanawaiikauiaek00ricogoog | reused | 5 files from HK statutes dir | 16.7 MB |
+| ia-hk-statute-laws-1847-en | statutelawshism00ricogoog | reused | 7 files from HK statutes dir | 55.4 MB |
+
+**Total new bytes downloaded:** ~29.7 MB
+**Total reused bytes registered:** ~78.5 MB (no large-file duplication)
+
+### Dedup check
+
+SHA256 cross-check of all 4 new djvu.txt files against all existing raw
+roots (HK statutes paired imprints, hooilina-stage2, wehewehe-stage2):
+**zero collisions**. All 4 new djvu.txt files are genuinely new content.
+
+### Structured candidate row counts (data/stage2/candidates/)
+
+| File | Rows |
+|---|---|
+| andrews_1865_vocab.jsonl | 1,194 |
+| bible.jsonl | 5 (smoke only) |
+| bible_haw1868_kjv.jsonl | 31,101 |
+| hk_statutes_1897.jsonl | 1,103 |
+| hooilina.jsonl | 109 |
+| kaikki_wiktionary.jsonl | 292 |
+| tatoeba.jsonl | 121 |
+| **TOTAL** | **33,925 structured rows** |
+
+### Noteworthy findings / blockers per source
+
+- **Phrase Book (1881):** Ready for adapter (325_build_phrase_book_candidates.py). No
+  blockers. Column-detection on djvu.txt is the approach. Estimated 800–2,000 pairs.
+- **1852 Constitution EN + HAW:** HAW already in HK statutes dir. EN pulled fresh.
+  Section-id alignment extends existing HK statutes adapter. Google scan has no marc.xml
+  and PDF returned HTTP 500 from IA — djvu.txt is sufficient for text extraction.
+  Linus: confirm 1852 pair is within ≤15% combined legal register cap.
+- **Gospel of John (1854):** djvu.txt + PDF pulled. Parallel-column OCR may interleave
+  EN+HAW lines — check OCR quality before building verse-id adapter. Bible cap risk
+  (≤30% train tokens). Dedupe against Baibala 1839 required.
+- **Sanitary Instructions (1881):** djvu.txt + PDF pulled. Two-part structure (EN first,
+  HAW second, NOT interleaved). Deterministic chapter-title alignment; paragraph-level
+  alignment needs LaBSE (Rusty gate). Unique health/medical register.
+- **Diglot NT (1859):** Inventory only. 2.4 MB djvu.txt available on IA but OCR
+  garbled from two-column layout; hOCR/djvu.xml column extraction needed. Defer.
+- **1847 HAW/EN Statute Laws:** Reused from HK statutes dir. Year-range verification
+  still required (does EN 1846 cover exactly same laws as HAW 1847?). Inventory-only
+  until Linus reviews.
+
+### Artifacts
+
+- `data/raw/ulukau-family-sft-candidates/20260501/manifest.jsonl` (8 rows)
+- `data/raw/ulukau-family-sft-candidates/20260501/manifest_summary.json`
+- `data/raw/ulukau-family-sft-candidates/20260501/CLEANUP_NOTES.json`
+- `scripts/_frank_pull_ulukau_family_sft.py` (one-off fetch script, stdlib + requests only)
+
+### Anti-actions
+
+- Did not delete or overwrite any existing raw files.
+- Did not copy large HK statutes files — registered by reuse pointer only.
+- No cookies, auth headers, or session secrets read or recorded.
+- No commits made (working tree only).
+
+Decision proposal: `.squad/decisions/inbox/frank-pull-ulukau-family-raw.md`
+
+---
+
+## Session: Ulukau-family Batch (2026-05-01T23:13:13Z)
+
+**Orchestration log:** `.squad/orchestration-log/2026-05-01T23-13-13Z-frank.md`
+
+### Team handoff state (from Linus + Basher)
+
+- **Linus cleaned Hoʻoilina:** 109 → 68 rows (boilerplate removal, HTML entity unescape, ʻokina canonicalization). 0 train-ready rows until human alignment review. Calls for HTML parser convention: must extract `<table width=_pagewidth_>...<td>` content block + `html.unescape()` before NFC/hash.
+- **Linus deduped baseline:** 33,851 total structured rows (11,828 existing manifest + 20,852 Bible 1868 unique + 68 Hoʻoilina + 1,103 HK Statutes); 25,532 candidate-level train rows available after review-pending gates lift.
+- **Basher validated Hoʻoilina + HK Statutes:** Hoʻoilina FAIL (re-emit required with `html.unescape()` + boilerplate filter); HK Statutes PASS (merge-ready as review-pending, 970 rows have §→$ OCR artifact, 892 have hyphen-break artifacts — both fixable during manifest build).
+
+### Awaiting from Linus
+
+1. Year-range verification (1847 HAW / 1846 EN statutes pair)
+2. 1852 Constitution legal register cap confirmation
+3. Gospel-of-John Bible cap accounting
+4. Wehewehe PD dictionary line confirmation (for rights policy)
+
+### Next actions
+
+1. Implement `325_build_phrase_book_candidates.py` — high-priority, no blockers, estimated 800–2k rows
+2. Re-emit Hoʻoilina adapter with `html.unescape()` + boilerplate filter
+3. Probe Gospel of John djvu.txt OCR column quality (10-verse sample)

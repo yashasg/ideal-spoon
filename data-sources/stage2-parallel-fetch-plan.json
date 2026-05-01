@@ -58,52 +58,58 @@
       "languages": ["haw"],
       "alignment_type": "parallel-verse",
       "tier": "stage2_tier_a",
-      "rights_status_hint": "rights_review_required",
-      "license_observed": "Site ToS governs the live presentation. Pre-1925 imprint editions (e.g., 1868 Andrews/Bingham) are the public-domain candidate path; Linus must approve which edition we pin.",
-      "tos_or_license_url": "https://baibala.org/",
+      "rights_status_hint": "public_domain_confirmed",
+      "license_observed": "Public domain — 1839 imprint (Andrews/Bingham translation), pre-1925 US work. Site copyright 2003-2008 held by Partners In Development Foundation (digitization only; does not extend to the 1839 text). No scraping prohibition observed in ToS/acknowledgments page as of 2026-05-01. Edition pinned by Linus 2026-05-01; ToS snapshot SHA-256 254c552c... at data/raw/baibala-hemolele-1839/20260501/tos_snapshot.html.",
+      "tos_or_license_url": "https://baibala.org/cgi-bin/bible?e=p-1off-01839-bible--00-1-0--01839-0--4--Sec---1--1haw-Zz-1-other---20000-frameset-about-ack----011-01839--210-0-2-utfZz-8&a=p&p=ack&gg=text&exp=1",
+      "edition_pinned": "baibala-hemolele-1839",
+      "edition_pinned_by": "linus",
+      "edition_pinned_at_utc": "2026-05-01T00:00:00Z",
+      "tos_snapshot_path": "data/raw/baibala-hemolele-1839/20260501/tos_snapshot.html",
+      "tos_snapshot_sha256": "254c552c3519f503d98fab03e46616b7789d3ac95cbbc5f41dd76d3e74af268c",
       "prototype_notes": [
         "Largest reliable parallel pool for Hawaiian. Verse-level only; chapter-level alignment is unsafe across editions.",
         "Cap ≤30% of parallel-train tokens; 0% of dev/test (per docs/data-pipeline.md §'Stage 2 source tiers' Tier A).",
-        "Pin one Hawaiian edition + one public-domain English edition; record edition_or_version per row.",
-        "alignment_method='verse-id' (deterministic); no LaBSE needed."
+        "Edition pinned: baibala-hemolele-1839 (Greenstone URL confirmed live 2026-05-01); ToS snapshot captured.",
+        "alignment_method='verse-id' (deterministic); no LaBSE needed.",
+        "ENG side gated on USFM zip fetch (bible-eng-pd-anchor, no gates) + USFM-to-verse-txt parser (not yet written)."
       ],
       "acquisition_plan": {
-        "tool": "requests_tenacity",
+        "tool": "urllib.request (stdlib); script=scripts/206_fetch_baibala_raw.py",
         "dry_run_default": true,
         "auth_required": false,
-        "rate_limit": "≤1 req/sec",
+        "rate_limit": "1.5 req/sec (polite_rate_limit_seconds in source_registry.json)",
         "steps": [
-          "Confirm pinned edition with Linus (rights ruling on edition year + provenance).",
-          "Snapshot site ToS to data/raw/bible-haw-baibala-pinned-edition/<YYYYMMDD>/tos_snapshot.html before any fetch.",
-          "Dry-run: enumerate book/chapter URLs from the pinned edition without fetching verse bodies.",
-          "On --execute: fetch chapter pages, persist raw HTML + provenance record, parse to verse-keyed records (book, chapter, verse, edition_year)."
+          "[DONE 2026-05-01] Edition pinned by Linus: baibala-hemolele-1839.",
+          "[DONE 2026-05-01] ToS snapshot: data/raw/baibala-hemolele-1839/20260501/tos_snapshot.html.",
+          "[DONE 2026-05-01] URL template confirmed live; Greenstone greenstone_oid mapped for all 66 books.",
+          "Smoke (Frank): python scripts/206_fetch_baibala_raw.py --execute --side haw --book GEN --chapters 1-3 --confirm-edition baibala-hemolele-1839 --tos-snapshot data/raw/baibala-hemolele-1839/20260501/tos_snapshot.html",
+          "Full HAW fetch (Frank): same command, all books/chapters, after smoke passes.",
+          "ENG: python scripts/207_fetch_stage2_parallel_raw.py --execute --source bible-eng-pd-anchor (no gates).",
+          "Write USFM-to-verse-txt parser for KJV zip (new script needed: scripts/206b_parse_eng_usfm.py or similar).",
+          "Build: python scripts/322_build_bible_candidates.py --from-raw <YYYYMMDD> --execute"
         ],
-        "do_not_invoke_until": ["edition pinned by Linus", "ToS snapshot captured"]
+        "do_not_invoke_until": []
       },
       "expected_artifact_shape": {
-        "raw_path": "data/raw/bible-haw-baibala-pinned-edition/<YYYYMMDD>/{book}_{chapter}.html",
+        "raw_path": "data/raw/baibala-hemolele-1839/<YYYYMMDD>/{book}_{chapter}.html",
         "extracted_records": "JSONL with fields: book, chapter, verse, text_haw, edition_or_version, source_url, fetch_date, raw_sha256",
         "manifest_alignment_method": "verse-id",
         "register": "religious"
       },
-      "verification_status": "pending_rights_review",
+      "verification_status": "confirmed_live",
       "exclusions_or_risks": [
         "Bible-token-share blowing past the 30% parallel-train cap — sample down rather than fetching more Bible.",
         "Edition-mismatch contamination across reprints — cluster-isolated dedup required."
-      ]
+      ],
+      "expected_pair_yield_estimate": "8000-12000 (cap-bound, shared with bible-eng-pd-anchor)",
+      "adapter_status": "in_progress"
     },
     {
       "source_id": "bible-eng-pd-anchor",
       "name": "English Bible — public-domain anchor (KJV / ASV via eBible.org)",
       "homepage_or_access": "https://ebible.org/",
-      "url_templates": [
-        "https://ebible.org/find/details.php?id={edition_id}",
-        "https://ebible.org/Scriptures/{edition_id}_usfm.zip"
-      ],
-      "concrete_urls": [
-        "https://ebible.org/Scriptures/eng-kjv2006_usfm.zip",
-        "https://ebible.org/Scriptures/eng-asv_usfm.zip"
-      ],
+      "url_templates": ["https://ebible.org/find/details.php?id={edition_id}", "https://ebible.org/Scriptures/{edition_id}_usfm.zip"],
+      "concrete_urls": ["https://ebible.org/Scriptures/eng-kjv2006_usfm.zip", "https://ebible.org/Scriptures/eng-asv_usfm.zip"],
       "languages": ["eng"],
       "alignment_type": "parallel-verse",
       "tier": "stage2_tier_a",
@@ -133,9 +139,9 @@
         "register": "religious"
       },
       "verification_status": "verified_endpoint",
-      "exclusions_or_risks": [
-        "USFM-to-plain-text extraction must drop section headers, footnote anchors, and editorial brackets to avoid leaking non-translation tokens into target_text."
-      ]
+      "exclusions_or_risks": ["USFM-to-plain-text extraction must drop section headers, footnote anchors, and editorial brackets to avoid leaking non-translation tokens into target_text."],
+      "expected_pair_yield_estimate": "8000-12000 (cap-bound, shared with baibala)",
+      "adapter_status": "in_progress"
     },
     {
       "source_id": "bible-haw-archive-org-pre1925",
@@ -174,7 +180,9 @@
       "exclusions_or_risks": [
         "OCR errors silently corrupting verse text — gate on ocr_quality_indicator and require human spot-check on a sample.",
         "Multiple printings of the same edition causing near-duplicate verses across items — cluster-isolated dedup required."
-      ]
+      ],
+      "expected_pair_yield_estimate": "0-2000 (noisy OCR fallback only)",
+      "adapter_status": "none"
     },
     {
       "source_id": "tatoeba-haw-eng",
@@ -215,14 +223,13 @@
         "register": "general"
       },
       "verification_status": "verified_endpoint",
-      "exclusions_or_risks": [
-        "Volume too small to support both train and dev — likely train+held-out only.",
-        "Per-sentence attribution must survive into the final manifest; license flow-down obligation."
-      ]
+      "exclusions_or_risks": ["Volume too small to support both train and dev — likely train+held-out only.", "Per-sentence attribution must survive into the final manifest; license flow-down obligation."],
+      "expected_pair_yield_estimate": "500-2000",
+      "adapter_status": "ready"
     },
     {
       "source_id": "opus-haw-subsets",
-      "name": "OPUS — haw-containing parallel subsets (Tatoeba, QED, Ubuntu, GNOME, KDE)",
+      "name": "OPUS — haw-containing parallel subsets (Tatoeba, QED, Ubuntu, GNOME, KDE, Wikimedia)",
       "homepage_or_access": "https://opus.nlpl.eu/",
       "concrete_urls": [
         "https://opus.nlpl.eu/Tatoeba/v2023-04-12/moses/en-haw.txt.zip",
@@ -231,10 +238,7 @@
         "https://opus.nlpl.eu/GNOME/v1/moses/en-haw.txt.zip",
         "https://opus.nlpl.eu/KDE4/v2/moses/en-haw.txt.zip"
       ],
-      "url_templates": [
-        "https://opus.nlpl.eu/{corpus}/{version}/moses/{src}-{tgt}.txt.zip",
-        "https://opus.nlpl.eu/{corpus}/{version}/xml/{lang}.zip"
-      ],
+      "url_templates": ["https://opus.nlpl.eu/{corpus}/{version}/moses/{src}-{tgt}.txt.zip", "https://opus.nlpl.eu/{corpus}/{version}/xml/{lang}.zip"],
       "languages": ["haw", "eng"],
       "alignment_type": "parallel-sentence",
       "tier": "stage2_tier_a",
@@ -244,7 +248,8 @@
       "prototype_notes": [
         "Software-l10n sets (Ubuntu/GNOME/KDE) are domain-skewed; tag register='software-l10n' and cap.",
         "Confirm exact version IDs at fetch time; OPUS releases shift.",
-        "JW300 is intentionally absent from this list — see deferred_or_excluded.jw300_haw."
+        "JW300 is intentionally absent from this list — see deferred_or_excluded.jw300_haw.",
+        "Local OPUS Wikimedia v20230407 alignment XML observed at data/raw/wikimedia_opus/en-haw.tmp (374 <link> rows, fromDoc=en/wikimedia-v20230407.xml.gz, toDoc=haw/wikimedia-v20230407.xml.gz). Treat as a raw alignment sidecar until the matching language XML/text payloads and source URL are pinned."
       ],
       "acquisition_plan": {
         "tool": "requests_tenacity",
@@ -254,12 +259,13 @@
         "steps": [
           "Dry-run: HEAD each .zip, record content_length and version.",
           "On --execute: download per-corpus zip, persist raw bytes + provenance, tag register per corpus.",
-          "Parse Moses-format pairs; preserve opus_corpus, opus_version, pair_direction."
+          "Parse Moses-format pairs; preserve opus_corpus, opus_version, pair_direction.",
+          "For OPUS Wikimedia v20230407, require both the alignment XML and matching en/haw text XML payloads; do not build candidates from alignment IDs alone."
         ]
       },
       "expected_artifact_shape": {
-        "raw_path": "data/raw/opus-haw-subsets/<YYYYMMDD>/{corpus}_{version}_en-haw.txt.zip",
-        "extracted_records": "JSONL with fields: opus_corpus, opus_version, pair_direction, text_en, text_haw, source_url, fetch_date, raw_sha256, register",
+        "raw_path": "data/raw/opus-haw-subsets/<YYYYMMDD>/{corpus}_{version}_en-haw.* OR local sidecars under data/raw/wikimedia_opus/ until endpoint is pinned",
+        "extracted_records": "JSONL with fields: opus_corpus, opus_version, pair_direction, text_en, text_haw, source_url, fetch_date, raw_sha256, register, upstream_doc_id_en?, upstream_doc_id_haw?",
         "manifest_alignment_method": "tmx-line",
         "register": "software-l10n|encyclopedic|educational (per corpus)"
       },
@@ -267,8 +273,12 @@
       "exclusions_or_risks": [
         "Domain skew toward software UI strings — cap by register and never let it dominate parallel-train tokens.",
         "Per-corpus license heterogeneity — per-corpus rights snapshot before --execute.",
-        "Internal Tatoeba subset is duplicate-prone with the upstream Tatoeba source — cluster-isolated dedup."
-      ]
+        "Internal Tatoeba subset is duplicate-prone with the upstream Tatoeba source — cluster-isolated dedup.",
+        "OPUS Wikimedia v20230407 may overlap Wikimedia Content Translation raw revisions; the OPUS adapter must set dedup_cluster_id from normalized text-pair hash plus any available Wikimedia doc/revision/title IDs and prefer the CX row when both sources emit the same pair.",
+        "Do not delete or mutate raw OPUS/CX files for dedupe; preserve raw provenance and collapse only at candidate/manifest time."
+      ],
+      "expected_pair_yield_estimate": "2000-5000",
+      "adapter_status": "none"
     },
     {
       "source_id": "nllb-mined-haw-eng",
@@ -277,13 +287,17 @@
       "languages": ["haw", "eng"],
       "alignment_type": "parallel-sentence",
       "tier": "stage2_tier_a_mined",
-      "rights_status_hint": "rights_review_required",
+      "rights_status_hint": "prototype_only",
       "license_observed": "Per dataset card; mined data is noisy and rights-mixed. Re-derive provenance from origin URLs, not the HF mirror.",
       "tos_or_license_url": "https://huggingface.co/datasets/allenai/nllb",
       "prototype_notes": [
-        "Mined parallel — train signal only, NEVER dev/test (per docs/data-pipeline.md §Stage 2 Tier A).",
-        "Confirm hawn_Latn / haw_Latn coverage and license before pulling; treat as last-resort, not P0.",
-        "If retained, alignment_score must be persisted; below-threshold rows are alignment_review_required=true."
+        "SCALE SOURCE. Largest single gap-closer for the 80k target: expected 8–15k accepted pairs.",
+        "Rights CLEARED for private prototype only (Linus ruling 2026-05-02): prototype_only=true, no redistribution, per-row origin_url recorded. Any redistribution requires per-row origin URL review.",
+        "QUALITY FLOOR: LaBSE cosine >= 0.80 (stricter than 0.75 used for curated comparable). Below-threshold rows get alignment_review_required=true and are excluded from train.",
+        "Mined parallel — train signal ONLY, NEVER dev/test (hard rule).",
+        "Per-row fields required: origin_url_en, origin_url_haw, alignment_score, alignment_method=labse-or-nllb-score.",
+        "License fields: license_observed_en=unknown, license_observed_haw=unknown per row.",
+        "Ingest blocked until: Rusty confirms LaBSE 0.80 floor and 321_score_stage2_alignment.py validates scores before manifest."
       ],
       "acquisition_plan": {
         "tool": "requests_tenacity",
@@ -295,7 +309,7 @@
           "Defer full pull until Linus rules on mined-data rights posture and Rusty rules on quality threshold.",
           "On --execute (post-rulings): pull rows with origin URL preserved per row; never fetch via mirror without origin retention."
         ],
-        "do_not_invoke_until": ["mined-data rights ruling from Linus", "quality threshold from Rusty"]
+        "do_not_invoke_until": ["Rusty: confirm LaBSE 0.80 cosine floor for mined register", "Rusty: 321_score_stage2_alignment.py validates scores before manifest ingest"]
       },
       "expected_artifact_shape": {
         "raw_path": "data/raw/nllb-mined-haw-eng/<YYYYMMDD>/{config}_{split}.jsonl",
@@ -303,12 +317,16 @@
         "manifest_alignment_method": "mined-laser",
         "register": "mixed-web"
       },
-      "verification_status": "pending_rights_review",
+      "verification_status": "rights_cleared_prototype_only",
       "exclusions_or_risks": [
         "Mined-quality noise: false-positive alignment, code-mixed, MT contamination.",
-        "Origin-URL rights mixed; per-row provenance is the floor.",
-        "NEVER promote to dev/test under any circumstance."
-      ]
+        "Origin-URL rights mixed; per-row provenance is the minimum floor for prototype.",
+        "NEVER promote to dev/test under any circumstance — hard rule.",
+        "Do NOT overstate rights clearance for redistribution; prototype_only=true is not a distribution license.",
+        "Below-LaBSE-0.80 rows must be tagged alignment_review_required=true and excluded from train manifest."
+      ],
+      "expected_pair_yield_estimate": "8000-15000",
+      "adapter_status": "none"
     },
     {
       "source_id": "biblenlp-haw",
@@ -345,15 +363,15 @@
       "exclusions_or_risks": [
         "Edition opacity: if the wrapped translation is unidentified or modern-rights-encumbered, treat as excluded for training; eval-only at most.",
         "Verse-coverage holes (some Hawaiian translations omit deuterocanonicals or have alternate book divisions) — surface coverage in the smoke probe."
-      ]
+      ],
+      "expected_pair_yield_estimate": "0 (eval cross-check only, never train)",
+      "adapter_status": "none"
     },
     {
       "source_id": "global-piqa-parallel-haw",
       "name": "Global-PIQA Parallel — haw_Latn slice",
       "homepage_or_access": "https://huggingface.co/datasets/mrlbenchmarks/global-piqa-parallel",
-      "concrete_urls": [
-        "https://huggingface.co/datasets/mrlbenchmarks/global-piqa-parallel/resolve/main/parallel_haw_latn.tsv"
-      ],
+      "concrete_urls": ["https://huggingface.co/datasets/mrlbenchmarks/global-piqa-parallel/resolve/main/parallel_haw_latn.tsv"],
       "languages": ["haw", "eng"],
       "alignment_type": "parallel-sentence",
       "tier": "stage2_tier_a_eval",
@@ -386,7 +404,9 @@
       "exclusions_or_risks": [
         "Eval contamination if any row leaks into Stage-1 or Stage-2 train (the eval_hashes.jsonl ledger is the backstop).",
         "Coverage may be small; do not over-rely as the sole eval anchor — pair with held-out Tatoeba and Bible-anchored verse pairs."
-      ]
+      ],
+      "expected_pair_yield_estimate": "0 (eval only)",
+      "adapter_status": "none"
     },
     {
       "source_id": "taxi1500-haw",
@@ -423,7 +443,9 @@
       "exclusions_or_risks": [
         "Register skew (Bible-derived) — do not let it dominate eval reporting.",
         "Classification framing differs from translation framing — keep diagnostic-only, not a translation-quality anchor."
-      ]
+      ],
+      "expected_pair_yield_estimate": "0 (eval only)",
+      "adapter_status": "none"
     },
     {
       "source_id": "weblate-en-haw",
@@ -462,15 +484,15 @@
       "exclusions_or_risks": [
         "Mixed per-project licenses — easy to accidentally fold a non-permissive project in; the per-project filter is a hard gate.",
         "UI-string register skew; cap as with OPUS l10n subsets."
-      ]
+      ],
+      "expected_pair_yield_estimate": "1000-3000 (per-project license filter required)",
+      "adapter_status": "none"
     },
     {
       "source_id": "wiki-haw-en-langlinks",
       "name": "Hawaiian ↔ English Wikipedia (interlanguage links, comparable docs)",
       "homepage_or_access": "https://haw.wikipedia.org/",
-      "url_templates": [
-        "https://haw.wikipedia.org/w/api.php?action=query&format=json&prop=langlinks&lllang=en&titles={title}"
-      ],
+      "url_templates": ["https://haw.wikipedia.org/w/api.php?action=query&format=json&prop=langlinks&lllang=en&titles={title}"],
       "languages": ["haw", "eng"],
       "alignment_type": "comparable-aligned",
       "tier": "stage2_tier_b",
@@ -503,7 +525,9 @@
       "exclusions_or_risks": [
         "Comparable-not-parallel: false-friend pairs at chapter/section level — alignment score gate is mandatory.",
         "Stage-1 contamination: the Hawaiian side may overlap the Stage-1 hawwiki monolingual corpus; cluster-isolated dedup against Stage-1 hashes is required (see crosslink_stage1_overlap field in stage2_manifest)."
-      ]
+      ],
+      "expected_pair_yield_estimate": "3000-5000",
+      "adapter_status": "none"
     },
     {
       "source_id": "wikisource-haw-en-comparable",
@@ -540,7 +564,9 @@
       "exclusions_or_risks": [
         "Many Hawaiian Wikisource pages have no English counterpart — yield is small.",
         "Hard-escalate cultural categories must be filtered out at enumeration time (mele, oli, pule, moʻolelo from named tradition-bearers, moʻokūʻauhau)."
-      ]
+      ],
+      "expected_pair_yield_estimate": "0-500",
+      "adapter_status": "none"
     },
     {
       "source_id": "pukui-elbert-andrews-examples",
@@ -580,6 +606,270 @@
         "Headword-only rows polluting the manifest if the extractor is sloppy — example-field extraction must be schema-checked.",
         "Modern Pukui-Elbert is rights-encumbered; do not fetch the modern edition without explicit rights ruling.",
         "Register skew: dictionary-example ≠ natural prose."
+      ],
+      "expected_pair_yield_estimate": "0 (modern edition rights-encumbered; wait for PD pin)",
+      "adapter_status": "none"
+    },
+    {
+      "source_id": "andrews-1865-en-haw-vocab-appendix",
+      "name": "Andrews 1865 — English-Hawaiian vocabulary appendix (concrete IA pin)",
+      "homepage_or_access": "https://archive.org/details/cu31924026916167",
+      "url_templates": ["https://archive.org/download/{ia_item_id}/{ia_item_id}_djvu.txt"],
+      "concrete_urls": ["https://archive.org/download/cu31924026916167/cu31924026916167_djvu.txt"],
+      "languages": ["eng", "haw"],
+      "alignment_type": "dictionary-example",
+      "tier": "stage2_tier_c",
+      "rights_status_hint": "public_domain_candidate",
+      "license_observed": "1865 imprint by Lorrin Andrews — US public domain by copyright term. archive.org redistributes OCR text; IA ToS governs the bytes, not the underlying text.",
+      "tos_or_license_url": "https://archive.org/about/terms.php",
+      "prototype_notes": [
+        "Pin one of the three Cornell/Google IA scans of Andrews 1865; cu31924026916167 is the cleanest Cornell scan with djvu.txt available.",
+        "The English-Hawaiian VOCABULARY APPENDIX (back matter) is the genuinely parallel piece: short EN headword → HAW gloss(es). Main Hawaiian-headword body is mostly haw-only definitions and is NOT parallel.",
+        "Expected yield: ~5–10k EN→HAW gloss pairs and a small subset (low hundreds) with example phrases. Treat as dictionary-example tier; cap, never dev/test.",
+        "Distinct from pukui-elbert-andrews-examples (which is the generic dictionary-examples bucket). This row pins a specific PD imprint Frank can fetch without further rights review on the underlying text.",
+        "OCR is 1865 typography — expect ʻokina rendered as ASCII apostrophe, no kahakō; canonicalize on extraction (same `OKINA_MISENCODINGS` policy used by the Baibala parser).",
+        "Backup IA scans (do not fetch without a separate rights-and-quality check): dictionaryofhawa00andrrich (Google), adictionaryhawa00andrgoog (Google). Use cu31924026916167 (Cornell) exclusively for the prototype pin."
+      ],
+      "acquisition_plan": {
+        "tool": "internetarchive",
+        "dry_run_default": true,
+        "auth_required": false,
+        "rate_limit": "Per IA client defaults; one item.",
+        "steps": [
+          "Dry-run: confirm djvu.txt size and OCR metadata for cu31924026916167.",
+          "Capture archive.org item-page HTML + IA terms snapshot to data/raw/andrews-1865-en-haw-vocab-appendix/<YYYYMMDD>/.",
+          "On --execute: pull djvu.txt (single file, ~few MB), persist raw + ProvenanceRecord (edition_or_version='Andrews-1865-Cornell-cu31924026916167').",
+          "Adapter: locate the 'English-Hawaiian Vocabulary' back-matter section by header regex, parse two-column entries to {en_headword, haw_glosses[], example_haw, example_eng, page}."
+        ],
+        "do_not_invoke_until": []
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/andrews-1865-en-haw-vocab-appendix/<YYYYMMDD>/{ia_item_id}_djvu.txt",
+        "extracted_records": "JSONL with fields: en_headword, haw_glosses, example_haw, example_eng, page, edition_or_version, source_url, fetch_date, raw_sha256",
+        "manifest_alignment_method": "manual",
+        "register": "dictionary-example"
+      },
+      "verification_status": "verified_endpoint",
+      "exclusions_or_risks": [
+        "OCR drift on diacritic-free 1865 type — expect to drop ambiguous entries rather than guess kahakō.",
+        "Headword-only entries (no example sentence) must be tagged distinctly from example-bearing rows; both are dictionary-example tier but only the latter resemble natural prose.",
+        "Single edition by design — do not stack with the 1922 revision (`ofhawadictionary00andrrich`) without a separate rights-review pass; Henry H. Parker's 1922 edits are not all PD."
+      ],
+      "expected_pair_yield_estimate": "200-500 (true bilingual examples only)",
+      "adapter_status": "none"
+    },
+    {
+      "source_id": "kaikki-haw-en-wiktionary",
+      "name": "kaikki.org — Hawaiian Wiktionary extraction (en glosses + example sentences)",
+      "homepage_or_access": "https://kaikki.org/dictionary/Hawaiian/",
+      "url_templates": ["https://kaikki.org/dictionary/Hawaiian/kaikki.org-dictionary-Hawaiian.jsonl"],
+      "concrete_urls": ["https://kaikki.org/dictionary/Hawaiian/kaikki.org-dictionary-Hawaiian.jsonl"],
+      "languages": ["haw", "eng"],
+      "alignment_type": "dictionary-example",
+      "tier": "stage2_tier_c",
+      "rights_status_hint": "open_license_candidate",
+      "license_observed": "Derived from English Wiktionary; underlying content CC BY-SA 4.0 + GFDL per Wikimedia Terms. kaikki.org packaging adds no extra license claim. Flow-down attribution required if anything ever ships externally (this is a private prototype, so attribution is recorded in provenance, not user-visible).",
+      "tos_or_license_url": "https://en.wiktionary.org/wiki/Wiktionary:Copyrights",
+      "prototype_notes": [
+        "JSONL file with one entry per Hawaiian headword. Each entry has senses[].glosses (English) and senses[].examples[] with {text (haw), english (en), translation (en)}. The examples-with-english rows are the genuinely parallel pairs.",
+        "Probed 2026-05-02: file resolves with HTTP 200; first record schema matches above. Yield estimate: low-thousands of headwords, with several hundred true bilingual example sentences after filtering for examples that have both `text` and `english` fields populated.",
+        "Tag register='dictionary-example'; cap; never dev/test. Distinct from pukui-elbert-andrews-examples and from andrews-1865-en-haw-vocab-appendix because the Wiktionary register is community-modern, not 19th-century missionary."
+      ],
+      "acquisition_plan": {
+        "tool": "requests_tenacity",
+        "dry_run_default": true,
+        "auth_required": false,
+        "rate_limit": "≤1 req/sec; single file pull.",
+        "steps": [
+          "Snapshot kaikki.org index page + Wiktionary copyright page to data/raw/kaikki-haw-en-wiktionary/<YYYYMMDD>/ before --execute.",
+          "Dry-run: HEAD the JSONL URL, record content-length and last-modified.",
+          "On --execute: GET the JSONL once, persist raw + ProvenanceRecord (edition_or_version='kaikki-Hawaiian-<YYYYMMDD>').",
+          "Adapter: stream-parse JSONL; emit only senses[].examples[] entries where both `text` (haw) and (`english` or `translation`) are non-empty; carry headword + sense gloss as side-metadata, not as the pair."
+        ],
+        "do_not_invoke_until": []
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/kaikki-haw-en-wiktionary/<YYYYMMDD>/kaikki.org-dictionary-Hawaiian.jsonl",
+        "extracted_records": "JSONL with fields: headword, sense_gloss_en, example_haw, example_eng, kaikki_entry_id, edition_or_version, source_url, fetch_date, raw_sha256",
+        "manifest_alignment_method": "manual",
+        "register": "dictionary-example"
+      },
+      "verification_status": "verified_endpoint",
+      "exclusions_or_risks": [
+        "Wiktionary example sentences are sparse for haw; most entries will be headword+gloss only, which is NOT a training pair.",
+        "Some English glosses are bare definitions (e.g. 'a kind of fish'), not translations — adapter must keep example-field pairs distinct from gloss-as-pseudo-translation rows.",
+        "CC BY-SA flow-down would matter if this ever leaves the prototype scope; record attribution per row regardless."
+      ],
+      "expected_pair_yield_estimate": "300-700 (true bilingual examples, not gloss pairs)",
+      "adapter_status": "none"
+    },
+    {
+      "source_id": "wikimedia-cx-en-haw-published",
+      "name": "Wikimedia Content Translation — published EN→HAW article translations",
+      "homepage_or_access": "https://www.mediawiki.org/wiki/Content_translation",
+      "url_templates": ["https://haw.wikipedia.org/w/api.php?action=query&list=cxpublishedtranslations&from=en&to=haw&format=json&limit={limit}&offset={offset}"],
+      "concrete_urls": ["https://haw.wikipedia.org/w/api.php?action=query&list=cxpublishedtranslations&from=en&to=haw&format=json&limit=500"],
+      "languages": ["eng", "haw"],
+      "alignment_type": "parallel-doc",
+      "tier": "stage2_tier_b",
+      "rights_status_hint": "open_license_candidate",
+      "license_observed": "Wikipedia content CC BY-SA 4.0 + GFDL per Wikimedia Terms; CX-published targets are real Wikipedia revisions on haw.wikipedia.org with full revision history (so attribution is intrinsic). Source revisions on en.wikipedia.org are linked by `sourceRevisionId`.",
+      "tos_or_license_url": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
+      "prototype_notes": [
+        "CX-published rows are human-translated EN articles published to haw.wikipedia.org by registered editors. Each row gives sourceTitle, targetTitle, sourceRevisionId, targetRevisionId, sourceURL, targetURL, publishedDate, and a `stats.human` ratio (fraction of the target preserved as human translation, not MT).",
+        "Probed 2026-05-02: API returns 68 published EN→HAW translations as of probe date. Modest yield, but cleanest licensing and human translators.",
+        "Treat as parallel-doc: pull EN source revision and HAW target revision by ID, sentence-segment, then LaBSE-align (default 0.75 threshold per docs/data-pipeline.md). Borderline rows tagged alignment_review_required=true. Honest yield estimate after alignment + dedupe vs Wiki-langlinks: low thousands of pair candidates, maybe 1–3k surviving Tier-B acceptance.",
+        "MT-heavy rows (`stats.human` < 0.5 or `stats.mt` > 0.5) must be either dropped or routed to synthetic-ft tagging, NEVER ingested as parallel-doc — these are auto-MT outputs by definition.",
+        "Distinct from wiki-haw-en-langlinks: that source pairs current articles by interwiki link (no provenance of human translation); CX gives explicit per-revision human-translation provenance.",
+        "Linus sign-off 2026-05-02: stats.mt < 0.5 cutoff confirmed. Any published translation with stats.mt >= 0.5 is treated as auto-MT output and dropped from parallel-doc intake. This gate is now cleared; --execute is unblocked pending Rusty's LaBSE threshold confirmation for the Tier-B pipeline."
+      ],
+      "acquisition_plan": {
+        "tool": "requests_tenacity",
+        "dry_run_default": true,
+        "auth_required": false,
+        "rate_limit": "≤1 req/sec to api.php; Wikimedia public API tolerates polite bursts.",
+        "steps": [
+          "Dry-run: paginate cxpublishedtranslations until empty; record translationId, sourceRevisionId, targetRevisionId, stats.human, stats.mt for every row. No article bodies fetched.",
+          "Filter list to `stats.mt < 0.5` (Linus-confirmed 2026-05-02; drop rows with stats.mt >= 0.5 — those are auto-MT outputs). Also require stats.human > 0 as a sanity filter. No article bodies fetched at this step.",
+          "On --execute: for each surviving translationId, fetch the EN source revision via en.wikipedia.org/w/api.php?action=parse&oldid={sourceRevisionId}&prop=wikitext and the HAW target revision via haw.wikipedia.org. Persist raw wikitext + ProvenanceRecord per side.",
+          "Adapter: strip wikitext to plaintext, sentence-segment, LaBSE-align with the standard Tier-B pipeline (Rusty owns the threshold; default 0.75)."
+        ],
+        "do_not_invoke_until": []
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/wikimedia-cx-en-haw-published/<YYYYMMDD>/{translationId}/{lang}.wikitext",
+        "extracted_records": "JSONL with fields: translation_id, source_title, target_title, source_revision_id, target_revision_id, published_date, stats_human, stats_mt, sentence_pairs[], source_url, fetch_date, raw_sha256",
+        "manifest_alignment_method": "labse-aligned",
+        "register": "encyclopedic"
+      },
+      "verification_status": "verified_endpoint",
+      "exclusions_or_risks": [
+        "Small absolute pool (68 articles at probe time). This is a quality-not-quantity source; do NOT scale fetch by raising thresholds.",
+        "Some CX translations are heavily MT-derived even when published — `stats.mt` filter is load-bearing.",
+        "Topic skew toward pop-culture / lists (sample showed 'McDonald's', 'Moana (2016 film)', 'Lists of 100 best books') — flag register='encyclopedic' but expect entity-heavy text that may be over-represented after dedupe.",
+        "Hard-escalate cultural categories must be filtered at enumeration (mele/oli/pule/moʻolelo titles) — same rule as Wikisource."
+      ],
+      "expected_pair_yield_estimate": "1000-3000",
+      "adapter_status": "none"
+    },
+    {
+      "source_id": "hawaiian-kingdom-statutes-bilingual",
+      "name": "Hawaiian Kingdom statutes — bilingual paired imprints (pre-1900, IA)",
+      "homepage_or_access": "https://archive.org/details/texts",
+      "url_templates": ["https://archive.org/download/{ia_item_id}/{ia_item_id}_djvu.txt"],
+      "concrete_urls": [
+        "https://archive.org/details/esrp641724381",
+        "https://archive.org/details/esrp641728581",
+        "https://archive.org/details/esrp475081650",
+        "https://archive.org/details/esrp468790723",
+        "https://archive.org/details/civilcodehawaii00armsgoog",
+        "https://archive.org/details/hekumukanawaiam00hawagoog",
+        "https://archive.org/details/statutelawshism00ricogoog",
+        "https://archive.org/details/kanawaiikauiaek00ricogoog"
+      ],
+      "languages": ["eng", "haw"],
+      "alignment_type": "parallel-doc",
+      "tier": "stage2_tier_b",
+      "rights_status_hint": "public_domain_candidate",
+      "license_observed": "Hawaiian Kingdom government works, 1846–1897 imprints. US public domain by copyright term (pre-1929) and additionally by sovereign-edicts doctrine for the legal text itself. archive.org redistributes scans + OCR; IA ToS governs the bytes only.",
+      "tos_or_license_url": "https://archive.org/about/terms.php",
+      "prototype_notes": [
+        "PROMOTED 2026-05-02: all four Hawaiian Kingdom code pairs are in scope for 80k target acquisition. Previously pinned to 1897 Penal Laws only. Frank confirmed all four paired IA items exist and rights are PD.",
+        "Section/chapter id is the primary alignment key. Paragraph-level segmentation + section-id match outperforms pure LaBSE on legal register.",
+        "Combined yield estimate: 3–8k pair candidates across four code pairs; after section-id pairing + LaBSE confirmation expect 3–6k accepted pairs. Register='legal', tag accordingly.",
+        "Legal register cap applies to all four pairs COMBINED: <=15% of parallel-train tokens. Do not exceed even if individual pair yields are high.",
+        "1840s/1850s Hawaiian orthography lacks ʻokina/kahakō — flag kahako_recoverable=false for pre-1860 imprints. Do not attempt diacritic recovery.",
+        "Hard-escalate cultural-category exclusion does not apply — statutory texts only."
+      ],
+      "acquisition_plan": {
+        "tool": "internetarchive",
+        "dry_run_default": true,
+        "auth_required": false,
+        "rate_limit": "Per IA client defaults.",
+        "steps": [
+          "PROMOTED 2026-05-02 (Linus/Frank): all four paired codes are in scope, not just 1897 Penal Laws. Priority order: (1) 1897 Penal Laws EN esrp641724381 <-> HAW esrp641728581 [cleanest OCR], (2) 1869 Penal Code esrp475081650 <-> esrp468790723, (3) 1859 Civil Code civilcodehawaii00armsgoog <-> hekumukanawaiam00hawagoog, (4) 1846 Statute Laws statutelawshism00ricogoog <-> kanawaiikauiaek00ricogoog. Rights confirmed PD for all four: pre-1929 US copyright term + sovereign-edicts doctrine.",
+          "Register cap applies to ALL four pairs combined: <=15% of parallel-train tokens total (same as Bible-style cap). Do not let the combined legal-register share exceed this even if alignment yields are high.",
+          "Section/chapter numbering is the primary alignment key for all four codes: section-id-first pairing, LaBSE fallback for sub-section paragraphs without an id.",
+          "Section-id alignment must use SAME promulgation year/legislature pairs — do NOT cross-pair EN and HAW imprints from different years.",
+          "For each code pair: capture IA item-page HTML + IA terms snapshot per side to data/raw/hawaiian-kingdom-statutes-bilingual/<YYYYMMDD>/{ia_item_id}/.",
+          "On --execute: pull djvu.txt for each pair in priority order; persist raw + ProvenanceRecord per side. edition_or_version field format: HKS-{year}-{code}-{lang}-{ia_item_id}.",
+          "1840s/1850s Hawaiian lacks ʻokina/kahakō: flag kahako_recoverable=false for pre-1860 pairs; do not guess diacritics.",
+          "Adapter: 111_collect_hk_statutes.py + data-sources/hk-statutes/fetch.py (to be written by Frank)."
+        ],
+        "do_not_invoke_until": []
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/hawaiian-kingdom-statutes-bilingual/<YYYYMMDD>/{ia_item_id}/{ia_item_id}_djvu.txt",
+        "extracted_records": "JSONL with fields: code_name, section_id, paragraph_index, text_eng, text_haw, edition_or_version, ia_item_id_eng, ia_item_id_haw, source_url, fetch_date, raw_sha256",
+        "manifest_alignment_method": "section-id",
+        "register": "legal"
+      },
+      "verification_status": "verified_endpoint",
+      "exclusions_or_risks": [
+        "OCR quality on Google-scanned `*goog` items is uneven; Cornell `esrp*` scans tend to be cleaner — prefer those for the pinned pair.",
+        "1840s/1850s Hawaiian orthography lacks ʻokina/kahakō; canonicalization to U+02BB will be needed but kahakō cannot be recovered — flag the dataset as `kahako_recoverable=false` rather than guessing.",
+        "Register skew toward legal/archaic; do not let this dominate the parallel-train mix even if alignment yields are high — propose a Bible-style cap (≤15% of parallel-train tokens) before any bulk ingest.",
+        "Section numbering between 19th-century editions does not always match modern republications — pair the EN and HAW imprints from the SAME promulgation year/legislature, not across years."
+      ],
+      "expected_pair_yield_estimate": "3000-6000 (all four code pairs)",
+      "adapter_status": "none"
+    },
+    {
+      "source_id": "bt-stage1-monolingual-haw",
+      "name": "Synthetic back-translation — Stage-1 Hawaiian monolingual via Stage-1-merged base",
+      "homepage_or_access": "generated internally from data/stage1/ (Stage-1 monolingual Hawaiian corpus)",
+      "languages": ["haw", "eng"],
+      "alignment_type": "synthetic-bt",
+      "tier": "stage2_tier_d_synthetic",
+      "rights_status_hint": "generated_synthetic",
+      "license_observed": "Synthetic; generated from Stage-1 monolingual Hawaiian source text. Source-model ToS for derivatives must permit use. Not a redistribution of any external corpus.",
+      "tos_or_license_url": null,
+      "expected_pair_yield_estimate": "5000-10000 (capped at <=15% of parallel-train tokens)",
+      "adapter_status": "not_started",
+      "prototype_notes": [
+        "SYNTHETIC BUCKET — gap-closer when human+mined parallel falls short of 80k target.",
+        "Generated ONLY from Stage-1 Hawaiian monolingual data (data/stage1/). No external text.",
+        "ALL rows tagged: synthetic=true, alignment_type=synthetic-bt.",
+        "Per-pair provenance required: model_id, model_checkpoint_sha, generation_decode_params.",
+        "CAP: <=15% of parallel-train tokens. Enforced in 320_build_stage2_manifest.py.",
+        "NEVER used in dev/test splits — hard rule. Cross-check pair hashes against eval_hashes.jsonl before manifest ingest.",
+        "Synthetic share does NOT count toward 'human parallel' claims in any reporting.",
+        "No ungrounded cultural / escalation-sensitive content: synthetic BT inherits the hard-escalate cultural category exclusion from its monolingual source text.",
+        "Round-trip quality floor required (Rusty sets BLEU or LaBSE floor for BT acceptance).",
+        "Owner split: Rusty owns model/generation side; Linus/Frank own provenance schema and cap enforcement."
+      ],
+      "acquisition_plan": {
+        "tool": "internal_generation",
+        "dry_run_default": true,
+        "auth_required": false,
+        "rate_limit": "GPU-bound; run on compute instance only.",
+        "steps": [
+          "120_generate_bt_pairs.py (to be written): reads Stage-1 monolingual Hawaiian sentences from data/stage1/.",
+          "Translates haw→eng using Stage-1-merged base model; persists raw BT output with model_id + checkpoint_sha.",
+          "Filters: (a) round-trip quality floor (BT BLEU or LaBSE floor, Rusty sets); (b) hard-escalate cultural category filter inherited from Stage-1 cleaning pipeline; (c) length ratio filter.",
+          "Tags every row: synthetic=true, alignment_type=synthetic-bt, model_id=<id>, model_checkpoint_sha=<sha>.",
+          "Cross-checks all pair hashes against eval_hashes.jsonl before writing to candidates JSONL.",
+          "320_build_stage2_manifest.py enforces <=15% synthetic-bt token cap at manifest build time."
+        ],
+        "do_not_invoke_until": [
+          "Rusty: Stage-1-merged base model checkpoint available",
+          "Rusty: round-trip quality floor (BT BLEU or LaBSE floor) defined",
+          "Linus: synthetic cap registry in 320_build_stage2_manifest.py implemented"
+        ]
+      },
+      "expected_artifact_shape": {
+        "raw_path": "data/raw/bt-stage1-monolingual-haw/<YYYYMMDD>/bt_pairs.jsonl",
+        "extracted_records": "JSONL with fields: source_haw, target_eng, synthetic, alignment_type, model_id, model_checkpoint_sha, generation_decode_params, labse_score, bt_bleu, source_segment_id, fetch_date, row_sha256",
+        "manifest_alignment_method": "round-trip-bt",
+        "register": "mixed-hawaiian-monolingual"
+      },
+      "verification_status": "planned",
+      "exclusions_or_risks": [
+        "Synthetic BT re-injects model biases. Cap <=15%, 0% dev/test is non-negotiable.",
+        "BT noise lives on the source (Hawaiian) side, which is masked from loss — acceptable tradeoff.",
+        "Must not include pairs where Hawaiian source has escalation-sensitive cultural content.",
+        "Does NOT count toward 'human parallel' claims. Always report synthetic share separately.",
+        "Ungrounded LLM synthetic dialogues (not derived from Stage-1 monolingual) remain EXCLUDED — see llm-synthetic-haw-dialogues in deferred_or_excluded."
       ]
     }
   ],
@@ -623,6 +913,30 @@
       "rights_status_hint": "unknown_review_required",
       "verification_status": "excluded_pending_verification",
       "reason": "Excluded per docs/data-pipeline.md §Stage 2 Tier E. Synthetic-bt / synthetic-ft remain allowed under cap, but ungrounded synthesis is out."
+    },
+    {
+      "source_id": "flores-plus-haw-verified-absent",
+      "name": "FLORES+ / FLORES-200 — Hawaiian (verified absent)",
+      "alignment_type": "excluded",
+      "rights_status_hint": "eval_only",
+      "verification_status": "excluded_pending_verification",
+      "reason": "Probed 2026-05-02 against `openlanguagedata/flores_plus` (CC BY-SA 4.0, 222 languages). Hawaiian (`haw_Latn`) is NOT included — Maori (`mri_Latn`) is the closest Polynesian neighbour present. Recorded here so future agents do not silently re-add FLORES as a Hawaiian eval source. If FLORES+ adds haw_Latn in a future release, move this row back to `sources` as a verified eval-only entry, hash all sentences into eval_hashes.jsonl BEFORE any other ingest."
+    },
+    {
+      "source_id": "belebele-haw-verified-absent",
+      "name": "Belebele — Hawaiian (verified absent)",
+      "alignment_type": "excluded",
+      "rights_status_hint": "eval_only",
+      "verification_status": "excluded_pending_verification",
+      "reason": "Probed 2026-05-02 against `facebook/belebele`. No haw_Latn split present (122 langs covered, Hawaiian not among them). Recorded so future agents do not silently re-add. Same eval-only ledger rule would apply if it ever appears."
+    },
+    {
+      "source_id": "wmt24pp-haw-verified-absent",
+      "name": "WMT24++ — Hawaiian (verified absent)",
+      "alignment_type": "excluded",
+      "rights_status_hint": "eval_only",
+      "verification_status": "excluded_pending_verification",
+      "reason": "Probed 2026-05-02 against `google/wmt24pp` (Apache-2.0, 48 languages). Hawaiian is NOT in the language list. Recorded so future agents do not silently re-add."
     }
   ],
   "open_questions": [
@@ -652,5 +966,44 @@
     "stage2 routing in data-sources/hawaiian-data-sources.json is preserved; this file is the per-source fetch-plan layer that file did not carry. No source rows in hawaiian-data-sources.json are removed or contradicted by this artifact.",
     "Bible token-share cap (≤30% of parallel-train tokens), 'never train on FLORES / global-piqa / Taxi1500', and 'never dev/test on mined / synthetic' policies all flow from docs/data-pipeline.md §Stage 2.",
     "dataset divisions follow .squad/decisions.md §'Final Dataset Taxonomy' — eval-only sources land under data/evals/, all other Stage-2 sources land under data/stage2/, raw bytes under data/raw/."
-  ]
+  ],
+  "acquisition_strategy": {
+    "target_directional_sft_rows": 80000,
+    "target_canonical_pairs_pre_retention": 40000,
+    "directions_per_pair": 2,
+    "retention_fraction_estimate": "15-25%",
+    "raw_pair_candidates_needed": "48000-55000",
+    "honest_prognosis": "Rights-light human-parallel sources alone (Bible + Tatoeba + OPUS + Wiki langlinks + HK statutes all-four-pairs + CX + dictionary examples + Wikisource) midpoint to approximately 28–35k accepted canonical pairs (56–70k directional SFT rows). To credibly reach 80k rows the plan must include NLLB mined haw-eng (8–15k accepted) AND capped synthetic back-translation of Stage-1 monolingual Hawaiian (5–10k accepted). If either of those two buckets is rejected, the realistic ceiling is 50–60k directional rows and the 80k target must be renegotiated rather than chased by relaxing quality thresholds.",
+    "required_non_human_parallel_buckets": [
+      {
+        "bucket": "nllb_mined",
+        "source_id": "nllb-mined-haw-eng",
+        "expected_accepted_pairs": "8000-15000",
+        "quality_floor": "LaBSE cosine >= 0.80 (stricter than 0.75 for curated comparable)",
+        "rights_posture": "prototype_only=true; no redistribution; per-row origin_url recorded",
+        "never_dev_test": true
+      },
+      {
+        "bucket": "synthetic_back_translation",
+        "source_id": "bt-stage1-monolingual-haw",
+        "expected_accepted_pairs": "5000-10000",
+        "cap": "<=15% of parallel-train tokens",
+        "tag": "synthetic-bt",
+        "source_data": "Stage-1 Hawaiian monolingual only (not external text)",
+        "per_pair_provenance": "model_id + model_checkpoint_sha + generation_decode_params recorded per row",
+        "never_dev_test": true
+      }
+    ],
+    "sources_that_do_not_close_80k_gap": [
+      "bible — already at 30% cap ceiling; more Bible = register skew not rows",
+      "dictionary examples (andrews + kaikki) — combined <1k accepted pairs",
+      "wikisource comparable — <500 pairs after cultural filter + LaBSE",
+      "jw300 — stay excluded",
+      "flores+ / belebele / wmt24++ — verified absent for haw_Latn",
+      "ulukau / ka-wai-ola / state-constitution — require direct permission grants"
+    ],
+    "bible_cap_at_80k_target": "<=30% of parallel-train tokens ≈ <=12k pairs headroom",
+    "legal_register_cap": "<=15% of parallel-train tokens for HK statutes",
+    "software_l10n_cap": "<=15% of parallel-train tokens for OPUS software-l10n register"
+  }
 }

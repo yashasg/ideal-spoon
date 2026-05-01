@@ -5646,3 +5646,211 @@ Within the Ulukau family, four Stage 2-fit surfaces exist (one already in plan, 
 - Did NOT modify `data-sources/stage2-parallel-fetch-plan.json` yet — Hoʻoilina goes in only after Linus rights review.
 - Did NOT add tooling to `requirements.txt`.
 
+
+---
+
+## Decision: Frank — Pull Ulukau-family Raw (Round 4 SFT Candidates) (2026-05-01)
+
+**Owner:** Frank (Hawaiian Data Collector)  
+**Date:** 2026-05-01T23:05Z  
+**Status:** PROPOSAL — raw pull complete; adapters + alignment infra needed for candidates
+
+### Summary
+
+All 6 Ulukau-family SFT candidates from `data/raw/ulukau-stage2-discovery/20260501/manifest.json` have been addressed. Output root: `data/raw/ulukau-family-sft-candidates/20260501/`.
+
+### New raw downloads (~29.7 MB total)
+
+| item_id | Title | Kind | Key assets |
+|---|---|---|---|
+| `hawaiianphrasebo00bishrich` | Hawaiian Phrase Book (1881) | full | djvu.txt 181KB, PDF 8MB, meta.xml, marc.xml |
+| `constitutionand00hawagoog` | Constitution and Laws 1852 (EN) | full | djvu.txt 238KB, meta.xml (PDF 500, no marc on Google scan) |
+| `gospelaccordingt00hawarich` | Gospel of John Parallel Columns (1854) | raw | djvu.txt 274KB, PDF 12.9MB, meta.xml, marc.xml |
+| `63140380R.nlm.nih.gov` | Sanitary Instructions for Hawaiians (1881) | raw | djvu.txt 274KB, PDF 7.7MB, meta.xml |
+| `HAWPDF_DBS_HS` | Diglot New Testament (1859) | inventory_only | ia_metadata.json only |
+
+### Reused from HK statutes paired imprints dir (no large-file duplication)
+
+| item_id | Files reused |
+|---|---|
+| `hekumukanawaiam00hawagoog` | 5 files (HAW 1852 Constitution) |
+| `kanawaiikauiaek00ricogoog` | 5 files (HAW 1847 Statute Laws) |
+| `statutelawshism00ricogoog` | 7 files (EN 1846/47 Statute Laws) |
+
+Dedup check: **zero sha256 collisions** between new djvu.txt files and all existing raw roots.
+
+### Current structured row counts (data/stage2/candidates/)
+
+| Source | Rows |
+|---|---|
+| bible_haw1868_kjv.jsonl | 31,101 |
+| andrews_1865_vocab.jsonl | 1,194 |
+| hk_statutes_1897.jsonl | 1,103 |
+| kaikki_wiktionary.jsonl | 292 |
+| tatoeba.jsonl | 121 |
+| hooilina.jsonl | 109 |
+| bible.jsonl (smoke) | 5 |
+| **TOTAL** | **33,925** |
+
+### Pending actions by agent
+
+**Linus (Data Engineer):**
+1. Confirm 1852 Constitution pair is within legal register cap (≤15% combined legal tokens). HAW `hekumukanawaiam00hawagoog` + EN `constitutionand00hawagoog` are now both locally staged. Extending the HK statutes adapter (section-id alignment) is the path. Note: Google scan djvu.txt has some W→AV OCR substitutions on the HAW side — flag in adapter.
+2. Year-range verification for 1847 HAW / 1846 EN pair. Does `statutelawshism00ricogoog` (EN, 1846) cover exactly the same laws as `kanawaiikauiaek00ricogoog` (HAW, 1847)? The EN item covers years 1845–1847 and may have broader coverage. Confirm pairing is valid before section-id alignment.
+3. Gospel of John (1854) Bible cap accounting. `gospelaccordingt00hawarich` has ~880 verses (John only). This is a pre-Baibala edition (1854 vs 1839), so the HAW text may differ from our existing Baibala chapters. Confirm: (a) treat as distinct edition → separate dedup hash; (b) still counts against ≤30% Bible-token train cap as a class.
+4. Build adapter for Hawaiian Phrase Book (1881). `scripts/325_build_phrase_book_candidates.py` (following naming convention). Approach: column-detection on djvu.txt; split lines on whitespace gap between EN and HAW columns; filter entries where HAW side < 3 chars. Estimated yield: 800–2,000 phrase pairs. No rights gate; PD clear.
+
+**Rusty (Alignment Scorer):**
+1. Sanitary Instructions (1881) paragraph alignment. `63140380R_djvu.txt` (274 KB) has EN volume first, HAW volume second (not interleaved). Two-phase: (1) Detect EN/HAW boundary; (2) Align chapters by number (deterministic); (3) LaBSE paragraph-level scoring ≥ 0.75 within chapters. Unique health/medical register — worth having once LaBSE infra is up.
+
+**Frank (self / next session):**
+1. Implement `325_build_phrase_book_candidates.py` — no blockers, highest-priority new adapter from this discovery round. Should land 800–2,000 rows quickly.
+2. Probe Gospel of John djvu.txt OCR column quality. If parallel columns are cleanly separated in OCR output, verse-id extraction may be feasible without hOCR. Sample 10 verse pairs; report quality to Linus.
+
+### Deferred (no action needed now)
+
+- **Diglot NT (1859):** Inventory only. OCR blocked. hOCR column extraction is a significant engineering investment. Defer until after simpler sources ship.
+- **1847 Statute Laws pair:** Inventory-only pending Linus year-range verification.
+
+### Provenance
+
+- Pull script: `scripts/_frank_pull_ulukau_family_sft.py`
+- Manifest: `data/raw/ulukau-family-sft-candidates/20260501/manifest.jsonl`
+- Summary: `data/raw/ulukau-family-sft-candidates/20260501/manifest_summary.json`
+- Cleanup notes: `data/raw/ulukau-family-sft-candidates/20260501/CLEANUP_NOTES.json`
+- Discovery source: `data/raw/ulukau-stage2-discovery/20260501/manifest.json`
+
+---
+
+## Decision: Linus — Clean Current Ulukau Candidates (2026-05-01)
+
+**Owner:** Linus (Data Engineer)  
+**Date:** 2026-05-01  
+**Status:** EXECUTED — data policies and findings for team
+
+### Summary
+
+Completed candidate cleaning and dedup baseline for all currently-available Ulukau-family SFT candidate files. This produces a stable structured-row count that Frank can extend once remaining raw sources are pulled.
+
+### Hoʻoilina Candidate Fix
+
+**Problem (Basher-reported):**
+- 41 rows containing only Greenstone site footer boilerplate ("Look up any word by double-clicking on it. Kuleana kope © 2002–2004…") instead of article content.
+- 68 rows (all) with raw HTML numeric entities in text fields (`&#699;`, `&#257;`, `&#8216;`, etc.) — `html.unescape()` was never called.
+
+**Root cause:** The prior ad-hoc generation extracted the full page body rather than the bounded `<table width=_pagewidth_>...<td>` content block. Empty sections had no `<p>` tags in the main block but the footer `<center>` block was captured as text.
+
+**Fix (`scripts/324_build_hooilina_candidates.py`):**
+- Regex-bounded extraction: stops at `</td></tr></table></center></span>` before the footer.
+- `html.unescape()` on all text before NFC.
+- ʻokina canonicalization (U+02BB) on HAW side after unescape.
+- Skips pairs where either side is empty or has fewer than 5 words.
+- Self-test: 19/19 assertions pass.
+
+**Outcome:** 68 clean rows written (replaced prior 109-row file). 0 HTML entities, 0 boilerplate, 0 ʻokina mis-encodings.
+
+**Policy flags preserved:**
+- `alignment_review_required = True` (section-level parallel-doc, KS editorial + OCR noise)
+- `prototype_only = True`, `release_eligible = False`
+- `split = "review-pending"` — human alignment spot-check required before train promotion
+- KS attribution clause: *"Ua noa i ka lehulehu akea… me ke koina nae"* — cite source HAW alongside any reuse of modernized-HAW or EN layer.
+
+### HK Statutes 1897 Validation
+
+- 1,103 rows: 0 schema violations, 0 sha256_pair hash mismatches, 0 internal dupes.
+- All rows `split = "review-pending"` (OCR noise; `alignment_review_required = True`).
+- **0 SFT train rows** until human review pass completed.
+- Rights: PD (pre-1925 US imprint). No restriction on use.
+
+### Bible 1868 × KJV Dedup Note
+
+The `bible_haw1868_kjv.jsonl` candidate (31,101 rows, source `baibala-hemolele-1868`) overlaps with the existing manifest's `baibala-hemolele-1839` entries (10,221 verse keys). Cross-edition dedup policy: **preserve manifest rows (1839 edition) first; exclude 1868 rows whose verse key is already in the manifest.** This yields 20,852 unique new rows from the 1868 edition.
+
+An additional 28 internal sha256_pair dupes within the 1868 candidate file are also excluded.
+
+### Deduped Structured-Row Baseline
+
+| Source | Structured Rows | Train-Ready (candidate split) | Notes |
+|---|---|---|---|
+| Existing manifest (all sources) | 11,828 | 4,665 train + 15 dev | Prepared; do not re-dedup |
+| Bible 1868 (new unique) | 20,852 | 20,852 | After verse-key dedup vs manifest |
+| Hoʻoilina (cleaned) | 68 | 0 | review-pending; needs alignment review |
+| HK Statutes 1897 | 1,103 | 0 | review-pending; needs alignment review |
+| **TOTAL** | **33,851** | **25,532** | |
+
+**Policy-filtered SFT train rows (320 quality model):** ~358. The large gap from 25,532 → 358 is driven by the Bible 30%-cap policy and the 1839/1868 historical-orthography flags. This will increase once review-pending rows pass human review.
+
+### Data Policy Proposals
+
+1. **Hoʻoilina HTML parser convention:** Any Greenstone/Veridian section adapter must extract text only from the `<table width=_pagewidth_>...<td>` content block and call `html.unescape()` before NFC/hash. Add to SKILL.md adapter pattern notes.
+
+2. **Candidate-level vs policy-filtered counts:** Reports must distinguish (a) "structured rows" (all deduped candidate rows regardless of split), (b) "candidate-level train rows" (rows with `split=train` in candidate files), and (c) "policy-accepted train rows" (320 quality-policy output). Mixing these creates confusion.
+
+3. **Bible cross-edition dedup by verse key:** When two Bible editions share the same verse reference system, preserve the already-manifested edition's rows and exclude the new edition's matching verse keys rather than relying solely on sha256_pair dedup.
+
+### Report Location
+
+Full structured counts with methodology: `data/stage2/reports/ulukau_family_structured_counts_20260501.json`
+
+Designed to be extended once Frank pulls remaining Ulukau-family raw sources (Wehewehe PD subset, HK statutes 1846/1850).
+
+---
+
+## Decision: Basher — Ulukau Batch Validation (2026-05-01)
+
+**Filed:** 2026-05-01  
+**Author:** Basher (Validation Engineer)  
+**Scope:** Ka Hoʻoilina + HK Statutes 1897 candidate batch validation  
+
+### Validated Files
+
+| File | Rows | Status |
+|---|---|---|
+| `data/stage2/candidates/hooilina.jsonl` | 109 | ❌ FAIL — needs cleaning pass |
+| `data/stage2/candidates/hk_statutes_1897.jsonl` | 1,103 | ⚠️ PASS with OCR warnings |
+
+### Binding Validation Decisions
+
+**1. Hooilina MUST NOT merge as-is**
+- **29 rows are Greenstone UI footer boilerplate** (text_en == text_haw, the "double-click" copyright notice). All share one sha256_pair (`efbee0995becb2b4...`). Drop these before any manifest merge.
+- **3 rows have misaligned boilerplate** (footer leaked onto one side of real pair — confirmed by extreme length ratio and text inspection). Drop these too.
+- **HTML entities are unescaped** throughout all content rows (`&#699;`, `&#257;`, `&nbsp;`, `&amp;`, `&copy;`, etc.). A `html.unescape()` pass must precede NFC + sha256 computation. After fixing, all hashes will change — current hooilina.jsonl hashes are stale.
+- **Net clean rows after fix:** ~77 candidate-quality translation pairs.
+- **Recommendation:** Adapter re-emit required. Do not merge the current 109-row file into the canonical manifest.
+
+**2. HK Statutes 1897 is merge-eligible as review-pending**
+- Passes all structural checks (schema, hash invariant, dedup, text length).
+- 970 of 1103 HAW text fields have `§→$` OCR artifact from djvu.txt. Fixable with targeted substitution + hash recompute. Does not block review-pending intake.
+- 892 rows have hyphen-split line-break artifacts. Fixable. Does not block review-pending intake.
+- **Zero collisions** with existing manifest or hooilina (pair_id and sha256_pair both clean).
+- **Recommendation:** Include in next manifest build pass as review-pending. Flag OCR issues in quality_flags field during that pass.
+
+**3. Total structured row count (authoritative)**
+
+| State | Canonical Rows |
+|---|---|
+| Current manifest (live) | 11,828 |
+| Deduped preview (bible_haw1868 + hooilina, all 109) | 32,817 |
+| Deduped preview — clean (drop 29 boilerplate hooilina rows) | ~32,788 |
+| + hk_statutes_1897 (not yet in any preview) | +1,103 |
+| **Total if both sources cleaned + merged** | **~33,891 canonical structured rows** |
+| SFT directional (train split, current preview) | 51,090 |
+
+**Bible share:** 94.8% of current deduped pool (31,101 of 32,817). Hard non-Bible growth gate is binding — do not add more Bible until non-Bible sources grow.
+
+**4. Deduped preview is slightly inflated**
+
+The existing `stage2_manifest_deduped_safe_preview_20260501.jsonl` (32,817 rows) includes 29 hooilina boilerplate rows. Any row count citing 32,817 should be understood as containing ~29 invalid rows that must be cleaned before final SFT emission.
+
+### Checklist for Next Merge Pass (Linus/Frank)
+
+- [ ] Re-emit `hooilina.jsonl` with `html.unescape()` + boilerplate filter + hash recompute
+- [ ] Verify re-emitted hooilina has 0 rows where text_en == text_haw
+- [ ] Verify re-emitted hooilina has 0 rows matching Greenstone footer substring
+- [ ] Run manifest build with re-emitted hooilina + hk_statutes_1897 as new candidates
+- [ ] Apply §→$ normalization pass to hk_statutes text_haw before or during manifest build
+- [ ] Enforce Bible ≤30% token cap in manifest build pass
+- [ ] Enforce legal register ≤15% token cap for hk_statutes rows
+- [ ] Validate new manifest with `320_build_stage2_manifest.py --check`
+- [ ] Re-run Basher validation script on merged manifest before SFT emit
+

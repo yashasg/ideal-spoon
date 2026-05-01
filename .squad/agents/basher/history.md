@@ -829,3 +829,169 @@ Rusty's manifest builder now handles all policy scoring. Basher's emitter needs 
 **Checkpoint Status:** `checkpoint-2000` should exist; requires download and integrity verification before resume.
 
 **Guidance:** Verify checkpoint structure, then resume with `--resume_from_checkpoint /path/to/checkpoint-2000` tomorrow.
+
+---
+
+## 2026-05-03 — Ulukau-Family Candidate Validation (hooilina.jsonl)
+
+**Context:** Linus processing HK statutes; Frank processing Wehewehe PD. Only `hooilina.jsonl` present in `data/stage2/candidates/` as an Ulukau-family candidate.
+
+**Validation results for `data/stage2/candidates/hooilina.jsonl`:**
+
+| Check | Result |
+|---|---|
+| JSONL parse | ✅ 0 errors |
+| Row count | 109 rows |
+| Required fields | ✅ All present in every row |
+| sha256_pair hash invariant | ✅ 0 mismatches |
+| Duplicate pair_ids | ✅ 0 |
+| Duplicate sha256_pair | ❌ **1 hash cluster** — 41 rows all share the same sha256_pair |
+| Split distribution | `review-pending`: 109 (all gated) |
+| prototype_only / release_eligible | ✅ True/False for all rows (KS editorial layer correctly tagged) |
+| alignment_review_required | ✅ True for all rows |
+| SFT dry-run emittable | 0 now (review-pending gate); 218 potential if review passes |
+
+**Bugs found:**
+
+1. **UI boilerplate artifact (41 rows):** Rows on OID root `HASHe7d7c93d84511b86ea5ca7.*` have both `text_en` and `text_haw` = `"Look up any word by double-clicking on it. Kuleana kope © 2002–2004 na N…"` — this is the Greenstone JavaScript tooltip that leaked into the OCR/text extraction. These rows should be filtered out at adapter emit time, not accepted into candidates.
+
+2. **HTML entity leakage (68/68 content rows):** ALL 68 actual content rows have unescaped HTML numeric entities in the Hawaiian text (e.g. `&#256;` for Ā, `&#699;` for ʻokina, `&#332;` for Ō, `&#298;` for Ī). The adapter never called `html.unescape()` on the extracted body text. This also breaks the sha256_haw_clean and sha256_pair hashes — once fixed, all hashes will change, making current candidates stale.
+
+**No wehewehe or HK statutes candidates exist yet** — awaiting Frank and Linus outputs.
+
+**Manifest --check (current manifest, not hooilina):** Clean — 0 schema violations, 0 split isolation violations in existing manifest.
+
+**Lessons:**
+- Hooilina adapter must call `html.unescape()` on extracted text BEFORE NFC normalization and sha256 computation.
+- Hooilina adapter must filter sections where both text_en and text_haw are identical boilerplate (Greenstone UI tooltip) — check `text_en == text_haw` OR content matches known boilerplate string.
+- Re-emit hooilina.jsonl after fix; all hashes will change from current values.
+- For HK/Wehewehe new candidates: validate with the same 5-check sequence (parse → fields → hash invariant → dedup → SFT dry-run) before proposing manifest merge.
+
+---
+
+## Ulukau Family Batch Validation — 2026-05-01 (Session: Frank raw-pull + Linus clean + Basher validate)
+
+**Task:** Validate ulukau-family SFT candidates after Frank's raw pull and Linus's cleaning pass. Report total structured row count.
+
+**Files validated:**
+- `data/stage2/candidates/hooilina.jsonl` (109 rows)
+- `data/stage2/candidates/hk_statutes_1897.jsonl` (1,103 rows)
+- `data/stage2/reports/stage2_manifest_deduped_safe_preview_20260501.jsonl` (32,817 rows)
+
+---
+
+### Hooilina (109 rows) — FAIL (needs cleaning pass before merge)
+
+| Check | Result |
+|---|---|
+| JSONL parse | ✅ 0 errors |
+| Required schema fields | ✅ 0 missing |
+| sha256_pair hash invariant | ✅ 0 violations |
+| Duplicate pair_ids | ✅ 0 duplicates |
+| Empty / sub-3-token text | ✅ 0 rows |
+| Unique sha256_pair | ❌ 81 unique of 109 (1 group of 29 duplicates) |
+| Boilerplate rows (EN==HAW, Greenstone footer) | ❌ **29 rows** must be dropped |
+| Misaligned boilerplate rows (footer on one side) | ❌ **3 rows** must be dropped |
+| HTML entity encoding in text | ❌ Present throughout — needs html.unescape() pass |
+| Extreme length ratios (>3x or <0.33x) | ⚠️ 5 rows (3 are the misaligned boilerplate rows above) |
+| policy: prototype_only=True, release_eligible=False | ✅ All rows correct |
+
+**Net clean rows:** ~77 (80 after dropping pure boilerplate, -3 misaligned = 77 candidate-quality rows pending HTML decode)
+
+**Key finding:** The 29 boilerplate rows are the Greenstone "double-click" UI footer captured as section text (identical text on both EN and HAW sides). These are NOT the same as the HTML entity issue — they are a distinct class of bad row. The prior history entry counted 41 boilerplate rows; current file has 29 (Frank may have already filtered some, or the count changed due to a different re-emit). The 3 misaligned rows are NEW — footer leaked onto one side of an otherwise-real pair.
+
+**The current dedup preview (32,817 rows) includes all 109 hooilina rows including the 29 boilerplate rows.** Actual clean row count in the preview is ~32,788 once boilerplate is removed.
+
+---
+
+### HK Statutes 1897 (1,103 rows) — PASS with warnings
+
+| Check | Result |
+|---|---|
+| JSONL parse | ✅ 0 errors |
+| Required schema fields | ✅ 0 missing |
+| sha256_pair hash invariant | ✅ 0 violations |
+| Duplicate pair_ids | ✅ 0 duplicates |
+| Duplicate sha256_pair | ✅ 0 duplicates |
+| Empty / sub-3-token text | ✅ 0 rows |
+| Cross-source dedup (vs hooilina, vs manifest) | ✅ 0 collisions |
+| §→$ substitution in HAW djvu.txt | ⚠️ **970 of 1103 rows** (88%) |
+| Hyphen-split line-break artifacts | ⚠️ **892 rows** — standard djvu OCR artifact |
+| Null bytes / Unicode replacement chars | ✅ 0 |
+| policy: prototype_only=True, release_eligible=False | ✅ All rows correct |
+
+**Both OCR issues are cosmetic/fixable.** The §→$ fix is: `re.sub(r'^\$(\d+)', r'§\1', text_haw)` + hash recompute. Hyphen-split fix requires careful regex to avoid false positives. Neither prevents training use as review-pending rows.
+
+**NOT in any existing dedup preview.** Must be added in next manifest build pass.
+
+---
+
+### Total Structured Row Count (as of this session)
+
+| Pool | Rows |
+|---|---|
+| Canonical manifest (current, not yet updated) | 11,828 |
+| Deduped preview (safe) including bible_haw1868 + hooilina | 32,817 |
+| Deduped preview — clean count (excl. 29 hooilina boilerplate) | ~32,788 |
+| hk_statutes_1897 (not yet merged in any preview) | +1,103 |
+| **Total structured rows if hk_statutes merged (clean estimate)** | **~33,891** |
+| SFT train directional rows (current preview, train split only) | 51,090 |
+| Additional SFT from hk_statutes | 0 (all review-pending) |
+
+**Bible dominance:** 31,101 of 32,817 rows are Bible (baibala-hemolele-1839: 10,221 + 1868: 20,880 = 94.8%). Non-Bible pool is only 1,716 rows. Hard constraint confirmed: must grow non-Bible sources before any further Bible intake.
+
+---
+
+### Decisions inbox entry filed
+`/.squad/decisions/inbox/basher-ulukau-batch-validation.md`
+
+### Validation report written
+`data/stage2/reports/ulukau_family_validation_20260501.json`
+
+---
+
+### Lessons learned (new)
+
+- **Greenstone boilerplate count can vary between emits** — prior history said 41, this run found 29. The adapter re-emit may have partially fixed filtering. Still not fully fixed. The filter must check BOTH `text_en == text_haw` AND content matches known boilerplate substring.
+- **sha256_pair internal dedup is the right check** — pair_id uniqueness alone is insufficient; two rows with different OID-based pair_ids can still be content-duplicates (the 29 boilerplate rows all have unique pair_ids but share one sha256_pair).
+- **djvu.txt §→$ artifact affects 88% of HK statutes HAW text** — this is systematic, not a few isolated rows. A bulk substitution pass at the start of the HAW text field is safe and necessary before SFT templating.
+- **hk_statutes is clean structurally** — no schema violations, no hash errors, no dedup collisions. It is safe to include in the next manifest merge pass as review-pending.
+
+---
+
+## Session: Ulukau-family Batch (2026-05-01T23:13:13Z)
+
+**Orchestration log:** `.squad/orchestration-log/2026-05-01T23-13-13Z-basher.md`
+
+### Validation findings
+
+1. **Hoʻoilina (109 rows):** FAIL
+   - 29 rows are Greenstone footer boilerplate (all identical sha256_pair `efbee0995becb2b4...`; text_en == text_haw)
+   - 3 rows misaligned boilerplate (extreme length ratio)
+   - All rows have raw HTML entities (`&#699;`, `&#257;`, &nbsp;, etc.) unescaped
+   - After cleanup: ~77 candidate-quality translation pairs
+   - **Recommendation:** Adapter re-emit required; do not merge current file
+
+2. **HK Statutes 1897 (1,103 rows):** PASS (with OCR flags)
+   - Passes all structural checks (schema, hash invariant, dedup, text length)
+   - 970 rows have §→$ OCR artifact (fixable)
+   - 892 rows have hyphen-split line-break artifacts (fixable)
+   - 0 collisions with manifest or Hoʻoilina
+   - **Recommendation:** Merge-ready as `review-pending` with OCR flags during manifest build
+
+3. **Total baseline:** 33,891 canonical rows if both cleaned + merged. Bible 94.8% of deduped pool; hard non-Bible growth gate binding.
+
+### Team handoff state (from Frank + Linus)
+
+- **Frank pulled 6 candidates:** Awaiting Linus verification before adapter builds.
+- **Linus cleaned + deduped baseline:** 33,851 total rows; 25,532 candidate-level train rows; ~358 policy-filtered SFT rows. Set three data policies.
+
+### Checklist for next merge pass (Linus/Frank)
+
+- [ ] Re-emit Hoʻoilina with `html.unescape()` + boilerplate filter + hash recompute
+- [ ] Verify re-emitted hooilina: 0 rows where text_en == text_haw
+- [ ] Run manifest build with re-emitted hooilina + hk_statutes_1897
+- [ ] Apply §→$ normalization + hyphen-break fixes during manifest build
+- [ ] Enforce Bible ≤30% token cap + legal register ≤15% token cap
+- [ ] Validate merged manifest with `320_build_stage2_manifest.py --check`
+- [ ] Re-run Basher validation on merged manifest before SFT emit
