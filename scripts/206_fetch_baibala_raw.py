@@ -63,15 +63,20 @@ import argparse
 import dataclasses
 import datetime as _dt
 import hashlib
+import html as _html
 import json
 import random
 import re
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+OKINA = "\u02bb"
+OKINA_MISENCODINGS = ("\u2018", "\u2019", "'")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_PATH = REPO_ROOT / "data-sources" / "bible" / "source_registry.json"
@@ -154,9 +159,15 @@ def parse_chapters_spec(spec: str, max_chapter: int) -> list[int]:
     return uniq
 
 
-def render_url(template: str, *, book_code: str, chapter: int) -> str:
-    """Render a registry URL template. Supports {book_code} and {chapter[:fmt]}."""
-    return template.format(book_code=book_code, chapter=chapter)
+def render_url(template: str, *, book_code: str, chapter: int, greenstone_oid: str = "") -> str:
+    """Render a registry URL template.
+
+    Supports ``{book_code}``, ``{chapter}``, and ``{greenstone_oid}`` placeholders.
+    The Hawaiian-side baibala.org template uses ``{greenstone_oid}`` (Greenstone
+    document OID, e.g. ``NULL.2.1.1``).  The English WEB template uses
+    ``{book_code}`` and ``{chapter:02d}``.
+    """
+    return template.format(book_code=book_code, chapter=chapter, greenstone_oid=greenstone_oid)
 
 
 # ---------------------------------------------------------------------------
@@ -205,23 +216,82 @@ def _http_get(
 # ---------------------------------------------------------------------------
 
 
-def parse_baibala_chapter_html(html_bytes: bytes, *, book_code: str, chapter: int) -> list[dict[str, Any]]:
+_VERSE_ANCHOR_RX = re.compile(
+    r'<a\s+name="a(?P<book>[a-z0-9]+)-(?P<chap>\d+)-(?P<verse>\d+)"\s*>\s*</a>'
+    r'(?P<body>.*?)'
+    r'(?:<br\s*/?>|(?=<a\s+name="a[a-z0-9]+-\d+-\d+"))',
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _normalize_haw_verse_text(text: str) -> str:
+    """NFC + canonicalize ʻokina mis-encodings to U+02BB; collapse whitespace."""
+    nfc = unicodedata.normalize("NFC", text)
+    for bad in OKINA_MISENCODINGS:
+        nfc = nfc.replace(bad, OKINA)
+    return re.sub(r"\s+", " ", nfc).strip()
+
+
+def parse_baibala_chapter_html(
+    html_bytes: bytes,
+    *,
+    book_code: str,
+    chapter: int,
+    book_name_lower: str | None = None,
+) -> list[dict[str, Any]]:
     """Parse one Baibala chapter HTML page into verse records.
 
-    Contract (when implemented): returns a list of dicts shaped as
+    Contract: returns a list of dicts shaped as
     ``{"book": <str>, "chapter": <int>, "verse": <int>, "text": <str>}``
-    with ``text`` already NFC-normalized and ʻokina canonicalized to
-    U+02BB. Until Frank has live HTML samples to write the parser
-    against (live fetch is gated on Linus' edition pin), this raises
-    NotImplementedError. The fixture-backed path in
-    ``scripts/322_build_bible_candidates.py --fixture-dir`` is the
-    proven extraction surface for tests.
+    with ``text`` already NFC-normalized and ʻokina canonicalized to U+02BB.
+
+    Live HTML structure (confirmed 2026-05-01, Linus):
+
+    Verse anchors follow the pattern::
+
+        <a name="a{book_name_lower}-{chapter}-{verse}"></a>N &para; text... <br />
+
+    where ``book_name_lower`` is the Greenstone book name (e.g. ``genesis``,
+    ``1samuel``, ``songofsolomon`` — see ``books[].book_name_lower`` in the
+    registry).  The verse number ``N`` is a bare integer before optional ``&para;``
+    and the verse text. Verses run until the next ``<a name=...>`` anchor or
+    ``</table>``.
+
+    If ``book_name_lower`` is given, only anchors whose book token matches it
+    are accepted; otherwise any anchor whose chapter matches ``chapter`` is
+    accepted (the caller still owns ``book_code``).
     """
-    raise NotImplementedError(
-        "Live Baibala HTML parser not implemented — pending live samples after "
-        "edition pin and ToS snapshot. Use --fixture-dir in 322_build_bible_candidates.py "
-        "for adapter-contract tests."
-    )
+    text = html_bytes.decode("utf-8", errors="replace")
+    rows: list[dict[str, Any]] = []
+    seen_verses: set[int] = set()
+    for m in _VERSE_ANCHOR_RX.finditer(text):
+        bn = m.group("book").lower()
+        if book_name_lower is not None and bn != book_name_lower.lower():
+            continue
+        ch = int(m.group("chap"))
+        if ch != chapter:
+            continue
+        v = int(m.group("verse"))
+        if v in seen_verses:
+            continue
+        body = m.group("body")
+        body = re.sub(r"<br\s*/?>", " ", body, flags=re.IGNORECASE)
+        body = re.sub(r"<[^>]+>", " ", body)
+        body = _html.unescape(body)
+        body = body.replace("\u00b6", " ")  # &para; → ¶ → drop
+        body = re.sub(rf"^\s*{v}\b\.?\s*", "", body, count=1)
+        body = _normalize_haw_verse_text(body)
+        if not body:
+            continue
+        seen_verses.add(v)
+        rows.append({
+            "book": book_code,
+            "chapter": chapter,
+            "verse": v,
+            "text": body,
+        })
+    rows.sort(key=lambda r: r["verse"])
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +329,12 @@ def enumerate_plan(
                 "book_en_name": book["en_name"],
                 "book_haw_name": book.get("haw_name"),
                 "chapter": ch,
-                "url": render_url(template, book_code=code, chapter=ch),
+                "url": render_url(
+                    template,
+                    book_code=code,
+                    chapter=ch,
+                    greenstone_oid=book.get("greenstone_oid", ""),
+                ),
                 "edition_or_version": side_cfg["edition_or_version"],
                 "license_observed": side_cfg["license_observed"],
                 "tos_url": side_cfg["tos_url"],

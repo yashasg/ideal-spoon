@@ -1,9 +1,60 @@
 # Decisions
 
+> Updated 2026-05-01T00:59:31Z: Merged Linus Baibala Hemolele 1839 edition pin. Outcome: Edition confirmed on baibala.org with correct Greenstone URL pattern and verse anchor format; all 66 books mapped with `greenstone_oid` and `book_name_lower`; sample HTML + ToS captured; working tree ready for Frank parser implementation.
+>
 > Updated 2026-04-30T21:36:58Z: Merged Basher Kaggle venv robustness + docs idempotency and Copilot W1 eval skip directive. Outcome: `scripts/setup_training.py` now probes venv pip health and auto-recreates broken envs; `docs/kaggle-t4x2-setup.md` uses absolute cd paths; W1 provisional micro-eval skipped per directive.
 >
 > Updated 2026-04-30T10:06:39Z: Merged Basher QLoRA bitsandbytes compute dtype fix. Outcome: `_bnb_4bit_config()` now correctly derives compute dtype from TrainConfig `bf16`/`fp16` flags. Kaggle T4x2 config (fp16=true, bf16=false) now uses torch.float16 instead of unsupported torch.bfloat16.
 
+
+---
+
+## Decision: Linus — Baibala Hemolele 1839 edition pin confirmed (2026-05-01)
+
+**Owner:** Linus (Data Engineer)  
+**Tracks:** Issue #16  
+**Status:** IMPLEMENTED — working tree changes only (not committed)
+
+### Summary
+
+Live-confirmed the canonical Baibala Hemolele source on baibala.org and pinned the 1839 edition in `source_registry.json`.
+
+### Key findings
+
+1. **Platform:** baibala.org runs **Greenstone Digital Library** software. The CGI URL is not a simple `?e=BAI1839&b={book_code}&c={chapter}` pattern — that placeholder was wrong and returns a CGI error.
+
+2. **Correct URL pattern** (innermost content frame, returns verse HTML directly):
+   ```
+   https://baibala.org/cgi-bin/bible?e=d-1off-01839-bible--00-1-0--01839-0--4--Sec---1--1haw-Zz-1-other---20000-frameset-main-home----011-01839--210-0-2-utfZz-8&d={greenstone_oid}.{chapter}&d2=1&toc=0&exp=1-&gg=text
+   ```
+   Where `{greenstone_oid}` is per-book (all 66 now in registry `books[].greenstone_oid`).
+
+3. **Verse anchor format** (confirmed on Genesis 1 and John 3):
+   ```html
+   <a name="agenesis-1-1"></a>1 &para; text... <br />
+   ```
+   Pattern: `a{book_name_lower}-{chapter}-{verse}` (see `books[].book_name_lower`).
+
+4. **Rights:** 1839 imprint → US public domain. Site copyright 2003-2008 Partners In Development Foundation covers *digitization only* — the underlying text is unencumbered. No scraping prohibition found in ToS/acknowledgments.
+
+5. **ToS snapshot** captured: `data/raw/baibala-hemolele-1839/20260501/tos_snapshot.html` (SHA-256: `254c552c...`).
+
+6. **Sample HTML** captured (gitignored): `data/raw/baibala-hemolele-1839/20260501/` — Genesis 1 and John 3.
+
+### Files changed (working tree, not committed)
+
+- `data-sources/bible/source_registry.json` — edition pinned; correct URL template; `greenstone_oid` + `book_name_lower` added to all 66 books
+- `data-sources/bible/README.md` — confirmed URL, rights, ToS snapshot path, parser contract documented
+- `scripts/206_fetch_baibala_raw.py` — `render_url()` extended to accept `greenstone_oid` kwarg; `parse_baibala_chapter_html()` docstring updated with live HTML structure
+- `scripts/322_build_bible_candidates.py` — `build_rows_for_chapter()` now passes `greenstone_oid` when rendering the haw URL template
+- `code/tests/test_bible_adapter.py` — `test_execute_refused_without_edition_pin` updated to reflect that pin is now set (tests wrong-edition mismatch gate instead)
+- `data/raw/baibala-hemolele-1839/20260501/` (gitignored) — sample HTML + ToS snapshot + provenance JSON
+
+### Next actions for Frank
+
+1. **Implement `parse_baibala_chapter_html()`** using the confirmed anchor pattern (see updated docstring in `206_fetch_baibala_raw.py`).  
+2. Sample HTML at `data/raw/baibala-hemolele-1839/20260501/haw_genesis_1.html` and `haw_john_3.html` are available locally for parser development.  
+3. Once parser is in, run `206_fetch_baibala_raw.py --execute --side haw --book GEN --chapters 1-3 --confirm-edition baibala-hemolele-1839 --tos-snapshot data/raw/baibala-hemolele-1839/20260501/tos_snapshot.html`.
 
 ---
 
@@ -3742,3 +3793,90 @@ The committed haw→en paraphrase was orthographically/grammatically inverted (`
 - `code/tests/fixtures/stage2/templates.json` — haw→en templates corrected
 - `code/llm_hawaii/score_stage2_sft_batch.py` — emitter default instructions updated
 - `data/stage2/score_summary.json` — persisted on each build
+# Decision — Baibala live HTML parser landed (issue #16)
+
+**From:** Frank (Hawaiian Data Collector)
+**Date:** 2026-05-01
+**Tracks:** issue #16 — Stage 2 source adapter: Baibala Hemolele verse-aligned en-haw
+
+## Decisions
+
+1. **Verse-body terminator = `<br />`, not the next anchor.** Greenstone
+   appends an inner navigation `<table>` after the final verse with a
+   "next chapter &gt;" link; using the next-anchor / `</table>` boundary
+   leaks that nav text into verse 31 (or whatever the last verse is).
+   Terminating each verse at the first `<br />` cleanly avoids it and
+   matches the per-verse line layout 1:1.
+
+2. **ASCII apostrophe is a real ʻokina mis-encoding on the 1839 imprint.**
+   Live HTML uses `hana'i` (ASCII `'`) where modern orthography would use
+   `hanaʻi` (U+02BB). The haw normalization pipeline (`OKINA_MISENCODINGS
+   = ("\u2018", "\u2019", "'")`) already canonicalizes this, but it was
+   previously framed as a defensive case. After observing live samples,
+   this is the *primary* ʻokina canonicalization path on the haw side
+   for this edition. Documented in `data-sources/bible/README.md` and
+   pinned by `test_ascii_apostrophe_canonicalized_to_okina`.
+
+3. **Candidate JSONL is policy-merge-required for `--check --strict`.**
+   The Stage-2 alignment-quality policy fields
+   (`alignment_confidence_tier`, `quality_flags`,
+   `manual_review_reasons`, `alignment_score_components`,
+   `policy_version`) are stamped on by
+   `320_build_stage2_manifest.py --execute` via `apply_policy()`, NOT
+   by the per-source candidate builders. Running
+   `--check --strict --manifest-in <candidates.jsonl>` directly will
+   always report `missing:*` violations by design. The correct gate is
+   `--check --strict` against the post-build manifest at
+   `data/stage2/stage2_manifest.jsonl`. Adapter-contract tests already
+   apply policy before validating; we should not add the policy fields
+   to candidate rows because that would duplicate logic that the
+   manifest builder owns.
+
+4. **Raw-derived rows are tagged in `notes`.** `build_rows_from_raw_haw`
+   appends `; src=raw_html` to the `notes` field so a downstream review
+   can distinguish fixture-derived rows (used in CI / dry-run) from
+   raw-fetch-derived rows (real source bytes). The intent is *not* to
+   gate behavior on this; it's a provenance breadcrumb.
+
+5. **English side stays on fixture for this round.** The English WEB
+   `url_template_status` is still `placeholder_pending_endpoint_check`.
+   `--from-raw` and `--haw-raw-dir` only override the haw side; eng
+   defaults to `--eng-fixture-dir code/tests/fixtures/bible`. A bulk
+   run that hits the issue-#16 "few thousand verse-aligned rows"
+   acceptance number is blocked on Linus pinning the WEB endpoint.
+
+## What others should know
+
+- **Linus:** when you pin the WEB url_template, please flip
+  `url_template_status` to a `confirmed_live_<date>` value the same way
+  you did for the haw side; the fetcher's `assert_execute_preconditions`
+  reads `edition_pinned_by` per-side and will refuse `--execute` until
+  the eng pin is real.
+- **Rusty:** verse-id pairs come out at `score-tier=accept` per
+  `docs/stage2-alignment-quality.md` §3.1. No embedding model needed.
+  The Hawaiian normalization on this source produces NFC + U+02BB text;
+  this matches the assumption your tokenizer / training pipeline makes
+  on Stage-1 input.
+- **Coordinator:** parser implementation does not require a fetch (live
+  samples were already on disk via Linus' pin work); the only network
+  egress this round was to verify the previously-committed registry
+  URL renders against the corrected Greenstone `d=` parameter.
+
+## Files touched (working tree only — not committed)
+
+- `scripts/206_fetch_baibala_raw.py` — implemented
+  `parse_baibala_chapter_html()`, added `_normalize_haw_verse_text()`
+  and `_VERSE_ANCHOR_RX`, added `html` + `unicodedata` imports.
+- `scripts/322_build_bible_candidates.py` — added
+  `_load_fetch_module()`, `iter_raw_haw_chapters()`,
+  `build_rows_from_raw_haw()`; CLI gained `--from-raw`,
+  `--haw-raw-dir`, `--eng-fixture-dir`.
+- `data-sources/bible/README.md` — status header, run order,
+  parser-contract section refreshed.
+- `code/tests/test_bible_adapter.py` — +12 tests
+  (`TestLiveHtmlParser`, `TestRawHawCandidateBuilder`).
+- `code/tests/fixtures/bible/haw_html/GEN_001.html` — synthetic chapter
+  HTML fixture mirroring the live anchor pattern. Not real Bible text.
+
+No corpus payloads committed.
+

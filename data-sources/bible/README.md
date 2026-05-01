@@ -1,6 +1,6 @@
 # Stage 2 source adapter — Baibala Hemolele × public-domain English Bible
 
-> **Owner:** Frank (Hawaiian Data Collector). **Tracks:** [issue #16](https://github.com/yashasg/ideal-spoon/issues/16). **Status:** Adapter contract + fixtures landed; live URL pin pending Linus rights review.
+> **Owner:** Frank (Hawaiian Data Collector). **Tracks:** [issue #16](https://github.com/yashasg/ideal-spoon/issues/16). **Status:** Edition PINNED by Linus 2026-05-01. ToS snapshot captured. Live HTML parser implemented and verified against Genesis 1 + John 3 samples (Frank 2026-05-01).
 
 ## What this is
 
@@ -55,24 +55,69 @@ python scripts/206_fetch_baibala_raw.py --execute \
   --tos-snapshot data/raw/baibala-hemolele-1839/<YYYYMMDD>/tos_snapshot.html
 
 # 2. Build candidate pair JSONL (works with raw fetch OR test fixtures):
-python scripts/322_build_bible_candidates.py --dry-run
-python scripts/322_build_bible_candidates.py --execute  # writes data/stage2/candidates/bible.jsonl
+python scripts/322_build_bible_candidates.py --dry-run                    # in-tree fixtures
+python scripts/322_build_bible_candidates.py --execute                    # writes data/stage2/candidates/bible.jsonl from fixtures
+python scripts/322_build_bible_candidates.py --execute \
+  --from-raw 20260501                                                     # parses raw haw HTML under data/raw/baibala-hemolele-1839/20260501/
+python scripts/322_build_bible_candidates.py --execute \
+  --haw-raw-dir <path> --eng-fixture-dir <path>                           # explicit override (test/dev)
 
 # 3. Feed into the Stage-2 manifest builder (Linus' script):
-python scripts/320_build_stage2_manifest.py --check  # schema validation
+python scripts/320_build_stage2_manifest.py --execute --candidates data/stage2/candidates/bible.jsonl
+python scripts/320_build_stage2_manifest.py --check --strict              # schema + invariant validation
 ```
 
 ## Rights / boundaries
 
-* **Hawaiian side:** 1839 Andrews/Bingham translation is the public-domain candidate. Final pin pending Linus. Adapter refuses `--execute` without `--confirm-edition <id>` matching the registry pin.
+* **Hawaiian side:** 1839 Andrews/Bingham translation — **PUBLIC DOMAIN** (pre-1925 US imprint). Edition pinned by Linus 2026-05-01. Site copyright 2003-2008 held by Partners In Development Foundation for the *digitization* (Greenstone platform, UI, audio); the underlying 1839 text is unencumbered. No scraping prohibition found in ToS/acknowledgments page as of 2026-05-01.
 * **English side:** WEB (Rainbow Missions, declared public domain) is the default. KJV (US PD) is an acceptable alternative; both share versification with the Baibala protocanon.
 * **Cap:** Bible token share ≤ 30% of Stage-2 parallel-train tokens; **0%** of dev/test (see `docs/data-pipeline.md` §"Stage 2 source tiers" Tier A). Allocation enforced downstream by Linus.
 
-## What's still open (not in this PR)
+## Confirmed source URL
 
-1. Live URL confirmation against `baibala.org` — exact CGI parameter shape and the edition code (`BAI1839` is a placeholder).
-2. ToS snapshot capture (`data/raw/baibala-hemolele-1839/<YYYYMMDD>/tos_snapshot.html`) before any `--execute`.
-3. Real HTML → verse parser. Today the `--fixture-dir` path is the proven extraction surface; the live HTML parser is a small `parse_baibala_chapter_html()` function with a clear contract and a `NotImplementedError` until Frank has live samples to write against.
-4. Versification reconciliation across editions (Psalms numbering, etc.).
+baibala.org runs **Greenstone Digital Library** software. The canonical content URL for a chapter in the **1839 edition** is:
 
-— Frank, source-first, provenance-obsessed.
+```
+https://baibala.org/cgi-bin/bible?e=d-1off-01839-bible--00-1-0--01839-0--4--Sec---1--1haw-Zz-1-other---20000-frameset-main-home----011-01839--210-0-2-utfZz-8&d={greenstone_oid}.{chapter}&d2=1&toc=0&exp=1-&gg=text
+```
+
+Where `{greenstone_oid}` is per-book (see `books[].greenstone_oid` in `source_registry.json`). Examples:
+
+| Book | `greenstone_oid` | Genesis 1 URL fragment |
+|------|-----------------|----------------------|
+| Genesis | `NULL.2.1.1` | `d=NULL.2.1.1.1` |
+| John | `NULL.4.1.4` | `d=NULL.4.1.4.1` |
+| Revelation | `NULL.4.4.1` | `d=NULL.4.4.1.1` |
+
+The old placeholder `e=BAI1839&b={book_code}&c={chapter}` is **wrong and returns an error**. The `source_registry.json` `haw.url_template` has been corrected.
+
+## Live HTML verse structure (for parser implementation)
+
+Sample HTML in `data/raw/baibala-hemolele-1839/20260501/` (gitignored, local only). Anchor pattern confirmed on Genesis 1 and John 3:
+
+```html
+<!-- Chapter OID: NULL.2.1.1.1-->
+<a name="agenesis-1-1"></a>1 &para; I KINOHI hana ke Akua i ka lani a me ka honua. <br />
+<a name="agenesis-1-2"></a>2 He ano ole ka honua, ua olohelohe; ... <br />
+```
+
+**Parser contract for `parse_baibala_chapter_html()` in `scripts/206_fetch_baibala_raw.py`** *(implemented 2026-05-01, verified on Genesis 1 → 31 verses, John 3 → 36 verses)*:
+
+1. Find all `<a name="a{book_name_lower}-{chapter}-{verse}">` anchors (where `book_name_lower` comes from `books[].book_name_lower` in the registry — e.g. `genesis`, `1samuel`, `songofsolomon`).
+2. Extract the text between the anchor and the next `<br />` (the verse terminator), strip leading verse number + `&para;` (¶) marker, decode HTML entities, collapse whitespace.
+3. NFC-normalize + canonicalize ʻokina mis-encodings (`U+2018`, `U+2019`, ASCII `'`) to U+02BB. The 1839 imprint actually uses ASCII apostrophes (e.g. `hana'i` → `hanaʻi`) so this canonicalization is load-bearing on the haw side.
+4. Return `{"book": book_code, "chapter": chapter, "verse": int, "text": str}` list, sorted by verse.
+
+A small synthetic chapter HTML fixture mirroring this anchor pattern (no real Bible text) lives at `code/tests/fixtures/bible/haw_html/GEN_001.html` and exercises the parser end-to-end via `scripts/322_build_bible_candidates.py --haw-raw-dir`.
+
+Note: The 1839 text uses pre-modern orthography (no kahakō/macrons). NFC normalization is still required; ASCII apostrophe → U+02BB canonicalization fires often.
+
+## ToS snapshot
+
+Captured at: `data/raw/baibala-hemolele-1839/20260501/tos_snapshot.html`  
+SHA-256: `254c552c3519f503d98fab03e46616b7789d3ac95cbbc5f41dd76d3e74af268c`  
+URL: `https://baibala.org/cgi-bin/bible?...&a=p&p=ack&gg=text&exp=1`  
+Hosted by: Partners In Development Foundation; supported by Ka Haka ʻUla O Keʻelikōlani (UH Hilo).  
+No robots.txt prohibition or scraping ban found. Polite rate limit (1.5 s between requests) is enforced by the fetcher.
+
+The `--execute` gate in `206_fetch_baibala_raw.py` now passes preconditions (edition pinned + ToS snapshot on disk).

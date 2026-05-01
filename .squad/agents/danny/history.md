@@ -191,3 +191,43 @@
 
 Danny reviewed the integrated Stage 2 readiness changeset (including Rusty's #19 policy integration). All validation passed: py_compile on changed modules, targeted integrated unittest slice, scorer self-test, stage2 eval self-test. Verdict: APPROVED for merge. Close issues #17–#24 after commit/push. Keep #15–#16 open per Danny's assessment.
 
+
+## 2026-05-01T01:11:50Z — Code Review: Baibala Live HTML Parser (Issue #16)
+
+**Status:** APPROVED — Ready for closure
+
+### Review scope
+
+Frank's implementation of `parse_baibala_chapter_html()` and raw Baibala candidate generation for Stage 2:
+- Parser logic & boundary strategy
+- 12 new tests (live parser + candidate builder)
+- Manifest alignment-quality policy integration
+- Documentation (parser contract, orthography canonicalization)
+- CLI expansion (`--from-raw`, `--haw-raw-dir`, `--eng-fixture-dir`)
+
+### Findings
+
+✅ **Parser design sound.** Verse terminator at `<br />` is correct per live sample analysis. Avoids Greenstone nav table leak into final verse.
+
+✅ **Normalization correct.** ASCII apostrophe canonicalization (`'` → U+02BB) matches haw pipeline expectations and is the primary encoding path for the 1839 imprint.
+
+✅ **Test suite adequate.** 12 tests cover live parser edge cases, candidate builder split logic, raw provenance tagging, and fixture integrity.
+
+✅ **Docs clear.** Parser contract well-documented; orthography decisions explained; run order and pinning strategy transparent.
+
+✅ **Policy integration correct.** Adapter correctly omits policy fields (`alignment_confidence_tier`, `quality_flags`, etc.). Manifest builder applies them as designed.
+
+✅ **English side deferral appropriate.** Fixture fallback maintains Stage 2 intake readiness without WEB endpoint pin. Linus will pin WEB separately; manifest rebuild follows.
+
+### Non-blockers
+
+- **English WEB endpoint still unpinned.** Not a blocker for prototype intake. Fixture provides coverage. When Linus pins WEB, `url_template_status` flips to `confirmed_live_<date>` and manifest rebuilds with live English side.
+
+### Recommendation
+
+Close issue #16 and #15. Merge into Stage 2 readiness queue. Parser is production-ready for prototype scope. Combined with coordinator validation (py_compile, test_bible_adapter, test_stage2_manifest, scorer self-test), Stage 2 is ready for final gates.
+
+### Sign-off
+
+- Verdict: APPROVED (no changes required)
+- Date: 2026-05-01T01:11:50Z

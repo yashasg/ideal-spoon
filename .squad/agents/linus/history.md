@@ -41,6 +41,11 @@
 - Pure-Python char-bigram F1 is a reasonable baseline string-overlap drift signal when no sacrebleu/nltk is available. Document it explicitly as a *baseline character-F score* so consumers don't mistake it for a production chrF metric.
 - For tests involving callable mocks on module-level functions (like `sample_generations`), `unittest.mock.patch("llm_hawaii.evaluate.sample_generations")` is the right pattern — patch the name as used in the module under test.
 
+- **Baibala Hemolele URL structure (issue #16):** baibala.org runs Greenstone Digital Library software. The 1839 edition is accessed via `d=NULL.{group}.{book}.{chapter}` Greenstone OIDs, NOT simple `?e=BAI1839&b={book}&c={chapter}`. The outer frameset peels back 3 layers before reaching the actual text page (use `a=d` + `d2=1` directly on the innermost e= string). Verse anchors are `<a name="a{bookname_lower}-{chapter}-{verse}"></a>`. All 66 OIDs are now in `source_registry.json books[].greenstone_oid`.
+- **Baibala rights:** 1839 imprint is US public domain. Site copyright (PIDF 2003-2008) covers digitization only; the text is unencumbered. No scraping prohibition found as of 2026-05-01.
+- **URL template upgrades:** When a new URL template introduces a per-book variable (like `greenstone_oid`), update BOTH the fetcher (`render_url`) AND the candidate builder (`build_rows_for_chapter`) to pass the new keyword. Both call `template.format(...)` and will raise `KeyError` if the new placeholder is not supplied.
+- **Test gate updates after pin:** When the edition pin is set, a test checking "execute refused without pin" becomes stale. Update such tests to test the next-in-line safety gate (wrong edition mismatch) rather than removing the safety gate test entirely.
+
 ---
 
 
@@ -804,3 +809,34 @@ Rusty's manifest builder now scores all rows and emits policy fields. Linus's ad
 
 **Reference:** `code/tests/fixtures/stage2/templates.json` corrected for haw→en template direction.
 
+
+## 2026-05-01T00:59:31Z — Baibala Hemolele 1839 Edition Pin Confirmed (Issue #16)
+
+**Status:** COMPLETED — Edition pinned; Frank unblocked
+
+**Issue:** #16
+
+**What:** Live-confirmed the canonical Baibala Hemolele source on baibala.org and pinned the 1839 edition in `source_registry.json`.
+
+**Key findings:**
+- **Platform:** baibala.org runs **Greenstone Digital Library** software
+- **Correct URL pattern:** `https://baibala.org/cgi-bin/bible?e=d-1off-01839-bible--00-1-0--01839-0--4--Sec---1--1haw-Zz-1-other---20000-frameset-main-home----011-01839--210-0-2-utfZz-8&d={greenstone_oid}.{chapter}&d2=1&toc=0&exp=1-&gg=text`
+- **Verse anchor format:** `<a name="a{book_name_lower}-{chapter}-{verse}"></a>` (confirmed on Genesis 1 and John 3)
+- **Rights:** 1839 imprint is US public domain; digitization copyright 2003-2008 covers only digitization, not underlying text
+- **ToS/provenance:** Captured to `data/raw/baibala-hemolele-1839/20260501/tos_snapshot.html`
+
+**Files changed (working tree, not committed):**
+- `data-sources/bible/source_registry.json` — edition pinned with `greenstone_oid` and `book_name_lower` for all 66 books
+- `data-sources/bible/README.md` — documented URL, rights, ToS path, parser contract
+- `scripts/206_fetch_baibala_raw.py` — render_url() extended; parse_baibala_chapter_html() docstring updated with confirmed anchor pattern
+- `scripts/322_build_bible_candidates.py` — build_rows_for_chapter() now passes greenstone_oid
+- `code/tests/test_bible_adapter.py` — test_execute_refused_without_edition_pin updated (pin now set)
+- `data/raw/baibala-hemolele-1839/20260501/` (gitignored) — Genesis 1, John 3 sample HTML + ToS + provenance.json
+
+**Unblocking Frank:** Parser implementation (`parse_baibala_chapter_html()`) now ready to proceed using confirmed anchor pattern. Sample HTML available locally for development.
+
+**Next:** Frank implements parser and runs live fetch when ready.
+
+**Artifacts:**
+- Orchestration log: `.squad/orchestration-log/2026-05-01T00-59-31Z-linus-baibala-pin.md`
+- Decision merged to `.squad/decisions.md`

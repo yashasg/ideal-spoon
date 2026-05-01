@@ -33,3 +33,20 @@ Wrote orchestration-log entries for both Linus pipeline passes; wrote session lo
 - **Orchestration log:** `.squad/orchestration-log/2026-04-29T06-56-07Z-python-script-contracts.md`
 - **Session log:** `.squad/log/2026-04-29T06-56-07Z-python-script-contracts.md`
 - **Agent histories updated:** Frank (validation + merge), Linus (Stage-1 JSONL approval), Scribe (this session).
+
+## 2026-05-01T00:59:31Z — Orchestration Log: Baibala Edition Pin Dependency Resolution
+
+**What:** Processed Linus's completed work on Baibala Hemolele 1839 edition pin (issue #16). Frank now unblocked for parser implementation.
+
+**Tasks completed:**
+1. ✅ Orchestration log written: `.squad/orchestration-log/2026-05-01T00-59-31Z-linus-baibala-pin.md`
+2. ✅ Session log written: `.squad/log/2026-05-01T00-59-31Z-baibala-edition-pin.md`
+3. ✅ Inbox decision merged: `linus-baibala-edition-pin.md` → `.squad/decisions.md`; inbox file deleted
+4. ✅ Cross-agent history appends: Frank history updated with unblocking notification; Linus history updated with session summary
+5. ✅ Decisions archive: Not needed (decisions.md remains under 300KB; newest entry is today)
+
+**Deferred:**
+- No git commit (per spawn manifest)
+- No history summarization (per spawn manifest)
+
+**Status:** Ready for Frank parser implementation; Coordinator may route #16 to Frank next.

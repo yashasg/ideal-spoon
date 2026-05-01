@@ -24,6 +24,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 FIXTURE_DIR = REPO_ROOT / "code" / "tests" / "fixtures" / "bible"
+HAW_HTML_FIXTURE_DIR = FIXTURE_DIR / "haw_html"
 
 
 def _load_script(name: str, path: Path):
@@ -175,6 +176,188 @@ class TestCandidateBuilder(unittest.TestCase):
                              f"schema violations on {r['pair_id']}: {violations}")
 
 
+class TestLiveHtmlParser(unittest.TestCase):
+    """Tests for parse_baibala_chapter_html() against the live anchor pattern.
+
+    Uses the small synthetic HTML fixture under
+    ``code/tests/fixtures/bible/haw_html/`` which mirrors the live
+    ``<a name="agenesis-1-N"></a>... <br />`` structure observed on
+    baibala.org Greenstone pages. **No real Bible text is committed.**
+    """
+
+    def test_parses_anchor_pattern_into_verse_dicts(self):
+        html = (HAW_HTML_FIXTURE_DIR / "GEN_001.html").read_bytes()
+        rows = fetch.parse_baibala_chapter_html(
+            html, book_code="GEN", chapter=1, book_name_lower="genesis",
+        )
+        self.assertEqual(len(rows), 5)
+        self.assertEqual([r["verse"] for r in rows], [1, 2, 3, 4, 5])
+        for r in rows:
+            self.assertEqual(r["book"], "GEN")
+            self.assertEqual(r["chapter"], 1)
+            self.assertIsInstance(r["text"], str)
+            self.assertGreater(len(r["text"]), 0)
+            # Verse number prefix must be stripped from the body.
+            self.assertFalse(
+                r["text"].lstrip().startswith(f"{r['verse']} "),
+                f"verse-number prefix not stripped: {r['text']!r}",
+            )
+            # &para; (¶) must not leak into the parsed text.
+            self.assertNotIn("\u00b6", r["text"])
+            self.assertNotIn("&para;", r["text"])
+            # No HTML tag remnants.
+            self.assertNotIn("<", r["text"])
+            self.assertNotIn(">", r["text"])
+
+    def test_parsed_text_is_nfc_and_canonical_okina(self):
+        html = (HAW_HTML_FIXTURE_DIR / "GEN_001.html").read_bytes()
+        rows = fetch.parse_baibala_chapter_html(
+            html, book_code="GEN", chapter=1, book_name_lower="genesis",
+        )
+        for r in rows:
+            t = r["text"]
+            self.assertEqual(unicodedata.normalize("NFC", t), t)
+            for bad in ("\u2018", "\u2019"):
+                self.assertNotIn(bad, t)
+
+    def test_ascii_apostrophe_canonicalized_to_okina(self):
+        # Live 1839 imprint uses ASCII apostrophes (e.g. "hana'i"); parser
+        # must canonicalize to U+02BB so the haw side hash is stable across
+        # upstream rendering quirks (matches normalize_haw policy).
+        html = (
+            b'<html><body>'
+            b'<a name="agenesis-1-1"></a>1 hana\'i ke Akua. <br />'
+            b'</body></html>'
+        )
+        rows = fetch.parse_baibala_chapter_html(
+            html, book_code="GEN", chapter=1, book_name_lower="genesis",
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["text"], "hana\u02bbi ke Akua.")
+        self.assertNotIn("'", rows[0]["text"])
+
+    def test_chapter_filter_drops_other_chapters(self):
+        html = (
+            b'<html><body>'
+            b'<a name="agenesis-1-1"></a>1 first. <br />'
+            b'<a name="agenesis-2-1"></a>1 second. <br />'
+            b'</body></html>'
+        )
+        rows = fetch.parse_baibala_chapter_html(
+            html, book_code="GEN", chapter=1, book_name_lower="genesis",
+        )
+        self.assertEqual([r["verse"] for r in rows], [1])
+        self.assertIn("first", rows[0]["text"])
+
+    def test_book_name_lower_filter_drops_other_books(self):
+        html = (
+            b'<html><body>'
+            b'<a name="agenesis-1-1"></a>1 genesis verse. <br />'
+            b'<a name="aexodus-1-1"></a>1 exodus verse. <br />'
+            b'</body></html>'
+        )
+        rows = fetch.parse_baibala_chapter_html(
+            html, book_code="GEN", chapter=1, book_name_lower="genesis",
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertIn("genesis verse", rows[0]["text"])
+
+    def test_para_marker_is_stripped(self):
+        html = (
+            b'<html><body>'
+            b'<a name="agenesis-1-1"></a>1 &para; In the beginning. <br />'
+            b'</body></html>'
+        )
+        rows = fetch.parse_baibala_chapter_html(
+            html, book_code="GEN", chapter=1, book_name_lower="genesis",
+        )
+        self.assertEqual(rows[0]["text"], "In the beginning.")
+
+    def test_parser_is_idempotent_on_repeated_anchors(self):
+        # Defensive: if upstream HTML accidentally repeats an anchor
+        # (Greenstone footers can echo nav), we keep only the first.
+        html = (
+            b'<html><body>'
+            b'<a name="agenesis-1-1"></a>1 first body. <br />'
+            b'<a name="agenesis-1-1"></a>1 dup body. <br />'
+            b'</body></html>'
+        )
+        rows = fetch.parse_baibala_chapter_html(
+            html, book_code="GEN", chapter=1, book_name_lower="genesis",
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertIn("first body", rows[0]["text"])
+
+
+class TestRawHawCandidateBuilder(unittest.TestCase):
+    """End-to-end: raw haw chapter HTML → manifest-shaped rows via 322."""
+
+    def test_build_rows_from_raw_haw_pairs_against_eng_fixture(self):
+        registry = build.load_registry()
+        rows, summary = build.build_rows_from_raw_haw(
+            registry=registry,
+            haw_raw_dir=HAW_HTML_FIXTURE_DIR,
+            eng_fixture_dir=FIXTURE_DIR,
+            fetch_date="20260501",
+        )
+        self.assertEqual(len(rows), 5)
+        self.assertEqual([r["pair_id"] for r in rows],
+                         [f"bible:GEN:1:{i}" for i in range(1, 6)])
+        for r in rows:
+            self.assertEqual(r["alignment_method"], "verse-id")
+            self.assertEqual(r["source"], "baibala-hemolele-1839")
+            # Raw-source rows carry the src=raw_html provenance marker.
+            self.assertIn("raw_html", r["notes"])
+
+    def test_raw_haw_rows_pass_stage2_manifest_schema(self):
+        registry = build.load_registry()
+        rows, _ = build.build_rows_from_raw_haw(
+            registry=registry,
+            haw_raw_dir=HAW_HTML_FIXTURE_DIR,
+            eng_fixture_dir=FIXTURE_DIR,
+            fetch_date="20260501",
+        )
+        for r in rows:
+            scored = manifest.apply_policy(dict(r))
+            violations = manifest.validate_row(scored)
+            self.assertEqual(violations, [],
+                             f"schema violations on {r['pair_id']}: {violations}")
+
+    def test_cli_haw_raw_dir_dry_run(self):
+        rc = build.main([
+            "--dry-run",
+            "--haw-raw-dir", str(HAW_HTML_FIXTURE_DIR),
+            "--eng-fixture-dir", str(FIXTURE_DIR),
+            "--fetch-date", "20260501",
+        ])
+        self.assertEqual(rc, 0)
+
+    def test_cli_haw_raw_dir_execute_writes_jsonl(self):
+        out = REPO_ROOT / "data" / "stage2" / "candidates" / "bible.jsonl"
+        if out.exists():
+            out.unlink()
+        rc = build.main([
+            "--execute",
+            "--haw-raw-dir", str(HAW_HTML_FIXTURE_DIR),
+            "--eng-fixture-dir", str(FIXTURE_DIR),
+            "--fetch-date", "20260501",
+        ])
+        self.assertEqual(rc, 0)
+        self.assertTrue(out.exists())
+        lines = out.read_text(encoding="utf-8").strip().splitlines()
+        self.assertEqual(len(lines), 5)
+        for ln in lines:
+            row = json.loads(ln)
+            self.assertEqual(row["alignment_method"], "verse-id")
+
+    def test_cli_from_raw_rejects_bad_date(self):
+        rc = build.main([
+            "--dry-run",
+            "--from-raw", "not-a-date",
+        ])
+        self.assertEqual(rc, 2)
+
+
 class TestFetcherSafety(unittest.TestCase):
     def test_print_pin_status_works(self):
         rc = fetch.main(["--print-pin-status"])
@@ -187,17 +370,18 @@ class TestFetcherSafety(unittest.TestCase):
         self.assertEqual(rc, 0)
 
     def test_execute_refused_without_edition_pin(self):
-        # Registry currently has edition_pinned_by=null; --execute must
-        # SystemExit (rc=2) regardless of the --confirm-edition value.
+        # With edition now pinned, test that --execute is refused when
+        # --confirm-edition does not match the pinned edition. This is
+        # the remaining safety gate enforced by assert_execute_preconditions.
         with self.assertRaises(SystemExit) as ctx:
             fetch.main([
                 "--execute", "--side", "haw",
                 "--book", "GEN", "--chapters", "1",
-                "--confirm-edition", "baibala-hemolele-1839",
+                "--confirm-edition", "wrong-edition-id",
                 "--tos-snapshot", str(REPO_ROOT / "README.md"),  # any existing path
             ])
-        # SystemExit string must mention pin gate
-        self.assertIn("edition_pinned_by", str(ctx.exception))
+        # SystemExit message must mention edition mismatch
+        self.assertIn("confirm-edition", str(ctx.exception).replace("_", "-"))
 
     def test_parse_chapters_spec(self):
         self.assertEqual(fetch.parse_chapters_spec("1-3,5", 50), [1, 2, 3, 5])
