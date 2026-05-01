@@ -307,6 +307,7 @@ Active 100-phase scripts:
 - `scripts/103_collect_hawwiktionary.py` — Hawaiian Wiktionary dump-plan metadata, input for `201` (currently `blocked_upstream` per the plan's `blockers`).
 - `scripts/104_collect_ulukau_nupepa.py` — Ulukau/Nupepa document-ID plan (`data/local/ulukau_nupepa/document_plan.jsonl`), input for `204`; prototype-only, rights-gated, and OCR/noise-gated.
 - `scripts/105_collect_fineweb2_haw.py` — FineWeb-2 (`HuggingFaceFW/fineweb-2`) `haw_Latn` collection plan (`data/local/fineweb2_haw/collect_plan.json`), input for `205`. Records dataset coordinates, verified row counts (train 95,507 / test 887), parquet + datasets-server URLs, and ODC-By wrapper licence posture. **Now the primary verified Hawaiian web source for Stage 1**, superseding generic CommonCrawl; cleanup and paragraph-level LID re-gate happen downstream in `301`, while MinHash dedup against `hawwiki` / `hawwikisource` is the planned follow-up beyond exact SHA/repeated-paragraph removal.
+- `scripts/107_collect_stage2_parallel.py` — Stage-2 parallel source collection plan (`data/local/stage2_parallel/collect_plan.json`), input for `207`. Reads `data-sources/stage2-parallel-fetch-plan.json`, records the current Stage-2 directional SFT target (**80k rows = ~40k canonical pairs before retention**), classifies each source as static-download / source-specific adapter / adapter-needed, and carries conservative fetch gates for eval-only, rights-review, endpoint-check, and owner-blocked sources.
 
 There is no longer a single broad `101_collect_rightslight.py` planner —
 forcing every source through one schema lost too much per-source detail.
@@ -318,6 +319,8 @@ New sources land as new `10X_collect_*.py` scripts.
 - `202_fetch_hawwikisource_raw.py` covers Hawaiian **Wikisource** — per-page MediaWiki API page texts rather than a single bulk XML; its preferred input is the page plan emitted by `102_collect_hawwikisource.py` (consumed via `--page-plan`, default `data/local/hawwikisource/page_plan.jsonl`). Direct enumeration remains as a fallback when the plan is missing.
 - `204_fetch_ulukau_nupepa_raw.py` covers **Ulukau/Nupepa** document HTML/OCR text candidates from `104`. It is dry-run by default, writes only local gitignored raw bytes, records actual extracted-text whitespace token counts, and fails loudly on Cloudflare/403 challenge pages instead of bypassing them. Until a legitimate bulk export/API or permissioned access path is available, this adapter is for seeded IDs or manually supplied HTML exports only.
 - `205_fetch_fineweb2_haw_raw.py` covers **FineWeb-2 `haw_Latn`** rows from the plan emitted by `105`. Dry-run by default; `--execute --split {train,test} --limit N` actually fetches. Default fetch path is the HF `datasets-server` `/rows` JSON API (stdlib + `urllib`, polite paginated), with an opt-in `--use-parquet` path that streams the single parquet shard per split via `pyarrow` (not in `requirements.txt` — flag fails loudly if `pyarrow` is absent, since adding it is Linus's dependency call). Each fetched row is preserved verbatim — no cleanup — under `data/raw/fineweb2_haw/<YYYYMMDD>/<split>.jsonl` with in-row CC provenance (`source_url`, `cc_dump`, `cc_date`, `language_score`) plus a per-row `ProvenanceRecord` line in `data/raw/fineweb2_haw/fetch.jsonl`. Schema is checked against `per_row_schema.fields` from the 105 plan and missing/non-string `text` fails loudly. **English boilerplate inside Hawaiian-classified rows is expected** (FineWeb-2 LID flags whole rows), so 205 reports actual raw whitespace token counts only and never claims cleaned tokens; `301_build_stage1_dataset.py` is the first training-data gate that may drop text.
+- `206_fetch_baibala_raw.py` covers the pinned **Baibala Hemolele 1839** / public-domain English Bible chapter fetch path for Stage 2. It is dry-run by default and execute-gated on the edition pin plus an on-disk ToS snapshot. The candidate-row conversion lives in `322_build_bible_candidates.py` because verse parsing/alignment is source-specific.
+- `207_fetch_stage2_parallel_raw.py` covers **static downloadable Stage-2 artifacts** from the plan emitted by `107` (for example Tatoeba TSVs, OPUS zips, and eval-only TSVs when explicitly included). It is dry-run by default; `--execute` writes raw bytes and provenance ledgers under `data/raw/<source_id>/`. Gated sources require explicit flags such as `--allow-rights-review`, `--allow-pending-endpoint`, or `--include-eval`; non-static/API sources are intentionally reported as requiring source-specific adapters instead of being guessed through a generic downloader.
 
 300-phase consumes 200-phase output:
 
@@ -344,7 +347,13 @@ The FineWeb-2 path (`105` / `205`) is the **primary verified web source** for St
 
 ## Stage 2 — Bidirectional en↔haw SFT
 
-**Goal:** maximize *true parallel* en↔haw sentence pairs; accept *comparable* with alignment scoring; treat *synthetic* as last-resort and capped. Realistic clean yield is **likely <50k pairs, possibly <10k**.
+**Goal:** maximize *true parallel* en↔haw sentence pairs; accept *comparable* with alignment scoring; treat *synthetic* as capped last-resort gap-closer. **Target: 80k directional SFT rows = ~40k canonical en↔haw pairs before retention.**
+
+> **Mixed-source plan required.** Rights-light human-parallel sources alone (Bible + Tatoeba + OPUS + Wiki langlinks + HK statutes all-four-pairs + CX + dictionary examples + Wikisource) realistically top out at **~28–35k accepted canonical pairs (56–70k directional rows)**. To credibly reach 80k rows the plan must include:
+> 1. **NLLB mined haw-eng** (expected 8–15k accepted pairs) — prototype-only, LaBSE ≥ 0.80 quality floor, per-row origin URL, never dev/test.
+> 2. **Capped synthetic back-translation of Stage-1 monolingual Hawaiian** (5–10k accepted pairs) — `synthetic-bt` tag, ≤15% of parallel-train tokens, never dev/test.
+>
+> If either bucket is rejected, the realistic ceiling is ~50–60k directional rows and the 80k target must be renegotiated — not chased by relaxing quality thresholds.
 
 Stage 2 trains both directions from the same canonical pair (one manifest row → two directional examples), with target-only loss and a 10–20% Stage-1-style monolingual Hawaiian retention slice mixed in by token.
 
@@ -359,7 +368,7 @@ Stage 2 trains both directions from the same canonical pair (one manifest row �
 | **Baibala Hemolele ↔ English Bible (matched edition pair)** | Verse-aligned | Largest reliable parallel. **Verse-level only** — chapter-level is unsafe across editions. Pin a Hawaiian edition (translator/year) and a public-domain English edition (KJV/ASV). **Cap ≤30% of parallel-train tokens, 0% of dev/test.** |
 | **Held-out non-Bible eval slices** (`global-piqa-parallel`, held-out Tatoeba, Taxi1500 diagnostics) | Sentence-aligned / classification-style | FLORES/FLORES+ do **not** currently provide Hawaiian, so do not plan on `hawn_Latn` as a dev/test anchor. Hash any selected held-out eval sentences into `eval_hashes.jsonl` *before* anything else ingests. **Never train on held-out eval rows.** |
 | **OPUS — `haw` filtered subsets** (Tatoeba, QED, Ubuntu, GNOME, KDE) | Sentence-aligned | Most are tiny. JW300 **excluded** unless ToS re-verified. Software-l10n sets are domain-skewed; tag `register=software-l10n`, cap. |
-| **NLLB-Seed / NLLB mined `haw`-`eng`** | Mined parallel (comparable, not gold) | Train signal only, **never dev/test**. Re-derive provenance from origin URLs, not the HF mirror. |
+| **NLLB-Seed / NLLB mined `haw`-`eng`** | Mined parallel (comparable, not gold) | Train signal only, **never dev/test**. Rights cleared for **private prototype only** (`prototype_only=true`; no redistribution). Per-row origin URL recorded. **LaBSE cosine ≥ 0.80 quality floor** (stricter than 0.75 for curated comparable) — below-threshold rows get `alignment_review_required=true` and are excluded from train. Expected 8–15k accepted pairs; largest single gap-closer for 80k target. |
 | **Tatoeba `haw`↔`eng`** | Sentence-aligned | Hundreds of pairs, CC-BY 2.0 FR. Hash before deciding train vs dev. |
 
 #### Tier B — Comparable / weakly aligned (alignment scoring required)
@@ -379,9 +388,10 @@ Stage 2 trains both directions from the same canonical pair (one manifest row �
 
 #### Tier D — Synthetic / back-translation
 
-- **Back-translation** of Stage-1 monolingual via the Stage-1-merged base: ≤25% train cap, **0% dev/test**, `synthetic=true`, `synthetic_source_model` recorded. Source-model ToS for derivatives must permit use.
-- **Forward-translation** of clean English via external MT: same caps; additional translationese risk — keep ≤10% inside the 25% cap.
+- **Back-translation** of Stage-1 monolingual Hawaiian via the Stage-1-merged base: **≤15% of parallel-train tokens** (tighter than the earlier 25% guidance), **0% dev/test**, `synthetic=true`, `alignment_type=synthetic-bt`, per-pair `model_id` + `model_checkpoint_sha` + `generation_decode_params` recorded. Source-model ToS for derivatives must permit use. Pairs cross-checked against `eval_hashes.jsonl` before manifest ingest. Round-trip quality floor (BLEU or LaBSE, Rusty sets) required before acceptance. Does NOT count toward "human parallel" claims. Gap-closer only when human+mined parallel falls short of target.
+- **Forward-translation** of clean English via external MT: same caps; additional translationese risk — keep ≤10% inside the 15% synthetic cap.
 - Dictionary-templated synthesis ("The word X means Y"): **excluded** — teaches templates, not translation.
+- **Ungrounded LLM synthetic dialogues** not derived from a Stage-1 monolingual source pair: **excluded** (see `llm-synthetic-haw-dialogues` in `data-sources/stage2-parallel-fetch-plan.json`).
 
 #### Tier E — Excluded for Stage 2 prototype
 
@@ -448,6 +458,7 @@ Notes:
 - Alignment threshold is the highest-leverage knob. Bake the score **per row**, not per run, so we can re-filter without re-aligning.
 - Cross-stage hash check is non-negotiable: any Stage-2 train pair whose Hawaiian side hashes match a Stage-1 train doc gets `crosslink_stage1_overlap=true`. Allowed in train, **banned from dev/test**.
 - Alignment-scoring + quality-filter policy (tier rules, flag vocabulary, Hawaiian orthography caveats, manual-review workflow) is documented in [`stage2-alignment-quality.md`](./stage2-alignment-quality.md). The scorer is `code/llm_hawaii/stage2_quality.py` (stdlib-only); CLI front-end is `scripts/321_score_stage2_alignment.py`. Manifest rows carry policy additions `alignment_confidence_tier`, `alignment_score_components`, `quality_flags`, `manual_review_reasons`, `policy_version` alongside the schema fields below.
+- **Historical-orthography carve-out (stage2-quality-v0.2):** `baibala-hemolele-1839` rows whose *only* soft flag is `haw_no_diacritics` are promoted from `review` → `accept` (train-only, capped at ≤50 % of accepted Bible train rows and ≤15 % of total parallel-train rows); `haw_no_diacritics` is preserved in `quality_flags` and promoted rows gain `historical_orthography_exception=true` and `orthography_era="pre-pukui-elbert"`. Kill-switch: `PolicyConfig.allow_historical_orthography_exception=False`. See `.squad/decisions/inbox/rusty-baibala-orthography-policy.md`.
 
 ### Stage 2 manifest schema
 
@@ -606,8 +617,8 @@ Backup: n-gram overlap audit between train and dev/test as a sanity check (small
 
 1. **Bible / register skew.** Uncapped, the model translates everything as 19th-century scripture. ≤30% parallel-train tokens, 0% dev/test, register-balanced eval probe.
 2. **Verse alignment ≠ modern-prose alignment.** Verse pairs are short, archaic, structurally biased. Mix in non-Bible parallel; held-out non-Bible tests from global-piqa/Tatoeba-style sources are the honest gauge.
-3. **Tiny parallel corpus → overfitting & memorization.** Likely <50k pairs, possibly <10k. Cap epochs (already in ADR), early-stop on chrF, dev/test from a separate source distribution.
-4. **Translationese & synthetic feedback loops.** BT through Stage-1-merged base re-injects its biases. Cap ≤25%, 0% dev/test; **prefer BT over forward-translation** (BT noise lives on the source side, which is masked from loss).
+3. **Mixed-source corpus — mined and synthetic quality control.** 80k target requires NLLB mined (LaBSE ≥ 0.80 floor) and synthetic BT (≤15% cap, 0% dev/test). Failure to enforce these floors/caps produces a training set that overstates its human-parallel share. Cap epochs (already in ADR), early-stop on chrF, dev/test only from `parallel-*` sources.
+4. **Translationese & synthetic feedback loops.** BT through Stage-1-merged base re-injects its biases. Cap ≤15% synthetic-bt, 0% dev/test; **prefer BT over forward-translation** (BT noise lives on the source side, which is masked from loss).
 5. **OCR'd parallel PDFs with bad alignment.** Layout-based alignment fails on column shifts/footnotes. Default: hold for review.
 6. **English contamination in Hawaiian targets.** Wikipedia-aligned and software-l10n pairs leave untranslated English tokens. LID + token-level English-ratio filter on the target side.
 7. **Memorization of small held-out sets.** Aggressive eval-hash guard + n-gram overlap audit.
@@ -619,11 +630,11 @@ Backup: n-gram overlap audit between train and dev/test as a sanity check (small
 
 ### Stage 2 immediate next steps
 
-*Scaffold status:* `320_build_stage2_manifest.py`, `321_score_stage2_alignment.py`, and `330_emit_stage2_sft_jsonl.py` are landed as prototype-ready contract tools. They validate schema, quality policy, eval-ledger checks, and bidirectional JSONL emission without committing real generated data.
+*Scaffold status:* `107_collect_stage2_parallel.py`, `207_fetch_stage2_parallel_raw.py`, `320_build_stage2_manifest.py`, `321_score_stage2_alignment.py`, and `330_emit_stage2_sft_jsonl.py` are landed as prototype-ready contract tools. They validate source planning, raw static fetch gating, schema, quality policy, eval-ledger checks, and bidirectional JSONL emission without committing real generated data.
 
 1. **Keep held-out anchors honest.** Use W1 rows only after #7 Hawaiian-literate review for accepted eval rows; draft W1 ledger rows remain local preflight (`eval_consumable=false`). Hash any Stage-2 held-out eval sentences into the canonical `data/evals/eval_hashes.jsonl` *before* train ingest.
 2. **Add the first real Stage-2 source adapter.** Bible verse alignment is the likely deterministic starter, but edition rights must be confirmed and pinned first. Apply the Bible token cap, register tag, and cluster-isolated dedup; if Bible share exceeds the cap, **sample down rather than gathering more Bible**.
-3. **Add Tatoeba + one Wikipedia-aligned slice** (LaBSE-aligned, conservative threshold, `alignment_review_required=true` on borderline rows). Then run the bidirectional JSONL emission and a separate retention merge from Stage 1. Output: a tiny private prototype Stage-2 dataset (target ~5–20k clean pairs + retention) and a register/direction distribution report. **This is the honest go/no-go gate for Stage 2** — fails loudly without burning GPU credits if the parallel count is too low or Bible-dominated even after capping.
+3. **Add Tatoeba + one Wikipedia-aligned slice** (LaBSE-aligned, conservative threshold, `alignment_review_required=true` on borderline rows). Then run the bidirectional JSONL emission and a separate retention merge from Stage 1. Output: a private prototype Stage-2 dataset with a register/direction distribution report. **This is the honest go/no-go gate for Stage 2** — fails loudly without burning GPU credits if human-parallel count is too low or Bible-dominated after capping. The full 80k path requires NLLB mined + synthetic BT as documented in `data-sources/stage2-parallel-fetch-plan.json §acquisition_strategy`.
 
 ---
 

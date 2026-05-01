@@ -59,7 +59,17 @@ from typing import Any
 # that would alter the manifest output for an unchanged input pair.
 # The manifest writer should record this string per-row so old rows are
 # explainable.
-POLICY_VERSION = "stage2-quality-v0.1"
+POLICY_VERSION = "stage2-quality-v0.2"
+
+# Source identifier for the 1839 Baibala Hemolele edition. This is the only
+# source for which the historical-orthography exception is permitted.
+BAIBALA_1839_SOURCE_ID = "baibala-hemolele-1839"
+
+# Explainability string appended to manual_review_reasons for exception rows.
+HISTORICAL_ORTHOGRAPHY_EXCEPTION_REASON = (
+    "Accepted under historical-orthography policy: "
+    "1839 Baibala predates modern \u02bbokina/kahak\u014d convention."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +168,20 @@ class PolicyConfig:
     # If true, missing source URLs for both sides downgrade the tier to
     # `review`. Synthetic pairs are exempt (they have no URL by design).
     require_source_url: bool = True
+
+    # --- Historical-orthography exception (Baibala Hemolele 1839) ---
+    # When True, rows from `baibala-hemolele-1839` whose *only* soft flag is
+    # `haw_no_diacritics` are promoted from `review` → `accept` (train-only).
+    # The 1839 Baibala predates Pukui-Elbert orthography; the flag is a correct
+    # diagnostic but the correct *policy* for this source is acceptance.
+    # Flip to False for release builds or to disable the exception globally.
+    allow_historical_orthography_exception: bool = True
+    # Row-count proxy for the 15 % parallel-train token-share sub-cap.
+    # Enforced by the manifest builder after scoring (see
+    # scripts/320_build_stage2_manifest.py::_apply_historical_orthography_cap).
+    # Exact subword-token counting requires a tokenizer; rows are used as the
+    # proxy until the SFT tokenizer is pinned.
+    historical_orthography_train_token_share_max: float = 0.15
 
 
 # ---------------------------------------------------------------------------
@@ -443,6 +467,33 @@ def score_pair(pair: dict[str, Any], config: PolicyConfig | None = None) -> dict
 
     reasons = [_flag_to_reason(f) for f in flags]
 
+    # ---- Historical-orthography exception (Baibala Hemolele 1839) ----
+    # Promote `haw_no_diacritics`-only review rows from the 1839 Baibala to
+    # `accept`. Conditions (all must hold):
+    #   1. source == BAIBALA_1839_SOURCE_ID, edition matches, register=religious
+    #   2. flags == {"haw_no_diacritics"} — no other soft or hard flag fires
+    #   3. Not synthetic + alignment_method == "verse-id"
+    # `haw_no_diacritics` is KEPT in quality_flags (it remains true) so
+    # downstream consumers know this row is historical-register Hawaiian.
+    # Sub-cap is enforced by the manifest builder after all rows are scored.
+    # See .squad/decisions/inbox/rusty-baibala-orthography-policy.md.
+    historical_orthography_exception = False
+    orthography_era: str | None = None
+    if (
+        cfg.allow_historical_orthography_exception
+        and tier == "review"
+        and flag_set == {"haw_no_diacritics"}
+        and pair.get("source") == BAIBALA_1839_SOURCE_ID
+        and pair.get("edition_or_version") == BAIBALA_1839_SOURCE_ID
+        and pair.get("register") == "religious"
+        and not is_synthetic
+        and a_method == "verse-id"
+    ):
+        tier = "accept"
+        historical_orthography_exception = True
+        orthography_era = "pre-pukui-elbert"
+        reasons.append(HISTORICAL_ORTHOGRAPHY_EXCEPTION_REASON)
+
     annotation: dict[str, Any] = {
         # Existing manifest schema fields (passed through / computed):
         "alignment_type": a_type,
@@ -457,6 +508,10 @@ def score_pair(pair: dict[str, Any], config: PolicyConfig | None = None) -> dict
         "quality_flags": flags,
         "manual_review_reasons": reasons,
         "policy_version": POLICY_VERSION,
+        # Historical-orthography exception metadata (always present; None when
+        # exception did not fire so the field is self-describing on every row).
+        "historical_orthography_exception": historical_orthography_exception,
+        "orthography_era": orthography_era,
     }
     return annotation
 
@@ -476,6 +531,8 @@ def policy_summary(config: PolicyConfig | None = None) -> dict[str, Any]:
 
 __all__ = [
     "POLICY_VERSION",
+    "BAIBALA_1839_SOURCE_ID",
+    "HISTORICAL_ORTHOGRAPHY_EXCEPTION_REASON",
     "ALIGNMENT_TYPES",
     "DETERMINISTIC_METHODS",
     "EMBEDDING_METHODS",

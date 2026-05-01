@@ -81,6 +81,7 @@ if str(_CODE_DIR) not in sys.path:
 
 from llm_hawaii.stage2_quality import (  # noqa: E402
     POLICY_VERSION,
+    BAIBALA_1839_SOURCE_ID,
     PolicyConfig,
     policy_summary,
     score_pair,
@@ -266,6 +267,8 @@ _POLICY_OUTPUT_FIELDS = (
     "manual_review_reasons",
     "alignment_score_components",
     "policy_version",
+    "historical_orthography_exception",  # new in v0.2
+    "orthography_era",                   # new in v0.2
 )
 
 # Policy tiers that disqualify a row from train/dev assignment. Such
@@ -567,7 +570,21 @@ def ingest_candidates(
                 # Accept tier with no explicit split: deterministic
                 # train/dev assignment from pair_id.
                 pair_id = row.get("pair_id") or row.get("sha256_pair", "")
-                row["split"] = assign_split(pair_id, dev_modulus)
+                assigned = assign_split(pair_id, dev_modulus)
+                # Only parallel-* alignment types are eligible for dev/test/held-out.
+                # dictionary-example, comparable-aligned, synthetic-bt, and
+                # synthetic-ft rows are train-only regardless of hash bucket.
+                atype = row.get("alignment_type", "")
+                if assigned in EVAL_SPLITS and not str(atype).startswith("parallel-"):
+                    assigned = "train"
+                row["split"] = assigned
+
+            # Historical-orthography exception rows must never enter eval splits.
+            # The exception already sets tier=accept so the quarantine branch
+            # above is skipped; we additionally guard the deterministic dev
+            # assignment in case a row already carried a non-review-pending split.
+            if row.get("historical_orthography_exception") and row.get("split") in EVAL_SPLITS:
+                row["split"] = "train"
 
             viol = validate_row(row)
             if viol:
@@ -583,6 +600,9 @@ def ingest_candidates(
         if file_row_count == 0:
             print(f"warn: {cpath} yielded no rows", file=sys.stderr)
 
+    # Apply historical-orthography sub-cap after all rows are scored and split.
+    hist_orth_cap_stats = _apply_historical_orthography_cap(rows, policy_config)
+
     provenance: dict[str, Any] = {
         "candidate_files": candidate_file_shas,
         "per_source_row_counts": per_source,
@@ -591,6 +611,7 @@ def ingest_candidates(
         "dev_modulus": dev_modulus,
         "policy_version": POLICY_VERSION,
         "tier_counts": dict(tier_counts),
+        "historical_orthography": hist_orth_cap_stats,
     }
     return rows, per_row_violations, provenance
 
@@ -602,6 +623,86 @@ def _file_sha256(path: Path) -> str:
         for chunk in iter(lambda: fh.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _apply_historical_orthography_cap(
+    rows: list[dict[str, Any]],
+    config: PolicyConfig | None = None,
+) -> dict[str, Any]:
+    """Enforce historical-orthography sub-cap in-place; return cap statistics.
+
+    After scoring, caps the number of accepted train rows with
+    ``historical_orthography_exception=True`` to the tighter of:
+
+      - **Bible 50 % cap**: hist rows ≤ non-hist accepted Baibala 1839 train rows
+        (equivalently, hist rows ≤ 50 % of all accepted Baibala 1839 train rows).
+      - **Train-share cap**: hist rows ≤
+        ``config.historical_orthography_train_token_share_max`` of total accepted
+        train rows — implemented as a *row-count proxy* because exact subword-token
+        counting requires a tokenizer. Revisit once the SFT tokenizer is pinned.
+
+    Excess rows are demoted to ``split="review-pending"`` and have
+    ``"historical_orthography_sub_cap_reached"`` appended to
+    ``manual_review_reasons``. Down-sampling is deterministic: rows are
+    sorted by SHA-256 hash of ``pair_id`` (ascending) and the lowest-hash
+    rows are kept so re-runs with the same candidates yield the same result.
+
+    Returns a dict written to ``build_manifest.json::ingest.historical_orthography``.
+
+    LIMITATION: the 15 % cap uses whitespace-token row counts as a proxy for
+    subword-token counts. Actual token counts depend on the tokenizer and may
+    differ by ±10–15 %. Revisit when the SFT tokenizer is pinned.
+    """
+    cfg = config or PolicyConfig()
+
+    hist_train_idxs: list[int] = [
+        i for i, r in enumerate(rows)
+        if r.get("historical_orthography_exception") and r.get("split") == "train"
+    ]
+    non_hist_bible_train: list[dict[str, Any]] = [
+        r for r in rows
+        if r.get("source") == BAIBALA_1839_SOURCE_ID
+        and r.get("split") == "train"
+        and not r.get("historical_orthography_exception")
+    ]
+    all_train: list[dict[str, Any]] = [r for r in rows if r.get("split") == "train"]
+
+    n_hist = len(hist_train_idxs)
+
+    # 50 % Bible cap: at most as many hist rows as non-hist accepted Bible rows.
+    cap_by_bible = len(non_hist_bible_train)
+
+    # Train-share cap (row-count proxy for the token-share ceiling).
+    # Solve: hist / total_train = share_max → cap = total_train * share_max.
+    cap_by_train_share = int(len(all_train) * cfg.historical_orthography_train_token_share_max)
+
+    # Apply whichever ceiling is tighter.
+    effective_cap = min(cap_by_bible, cap_by_train_share)
+
+    n_dropped = 0
+    if n_hist > effective_cap:
+        def _hash_key(idx: int) -> int:
+            pair_id = rows[idx].get("pair_id", "")
+            return int(hashlib.sha256(pair_id.encode("utf-8")).hexdigest()[:8], 16)
+
+        sorted_idxs = sorted(hist_train_idxs, key=_hash_key)
+        keep_set = set(sorted_idxs[:effective_cap])
+        for idx in hist_train_idxs:
+            if idx not in keep_set:
+                rows[idx]["split"] = "review-pending"
+                reasons: list = rows[idx].setdefault("manual_review_reasons", [])
+                reasons.append("historical_orthography_sub_cap_reached")
+                n_dropped += 1
+
+    return {
+        "effective_cap": effective_cap,
+        "cap_by_bible_rows": cap_by_bible,
+        "cap_by_train_share_rows": cap_by_train_share,
+        "accepted_rows": n_hist - n_dropped,
+        "dropped_rows": n_dropped,
+        "token_cap_is_row_proxy": True,
+        "token_share_max": cfg.historical_orthography_train_token_share_max,
+    }
 
 
 # ---------- source registry (issue #18) ----------

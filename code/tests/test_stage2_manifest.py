@@ -246,6 +246,48 @@ class TestIngestCandidates(unittest.TestCase):
             rows_b, _, _ = m.ingest_candidates([cp_b])
         self.assertEqual(rows_a[0]["split"], rows_b[0]["split"])
 
+    def test_dictionary_example_rows_never_assigned_dev(self):
+        """dictionary-example rows must always land in train, not dev/test/held-out.
+
+        Only parallel-* alignment types are allowed in eval splits.  This
+        test exercises the train-only guard in ingest_candidates by running
+        enough pair_ids that at least some would hash to dev under the old
+        (unguarded) assign_split call.
+        """
+        import unicodedata
+        rows_in = []
+        for i in range(50):
+            text_en = f"Word {i} translation example sentence here."
+            text_haw = f"Ka hua {i} haʻawina laʻana manawa nei."
+            en_nfc = unicodedata.normalize("NFC", text_en)
+            haw_nfc = unicodedata.normalize("NFC", text_haw)
+            sha_en_clean = hashlib.sha256(en_nfc.encode()).hexdigest()
+            sha_haw_clean = hashlib.sha256(haw_nfc.encode()).hexdigest()
+            sha_pair = m.compute_pair_hash(sha_en_clean, sha_haw_clean)
+            r = _make_valid_row(f"dict-ex-row-{i:03d}", split="review-pending")
+            r["alignment_type"] = "dictionary-example"
+            r["alignment_method"] = "manual"
+            r["text_en"] = text_en
+            r["text_haw"] = text_haw
+            r["sha256_en_raw"] = sha_en_clean
+            r["sha256_haw_raw"] = sha_haw_clean
+            r["sha256_en_clean"] = sha_en_clean
+            r["sha256_haw_clean"] = sha_haw_clean
+            r["sha256_pair"] = sha_pair
+            rows_in.append(r)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cpath = Path(tmpdir) / "dict_ex.jsonl"
+            _write_jsonl(cpath, rows_in)
+            rows_out, violations, _ = m.ingest_candidates([cpath])
+        # Rows that reach accept tier must be train-only.
+        for row in rows_out:
+            if row.get("alignment_confidence_tier") == "accept":
+                self.assertEqual(
+                    row["split"], "train",
+                    f"dictionary-example row {row['pair_id']!r} must not be "
+                    f"assigned to eval split (got {row['split']!r})",
+                )
+
 
 # ---------------------------------------------------------------------------
 # CLI dry-run
@@ -484,6 +526,320 @@ class TestCLIExecuteScoreSummary(unittest.TestCase):
                 first = json.loads(f.readline())
             self.assertIn("alignment_confidence_tier", first)
             self.assertIn("policy_version", first)
+
+
+            self.assertEqual(summary["row_count"], 3)
+            self.assertEqual(summary["policy"]["policy_version"], m.POLICY_VERSION)
+            # Manifest must echo policy fields per row.
+            with (stage2_dir / "stage2_manifest.jsonl").open() as f:
+                first = json.loads(f.readline())
+            self.assertIn("alignment_confidence_tier", first)
+            self.assertIn("policy_version", first)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for Baibala 1839 / historical-orthography tests
+# ---------------------------------------------------------------------------
+
+# Long Hawaiian text without any diacritics: triggers haw_no_diacritics
+# (≥60 letters, zero ʻokina or kahakō). Synthetic content — NOT real corpus.
+_HAW_NO_DIACRITICS_LONG = (
+    "Hookuu aku ana oia ia lakou a holo aku la lakou a paa aku la "
+    "lakou ma ka moana nui loa aku ana no."
+)
+# Short Hawaiian text without diacritics: stays under the 60-letter threshold
+# so haw_no_diacritics does NOT fire. Token count (~6) is compatible with the
+# default English verse (~9 tokens) to stay within the length_ratio_haw_over_en
+# bounds [0.5, 2.5]. Usable as a clean Baibala 1839 row.
+_HAW_SHORT_CLEAN = "No ia ia a ola hou."
+_EN_VERSE = "And God saw that it was good and blessed them."
+
+
+def _make_baibala_1839_row(
+    pair_id: str,
+    text_haw: str = _HAW_NO_DIACRITICS_LONG,
+    text_en: str = _EN_VERSE,
+) -> dict:
+    """Minimal valid Baibala Hemolele 1839 candidate row (synthetic content)."""
+    import unicodedata
+    en_nfc = unicodedata.normalize("NFC", text_en)
+    haw_nfc = unicodedata.normalize("NFC", text_haw)
+    sha_en_clean = hashlib.sha256(en_nfc.encode()).hexdigest()
+    sha_haw_clean = hashlib.sha256(haw_nfc.encode()).hexdigest()
+    sha_pair = m.compute_pair_hash(sha_en_clean, sha_haw_clean)
+    return {
+        "pair_id": pair_id,
+        "source": "baibala-hemolele-1839",
+        "edition_or_version": "baibala-hemolele-1839",
+        "source_url_en": "https://example.com/bible/en/1",
+        "source_url_haw": "https://example.com/bible/haw/1",
+        "fetch_date": "20250501",
+        "sha256_en_raw": sha_en_clean,
+        "sha256_haw_raw": sha_haw_clean,
+        "sha256_en_clean": sha_en_clean,
+        "sha256_haw_clean": sha_haw_clean,
+        "sha256_pair": sha_pair,
+        "record_id_en": f"{pair_id}.en",
+        "record_id_haw": f"{pair_id}.haw",
+        "text_en": text_en,
+        "text_haw": text_haw,
+        "alignment_type": "parallel-verse",
+        "alignment_method": "verse-id",
+        "alignment_score": None,
+        "alignment_review_required": False,
+        "length_ratio_haw_over_en": len(text_haw.split()) / max(len(text_en.split()), 1),
+        "lang_id_en": "en",
+        "lang_id_en_confidence": 1.0,
+        "lang_id_haw": "haw",
+        "lang_id_haw_confidence": 1.0,
+        "direction_original": "unknown",
+        "register": "religious",
+        "synthetic": False,
+        "license_observed_en": "public-domain",
+        "license_observed_haw": "public-domain",
+        "license_inferred": None,
+        "prototype_only": True,
+        "release_eligible": False,
+        "dedup_cluster_id": pair_id,
+        "crosslink_stage1_overlap": False,
+        "split": "review-pending",
+        "manifest_schema_version": "stage2.v0",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Historical-orthography exception: score_pair() / apply_policy() behaviour
+# ---------------------------------------------------------------------------
+
+class TestHistoricalOrthographyException(unittest.TestCase):
+    """Unit-level tests for the Baibala 1839 historical-orthography policy."""
+
+    def _ingest_one(self, row: dict, policy_config=None) -> dict:
+        """Ingest the target row surrounded by companion rows to avoid sub-cap."""
+        target_id = row["pair_id"]
+        # Include 20 non-hist Baibala rows so the Bible 50% cap is well above 1.
+        # With 1 hist + 20 non-hist → cap_by_bible=20, cap_by_train_share=int(21*0.15)=3
+        # → effective_cap=3 ≥ 1 hist row → no demotion of the target.
+        companions = [
+            _make_baibala_1839_row(f"_companion_{i:03d}", text_haw=_HAW_SHORT_CLEAN)
+            for i in range(20)
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cpath = Path(tmpdir) / "candidates.jsonl"
+            _write_jsonl(cpath, [row] + companions)
+            rows, _v, _p = m.ingest_candidates([cpath], policy_config=policy_config)
+        result = [r for r in rows if r["pair_id"] == target_id]
+        self.assertEqual(len(result), 1)
+        return result[0]
+
+    # --- Exception fires ------------------------------------------------
+
+    def test_baibala_1839_only_haw_no_diacritics_promotes_to_accept(self):
+        """1839 Baibala row whose only flag is haw_no_diacritics → tier=accept."""
+        row = _make_baibala_1839_row("gen-1-1")
+        out = self._ingest_one(row)
+        self.assertEqual(out["alignment_confidence_tier"], "accept")
+        self.assertFalse(out["alignment_review_required"])
+
+    def test_exception_sets_historical_orthography_exception_true(self):
+        row = _make_baibala_1839_row("gen-1-2")
+        out = self._ingest_one(row)
+        self.assertTrue(out.get("historical_orthography_exception"))
+
+    def test_exception_sets_orthography_era(self):
+        row = _make_baibala_1839_row("gen-1-3")
+        out = self._ingest_one(row)
+        self.assertEqual(out.get("orthography_era"), "pre-pukui-elbert")
+
+    def test_exception_keeps_haw_no_diacritics_flag(self):
+        """haw_no_diacritics must remain in quality_flags even when exception fires."""
+        row = _make_baibala_1839_row("gen-1-4")
+        out = self._ingest_one(row)
+        self.assertIn("haw_no_diacritics", out["quality_flags"])
+
+    def test_exception_appends_explainability_reason(self):
+        row = _make_baibala_1839_row("gen-1-5")
+        out = self._ingest_one(row)
+        self.assertTrue(
+            any("historical-orthography policy" in r for r in out["manual_review_reasons"]),
+            "Expected historical-orthography policy string in manual_review_reasons",
+        )
+
+    def test_exception_forces_split_train(self):
+        """Exception row must be train-only, never dev/test/held-out."""
+        row = _make_baibala_1839_row("gen-1-6")
+        out = self._ingest_one(row)
+        self.assertEqual(out["split"], "train")
+
+    def test_exception_policy_version_v0_2(self):
+        row = _make_baibala_1839_row("gen-1-7")
+        out = self._ingest_one(row)
+        self.assertEqual(out["policy_version"], "stage2-quality-v0.2")
+
+    # --- Exception does NOT fire: extra flags ---------------------------
+
+    def test_baibala_1839_extra_flag_stays_review(self):
+        """1839 Baibala row with haw_no_diacritics + length_ratio_extreme → review."""
+        # Long no-diacritics Hawaiian (~17 tokens) + very long English (200 tokens)
+        # → ratio ≈ 0.085 < min 0.5 → length_ratio_extreme (soft flag).
+        # flags == {haw_no_diacritics, length_ratio_extreme} so exception doesn't fire.
+        long_en = " ".join(["word"] * 200)  # 200 tokens; ratio ≈ 17/200 = 0.085
+        row = _make_baibala_1839_row("gen-2-1", text_haw=_HAW_NO_DIACRITICS_LONG, text_en=long_en)
+        out = self._ingest_one(row)
+        self.assertEqual(out["alignment_confidence_tier"], "review",
+                         "Extra flag should block the exception")
+        self.assertFalse(out.get("historical_orthography_exception"))
+        self.assertEqual(out["split"], "review-pending")
+
+    # --- Exception does NOT fire: wrong source --------------------------
+
+    def test_non_baibala_haw_no_diacritics_stays_review(self):
+        """Non-Baibala (Tatoeba) row with haw_no_diacritics → review, no exception."""
+        row = _make_baibala_1839_row("tatoeba-1")
+        row["source"] = "tatoeba"
+        row["edition_or_version"] = None
+        row["register"] = "unknown"
+        out = self._ingest_one(row)
+        self.assertEqual(out["alignment_confidence_tier"], "review")
+        self.assertFalse(out.get("historical_orthography_exception"))
+        self.assertIsNone(out.get("orthography_era"))
+
+    # --- Kill switch ----------------------------------------------------
+
+    def test_kill_switch_disables_exception(self):
+        """With allow_historical_orthography_exception=False all 1839 rows stay review."""
+        from llm_hawaii.stage2_quality import PolicyConfig
+        cfg = PolicyConfig(allow_historical_orthography_exception=False)
+        row = _make_baibala_1839_row("gen-3-1")
+        out = self._ingest_one(row, policy_config=cfg)
+        self.assertEqual(out["alignment_confidence_tier"], "review",
+                         "Kill switch must keep the row in review tier")
+        self.assertFalse(out.get("historical_orthography_exception"))
+        self.assertEqual(out["split"], "review-pending")
+
+    # --- Non-exception rows are unaffected ------------------------------
+
+    def test_non_exception_rows_have_exception_false(self):
+        """Clean non-Baibala rows must have historical_orthography_exception=False."""
+        row = _make_valid_row("clean-row-1")
+        out = self._ingest_one(row)
+        self.assertFalse(out.get("historical_orthography_exception"))
+        self.assertIsNone(out.get("orthography_era"))
+
+
+# ---------------------------------------------------------------------------
+# Historical-orthography sub-cap
+# ---------------------------------------------------------------------------
+
+class TestHistoricalOrthographyCap(unittest.TestCase):
+    """Tests for _apply_historical_orthography_cap() in ingest_candidates()."""
+
+    def _make_scored_hist_row(self, pair_id: str) -> dict:
+        """A hist-orth row that has already been scored and promoted to train."""
+        row = _make_baibala_1839_row(pair_id)
+        m.apply_policy(row)
+        row["split"] = "train"
+        return row
+
+    def _make_scored_non_hist_bible_row(self, pair_id: str) -> dict:
+        """A clean Baibala 1839 row (short HAW → no flag → accept without exception)."""
+        row = _make_baibala_1839_row(pair_id, text_haw=_HAW_SHORT_CLEAN)
+        m.apply_policy(row)
+        row["split"] = "train"
+        return row
+
+    def test_cap_demotes_excess_hist_rows(self):
+        """When hist rows exceed effective_cap, exactly cap rows remain in train."""
+        # 6 hist rows + 3 non-hist Baibala train + 0 other = 9 total train.
+        # cap_by_bible = 3
+        # cap_by_train_share = int(9 * 0.15) = 1
+        # effective_cap = min(3, 1) = 1  →  5 rows demoted.
+        hist_rows = [self._make_scored_hist_row(f"hist-cap-{i:03d}") for i in range(6)]
+        non_hist_rows = [self._make_scored_non_hist_bible_row(f"clean-{i:03d}") for i in range(3)]
+        rows = hist_rows + non_hist_rows
+
+        cap_stats = m._apply_historical_orthography_cap(rows)
+
+        accepted = [r for r in rows if r.get("historical_orthography_exception") and r["split"] == "train"]
+        demoted  = [r for r in rows if r.get("historical_orthography_exception") and r["split"] == "review-pending"]
+
+        self.assertEqual(len(accepted), cap_stats["effective_cap"])
+        self.assertEqual(len(accepted) + len(demoted), 6)
+        self.assertGreater(len(demoted), 0, "Some rows should have been demoted")
+
+    def test_cap_demoted_rows_have_reason(self):
+        """Demoted rows must carry 'historical_orthography_sub_cap_reached' reason."""
+        hist_rows = [self._make_scored_hist_row(f"hist-reason-{i:03d}") for i in range(4)]
+        non_hist_rows = [self._make_scored_non_hist_bible_row(f"clean-r-{i:03d}") for i in range(1)]
+        rows = hist_rows + non_hist_rows
+
+        m._apply_historical_orthography_cap(rows)
+
+        demoted = [r for r in rows if r.get("historical_orthography_exception") and r["split"] == "review-pending"]
+        for r in demoted:
+            self.assertIn("historical_orthography_sub_cap_reached", r["manual_review_reasons"])
+
+    def test_cap_deterministic_across_runs(self):
+        """Same rows produce the same kept/demoted assignment on every run."""
+        hist_rows = [self._make_scored_hist_row(f"hist-det-{i:03d}") for i in range(6)]
+        non_hist_rows = [self._make_scored_non_hist_bible_row(f"clean-d-{i:03d}") for i in range(2)]
+
+        import copy
+        rows_a = copy.deepcopy(hist_rows + non_hist_rows)
+        rows_b = copy.deepcopy(hist_rows + non_hist_rows)
+
+        m._apply_historical_orthography_cap(rows_a)
+        m._apply_historical_orthography_cap(rows_b)
+
+        splits_a = [r["split"] for r in rows_a if r.get("historical_orthography_exception")]
+        splits_b = [r["split"] for r in rows_b if r.get("historical_orthography_exception")]
+        self.assertEqual(splits_a, splits_b, "Cap must be deterministic")
+
+    def test_cap_noop_when_hist_rows_within_limit(self):
+        """When hist count ≤ cap, no rows are demoted."""
+        # 1 hist row, 10 non-hist (mix Bible + non-Bible) → cap > 1, no demotion.
+        hist_rows = [self._make_scored_hist_row("hist-noop-001")]
+        non_hist_rows = [self._make_scored_non_hist_bible_row(f"clean-n-{i:03d}") for i in range(10)]
+        rows = hist_rows + non_hist_rows
+
+        cap_stats = m._apply_historical_orthography_cap(rows)
+
+        self.assertEqual(cap_stats["dropped_rows"], 0)
+        self.assertEqual(rows[0]["split"], "train", "Only hist row must remain train")
+
+    def test_cap_stats_recorded_in_ingest_provenance(self):
+        """build_manifest.json::ingest.historical_orthography is populated."""
+        hist_rows = [_make_baibala_1839_row(f"hist-prov-{i:03d}") for i in range(4)]
+        non_hist_rows = [_make_baibala_1839_row(f"clean-p-{i:03d}", text_haw=_HAW_SHORT_CLEAN)
+                         for i in range(2)]
+        rows_in = hist_rows + non_hist_rows
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cpath = Path(tmpdir) / "candidates.jsonl"
+            _write_jsonl(cpath, rows_in)
+            _rows_out, _v, prov = m.ingest_candidates([cpath])
+
+        self.assertIn("historical_orthography", prov)
+        ho = prov["historical_orthography"]
+        self.assertIn("effective_cap", ho)
+        self.assertIn("accepted_rows", ho)
+        self.assertIn("dropped_rows", ho)
+        self.assertTrue(ho["token_cap_is_row_proxy"],
+                        "Must flag that row-count is a proxy for token count")
+
+    def test_bible_never_in_dev_after_exception(self):
+        """No historical-orthography exception row should ever land in dev/test."""
+        rows_in = [_make_baibala_1839_row(f"gen-dev-{i:03d}") for i in range(30)]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cpath = Path(tmpdir) / "candidates.jsonl"
+            _write_jsonl(cpath, rows_in)
+            rows_out, _v, _p = m.ingest_candidates([cpath])
+
+        for row in rows_out:
+            if row.get("historical_orthography_exception"):
+                self.assertNotIn(row["split"], m.EVAL_SPLITS,
+                                 f"Exception row {row['pair_id']!r} must not be in eval split "
+                                 f"(got {row['split']!r})")
 
 
 if __name__ == "__main__":

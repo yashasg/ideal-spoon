@@ -1559,3 +1559,38 @@ python3 scripts/320_build_stage2_manifest.py --dry-run
 **Decision file:** `.squad/decisions/inbox/frank-ready-dataset-sweep.md` (merged to `.squad/decisions.md` by Scribe).
 
 **Recommendation if approved:** Include MADLAD-400, Glot500-c, HPLT v2 in `data-sources/hawaiian-data-sources.json` as `pending_endpoint_check`; adapter pattern same as `205_fetch_fineweb2_haw_raw.py` (HF `datasets-server` stream, gitignored under `data/raw/<source>/<YYYYMMDD>/`, provenance ledger).
+
+---
+
+## 2026-05-02 — Baibala 1839 historical-orthography policy (stage2-quality-v0.2)
+
+**Task:** Implement Rusty's Baibala Hemolele 1839 historical-orthography policy carve-out in the Stage 2 manifest pipeline and tests.
+
+**Summary of changes:**
+
+- `code/llm_hawaii/stage2_quality.py`: Bumped `POLICY_VERSION` → `stage2-quality-v0.2`. Added `BAIBALA_1839_SOURCE_ID`, `HISTORICAL_ORTHOGRAPHY_EXCEPTION_REASON` constants. Added two new `PolicyConfig` fields: `allow_historical_orthography_exception=True` (kill switch) and `historical_orthography_train_token_share_max=0.15`. `score_pair()` now promotes eligible Baibala 1839 rows from `review` → `accept` with `historical_orthography_exception=True`, `orthography_era="pre-pukui-elbert"`, preserving `haw_no_diacritics` in `quality_flags`.
+- `scripts/320_build_stage2_manifest.py`: Added `_apply_historical_orthography_cap()` — deterministic row-count sub-cap (tighter of Bible 50% and 15% train-share). Exception rows force-pinned to `split="train"`. Cap stats written to `build_manifest.json::ingest.historical_orthography`.
+- `code/tests/test_stage2_manifest.py`: 15 new tests covering all required scenarios. All 45 tests pass.
+- `docs/data-pipeline.md`: One-line carve-out entry.
+
+**Manifest re-run results (GEN–RUT, v0.2):**
+
+| Metric | Value |
+|--------|-------|
+| Total rows | 8,791 |
+| Train | 3,350 |
+| Dev | 15 (non-Bible) |
+| Review-pending | 5,426 |
+| Hist-orth accepted (train) | 1,071 |
+| Hist-orth dropped (sub-cap) | 3,791 |
+| Bible dev/test | **0** |
+| SFT directional rows | 6,700 |
+
+**Cap computation:** effective_cap = min(cap_bible=2,045, cap_train_share=1,071) = 1,071. The 15%-train-share cap was tighter.
+
+**Learnings:**
+- The row-count proxy for the token-share cap is practical and conservative. With subword expansion expected to be roughly equal across Bible rows, the row proxy may actually overcount (Bible rows tend shorter than the median SFT row), which errs on the safe side.
+- Test fixture design: companion non-hist rows must be long enough (~5–6 HAW tokens) to avoid `length_ratio_extreme` when paired with English text; short companions silently cause the Bible-50% cap to collapse to 0 and demote the test row under scrutiny.
+- `_apply_historical_orthography_cap` operates post-ingest on the assembled rows list. The function is deterministic by `pair_id` SHA-256 hash so re-runs with identical candidates produce identical cap outcomes.
+
+**Decision file:** `.squad/decisions/inbox/linus-baibala-orthography-implementation.md`
