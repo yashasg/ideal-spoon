@@ -1723,3 +1723,183 @@ python3 scripts/320_build_stage2_manifest.py --dry-run
 - mC4 haw (present but CommonCrawl overlap with FineWeb-2)
 
 **Full details:** `.squad/decisions.md` section "Decision: Frank — Hub dataset row counts + corrections (2026-05-01T09:06:22Z)".
+
+---
+
+## 2026-05-03 — haw1868 verse-ID alignment analysis
+
+**Trigger:** User confirmed `haw1868` has verse IDs; asked whether it can be treated as
+verse-aligned rather than monolingual-only.
+
+### Key finding: haw1868 is a full public-domain Bible
+
+Probed eBible metadata (`BibleNLP/ebible` translations.csv). `haw1868` = *Baibala Hemolele*
+1868 Andrews/Bingham revision — **66 books / 31,102 verses / public domain** (same legal
+status as our pinned 1839 edition). Not OCR; clean eBible digitization. This contradicts
+the earlier fetch-plan entry that classified `biblenlp-haw` as "eval cross-check only,
+never train."
+
+### Alignment verdict: YES — verse IDs sufficient
+
+BibleNLP corpus stores `{vref: "GEN 1:1", text: "..."}` (standard USFM BCV notation).
+Joins directly to existing KJV USFM (`206b_parse_eng_usfm.py` output) with trivial
+string transform. `alignment_method="verse-id"` applies. No new methodology needed.
+
+### Dedup design
+
+- `pair_id = "bible-1868:{BOOK}:{CH}:{V}"` (unique per source)
+- `dedup_cluster_id = "bible:{BOOK}:{CH}:{V}"` (edition-neutral — shared with 1839 rows)
+- For GEN–2KI (already in bible.jsonl): 1839 cluster takes priority; 1868 rows collapse
+- For remaining 54 books: 1868 is the only row in each cluster → net-new
+
+### Yield estimate
+
+- Net-new verse pairs (books not yet in bible.jsonl): ~19,000–20,500
+- This would bring total Bible candidates from 10,221 → ~30,000
+- Replaces the planned chapter-by-chapter baibala.org scrape for the remaining 54 books
+
+### Adapter plan
+
+Extend `322_build_bible_candidates.py` with `--from-biblenlp-jsonl` flag (reuse all
+existing normalization + pair-hash logic). Output to separate
+`data/stage2/candidates/bible-haw1868.jsonl`. Source metadata:
+`source="biblenlp-haw1868"`, `edition_or_version="baibala-hemolele-1868"`.
+
+### Historical orthography policy
+
+Existing v0.2 policy (pre-Pukui-Elbert exception) applies unchanged — it is not
+year-specific. No separate policy needed for 1868 edition.
+
+### Next step (gating)
+
+Capture eBible haw1868 ToS snapshot from `http://ebible.org/terms/` (same as
+baibala.org workflow). Then probe hub for 5-row sample to confirm schema. Then
+download full haw1868 JSONL (~31k rows, ~1–2 MB) and extend 322.
+
+### Decision file written
+
+`.squad/decisions/inbox/linus-haw1868-verse-id-alignment.md`
+
+---
+
+## 2026-05-01 — haw1868 USFM + KJV TSV adapter path
+
+**Task:** Implement production adapter to build Stage 2 Bible candidates from local haw1868 USFM files + KJV TSV anchor (`data/raw/kjv/kjv.usfm`).
+
+**Architecture decisions:**
+
+- `data/raw/kjv/kjv.usfm` is a TSV, not USFM — field order: `orig_book_index`, `orig_chapter`, `orig_verse`, `orig_subverse`, `order_by`, `text`. Accepted as-is via `parse_kjv_tsv()`.
+- `orig_book_index` prefix (e.g. `01O` → `"01"` → book position 1) maps to canonical USFM book code by 1-based index into `source_registry.json` books list. `_build_book_index_map(registry)` builds this once.
+- haw1868 USFM directory files follow `DD-BOOKhaw1868.usfm` naming; parsed via existing `206b_parse_eng_usfm.py` USFM parser with `source_book_code` override + `normalize_haw` post-processing.
+- `source = "baibala-hemolele-1868"` — distinct from 1839 HTML scrape; smallest safe change that still distinguishes the edition.
+- `dedup_cluster_id = pair_id = "bible:{BOOK}:{CHAPTER}:{VERSE}"` — intentionally overlaps with existing 1839 rows by verse key, enabling future dedup collapse.
+- `source_url_en = ""` / `source_url_haw = ""` — local USFM/TSV sources have no web URL; empty string satisfies the required `str` type in manifest schema.
+
+**CLI invocation (dry-run):**
+```bash
+python3 scripts/322_build_bible_candidates.py \
+  --dry-run \
+  --haw-usfm-dir data/raw/haw1868/haw1868_usfm \
+  --eng-kjv-tsv-file data/raw/kjv/kjv.usfm \
+  --fetch-date 20260501
+```
+
+**Full dry-run counts (local files):**
+
+| Metric | Value |
+|---|---|
+| haw verses parsed (haw1868 USFM) | 31,102 |
+| eng verses parsed (KJV TSV) | 31,102 |
+| shared keys | 31,101 |
+| rows emitted | 31,101 |
+| missing_haw_side | 1 |
+| missing_eng_side | 1 |
+| KJV malformed_skipped | 0 |
+
+**Test count:** 80 tests (53 original + 27 new for KJV TSV parser, haw1868 USFM dir parser, builder, and CLI). All pass.
+
+**Files changed:**
+- `scripts/322_build_bible_candidates.py` — added `_build_book_index_map`, `parse_kjv_tsv`, `parse_haw1868_usfm_dir`, `build_rows_from_haw1868_kjv_tsv`, and `--haw-usfm-dir`/`--eng-kjv-tsv-file` CLI args.
+- `code/tests/test_bible_adapter.py` — added `TestKjvTsvParser`, `TestHaw1868UsfmDirParser`, `TestHaw1868KjvTsvBuilder`, `TestHaw1868KjvTsvCli`.
+- `code/tests/fixtures/bible/haw_usfm/02-GENhaw1868.usfm` — synthetic haw1868 USFM fixture (not real Bible text).
+- `code/tests/fixtures/bible/kjv_tsv/kjv_fixture.tsv` — 5-verse synthetic KJV TSV fixture.
+
+---
+
+## 2026-05-01 — 1868 JSONL materialization
+
+**Task:** Generate `data/stage2/candidates/bible_haw1868_kjv.jsonl` — Stage 2 candidates for the 1868 Hawaiian Bible paired with KJV, without touching `bible.jsonl`.
+
+**Command:**
+```bash
+python3 scripts/322_build_bible_candidates.py \
+  --execute \
+  --haw-usfm-dir data/raw/haw1868/haw1868_usfm \
+  --eng-kjv-tsv-file data/raw/kjv/kjv.usfm \
+  --out data/stage2/candidates/bible_haw1868_kjv.jsonl
+```
+
+**Output:** `data/stage2/candidates/bible_haw1868_kjv.jsonl`
+
+**Counts:**
+
+| Metric | Value |
+|---|---|
+| Rows emitted | 31,101 |
+| Unique pair_ids | 31,101 |
+| Unique dedup_cluster_ids | 31,101 |
+| source | `baibala-hemolele-1868` |
+| edition_or_version | `haw1868-usfm+kjv-tsv` |
+| haw verses parsed | 31,102 |
+| eng verses parsed | 31,102 |
+| shared keys | 31,101 |
+| missing_haw_side | 1 |
+| missing_eng_side | 1 |
+| KJV malformed_skipped | 0 |
+| Duplicate pair_ids | 0 |
+| Duplicate dedup_cluster_ids | 0 |
+
+**1:1 verdict:** Yes — this is a strict 1:1 verse-pair conversion. Every shared verse key produces exactly one JSONL row, with no duplicate pair_ids or dedup_cluster_ids. One verse is missing from the haw side and one from the eng side (different verse keys).
+
+**Overlap with stage2_manifest.jsonl:**
+
+| Metric | Value |
+|---|---|
+| Manifest dedup_ids (1839 edition) | 11,828 |
+| 1868 dedup_ids | 31,101 |
+| Overlap (1839∩1868 collapse) | 10,221 |
+| Net new after dedupe | 20,880 |
+
+---
+
+## Session Close: haw1868 JSONL Conversion (2026-05-01T10:17:19Z)
+
+### Summary
+
+Completed conversion of haw1868 USFM + KJV TSV to `data/stage2/candidates/bible_haw1868_kjv.jsonl`:
+- 31,101 rows, all 1:1 aligned, zero duplicates
+- Overlap with 1839 manifest: 10,221 dedup_cluster_ids
+- Net-new after dedup: 20,880 rows
+
+### Team Directives Captured
+
+1. User directive: Do not keep both editions as independent pairs; dedupe/collapse verse overlap
+2. User directive: Treat deduped Stage 2 total as ~32k canonical rows; next expansion use Playwright for Nupepa
+
+### Orchestration Log
+
+`.squad/orchestration-log/2026-05-01T10:17:19Z-linus.md` written with full metrics and merge implications.
+
+### Cross-Team Notes
+
+- **Manifest builder:** Must implement or receive dedup-cluster collapse rule before merging 1868 file into manifest (if not already present in `320_build_stage2_manifest.py`)
+- **Strategy shift:** haw1868 is now the primary acceleration path for remaining 54 books (not baibala.org scraping); full 66 books available; see haw1868-as-verse-aligned decision for eBible metadata, licensing, and implementation roadmap
+- **Historical orthography policy:** v0.2 applies verbatim to 1868 rows (same pre-Pukui-Elbert era as 1839); no policy change needed
+
+### Deferred Tasks
+
+- Rights confirmation for eBible haw1868 (per strategy decision)
+- BibleNLP hub probe and bulk download (pending rights clearance)
+- Extend `322_build_bible_candidates.py` with `--from-biblenlp-jsonl` mode
+- Confirm manifest builder dedup-cluster collapse or add if missing
+

@@ -4979,3 +4979,318 @@ Fetched 1 Samuel, 2 Samuel, 1 Kings, 2 Kings (102 chapters, 1.5 MB) from baibala
 - 15 new tests + docs update
 ```
 
+
+---
+
+## Decision: 1SA/2SA/1KI/2KI Bible materialization complete
+
+**Owner:** Linus (Data Engineer)  
+**Date:** 2026-05-01  
+**Status:** EXECUTED
+
+### What changed
+
+Extended Bible candidate scope from GEN–RUT to GEN–2KI by adding 1 Samuel (31 ch), 2 Samuel (24 ch), 1 Kings (22 ch), and 2 Kings (25 ch). All 102 chapters were already on disk in `data/raw/baibala-hemolele-1839/20260501/` as confirmed in the task brief.
+
+No code changes were required — the `--books` filter introduced in the Pentateuch batch is sufficient.
+
+### Final counts
+
+| Metric | Value |
+|---|---|
+| Bible candidates (GEN–2KI) | 10,221 (+3,037 vs GEN–RUT) |
+| Total manifest rows (all sources) | 11,828 (was 8,791) |
+| Train rows | 4,665 (was 2,279) |
+| Dev rows | 15 (unchanged, all non-Bible) |
+| Review-pending rows | 7,148 (was 6,512) |
+| SFT directional rows | 9,330 (was 4,558) |
+| Bible dev/test rows | 0 ✅ |
+| Historical-orthography accepted | 1,509 |
+| Historical-orthography dropped | 5,399 |
+| USFM/Strong/footnote leaks | 0 ✅ |
+| Duplicate pair_ids | 0 ✅ |
+
+### Policy in effect
+
+Historical-orthography v0.2 cap (`token_share_max=0.15`) is in effect. 1SA/2SA/1KI/2KI rows follow the same policy path as existing books — no special handling.
+
+### Bounded scope
+
+Per task brief: included only the 12 books listed (GEN through 2KI). No concurrent raw batches included.
+
+---
+
+## Decision: KJV TSV accepted as valid English anchor format
+
+**Owner:** Linus (Data Engineer)  
+**Date:** 2026-05-01  
+**Status:** IMPLEMENTED
+
+### Summary
+
+`data/raw/kjv/kjv.usfm` is parsed as TSV (not USFM) for the haw1868 adapter path. This is the canonical KJV English anchor for Stage 2 Bible candidates from the `haw1868` USFM source.
+
+### Format
+
+Tab-separated, 31,103 lines (1 header + 31,102 verse rows):
+
+```
+orig_book_index  orig_chapter  orig_verse  orig_subverse  order_by  text
+01O              1             1                          10        In the beginning God created ...
+...
+66N              22            21                         311020    The grace of our Lord...
+```
+
+`orig_book_index` prefix (2-digit 1-based position, e.g. `01O` = book 1 = GEN, `40N` = book 40 = MAT, `66N` = book 66 = REV) maps to canonical USFM book code via `_build_book_index_map(registry)`.
+
+### Validation
+
+- Header fields exactly: `orig_book_index`, `orig_chapter`, `orig_verse`, `orig_subverse`, `order_by`, `text`.
+- Full local file: 31,102 verse rows, 0 malformed.
+- GEN.1.1 and REV.22.21 present and correctly routed.
+- `--books` filter supported for bounded runs.
+
+### Usage
+
+```bash
+python3 scripts/322_build_bible_candidates.py \
+  --dry-run \
+  --haw-usfm-dir data/raw/haw1868/haw1868_usfm \
+  --eng-kjv-tsv-file data/raw/kjv/kjv.usfm
+```
+
+### Source identity
+
+- `source = "baibala-hemolele-1868"` (distinct from existing 1839 HTML rows)
+- `edition_or_version = "haw1868-usfm+kjv-tsv"`
+- `dedup_cluster_id = pair_id = "bible:{BOOK}:{CHAPTER}:{VERSE}"` — overlaps with 1839 rows for future collapse
+- `license_observed_en = "Public domain — King James Version 1611 (pre-1925, US public domain)."`
+
+---
+
+## Decision: haw1868 as Verse-Aligned Source — Linus Review
+
+**Owner:** Linus (Data Engineer)  
+**Date:** 2026-05-03  
+**Status:** DECISION — strategy change, implementation step defined
+
+### Trigger
+
+User confirmed `haw1868` has verse IDs. Task: determine whether it can be treated as a
+verse-aligned Hawaiian Bible source by joining to existing public-domain English anchors
+(ASV/KJV USFM already parsed locally), rather than as monolingual only.
+
+### Findings
+
+#### Edition identity — confirmed via eBible metadata
+
+`haw1868` in the BibleNLP corpus (`bible-nlp/biblenlp-corpus`) is:
+
+| Field | Value |
+|---|---|
+| ISO code | `haw` |
+| Config id | `haw1868` |
+| Full name | *Baibala Hemolele* — 1868 Andrews/Bingham revision |
+| Description | "The Holy Bible in the Hawaiian language of the United States, 1868 revision" |
+| Rights | **public domain** |
+| Source | eBible.org digitization (`http://ebible.org/haw1868/`) |
+| OT books/chapters/verses | 39 / 929 / 23,145 |
+| NT books/chapters/verses | 27 / 260 / 7,957 |
+| **Total** | **66 books / 1,189 chapters / 31,102 verses** |
+
+The 1868 edition is the **same translators** (Andrews/Bingham) as our pinned
+`baibala-hemolele-1839` source — it is a revised edition of the 1839 translation.
+
+#### Verse IDs are sufficient for alignment — YES
+
+The BibleNLP corpus stores each translation as monolingual `{vref, text}` rows where
+`vref` is standard USFM notation (`GEN 1:1`, `MAT 5:3`, etc.). Our existing
+`206b_parse_eng_usfm.py` produces `{"book":"GEN","chapter":1,"verse":1,"text":"..."}`.
+Join key transformation: `vref.replace(" ", " ").split()` → `book, ch_v.split(":")` → trivial.
+No new alignment methodology required. `alignment_method="verse-id"` applies.
+
+#### Relationship to baibala-hemolele-1839
+
+| Dimension | 1839 (current) | 1868 (new) |
+|---|---|---|
+| Translation team | Andrews/Bingham | Andrews/Bingham (same) |
+| Rights | Public domain (confirmed, pinned) | Public domain (eBible metadata) |
+| Coverage in bible.jsonl | GEN–2KI (12 books, 10,221 rows) | Full 66 books (31,102 verses) |
+| Text similarity | — | High: same translators, revised edition |
+| Exact-sha256 overlap | — | Partial: some verses identical, some editorially revised |
+
+### Decision: Source Strategy Change
+
+**haw1868 is an acceleration path for the remaining Bible acquisition**, not an
+orthogonal new source. We had planned to scrape the remaining 54 books from
+baibala.org chapter-by-chapter. haw1868 via the BibleNLP hub covers the full 66 books
+in one download at effectively zero scraping cost.
+
+**Adopt haw1868 as the primary acquisition path for Bible books not yet in bible.jsonl.**
+Baibala.org 1839 remains the canonical pinned source for GEN–2KI (already materialized);
+haw1868 fills in the remaining 54 books.
+
+### Adapter Changes Required
+
+#### 1. Extend `322_build_bible_candidates.py` — preferred over a new adapter script
+
+All the join logic (normalize_haw, compute_pair_hash, verse-id pairing) already lives in
+322. Add a `--from-biblenlp-jsonl HAW_VERSES_JSONL` input mode that:
+
+- Reads a pre-downloaded `{vref, text}` JSONL file (one verse per row)  
+- Parses `vref` → `(book_code, chapter, verse)` using the standard `"BOOK CH:V"` format  
+- Joins to the locally-parsed KJV USFM verses (already available via `--eng-usfm-zip`)  
+- Applies existing `normalize_haw` + `compute_pair_hash`  
+- Emits to **`data/stage2/candidates/bible-haw1868.jsonl`** (separate file from
+  `bible.jsonl` so each source is independently managed and the manifest can track per-source counts)
+
+#### 2. source_id / edition metadata
+
+| Field | Value |
+|---|---|
+| `source` | `"biblenlp-haw1868"` |
+| `edition_or_version` | `"baibala-hemolele-1868"` |
+| `pair_id` | `"bible-1868:{BOOK}:{CH}:{V}"` (unique, distinguishes from 1839 rows) |
+| `dedup_cluster_id` | `"bible:{BOOK}:{CH}:{V}"` (**shared edition-neutral key**) |
+| `license_observed_haw` | `"Public domain — 1868 Andrews/Bingham revision, pre-1925 US work. Source: eBible.org haw1868 corpus (http://ebible.org/haw1868/)."` |
+| `alignment_method` | `"verse-id"` |
+| `register` | `"religious"` |
+| `split` | `"train"` (Tier A: 0% dev/test) |
+
+#### 3. Dedup against baibala-hemolele-1839 candidates
+
+`dedup_cluster_id = "bible:{BOOK}:{CH}:{V}"` is already the format used by existing
+`bible.jsonl` rows (`dedup_cluster_id` = `pair_id` = `"bible:{BOOK}:{CH}:{V}"`).
+
+When both editions produce a row for the same verse position, the manifest's dedup pass
+sees two rows with the **same `dedup_cluster_id`**. Resolution rule:
+
+- Prefer `baibala-hemolele-1839` (already pinned, ToS snapshot captured) for GEN–2KI.  
+- For books NOT yet in bible.jsonl (books beyond 2KI), `biblenlp-haw1868` is the only
+  row in the cluster → no collision.
+
+This means the haw1868 rows for GEN–2KI are **redundant** (cluster already satisfied)
+and will be skipped by the dedup pass. The net-new contribution comes from the 54 books
+not yet fetched from baibala.org.
+
+**Important:** The manifest builder (`320_build_stage2_manifest.py`) must be confirmed
+to implement or receive a dedup-cluster collapse step before this matters. If it does
+not currently collapse by `dedup_cluster_id`, both rows would land in the manifest as
+separate training examples — which is acceptable for near-identical editions but should
+be flagged as a cross-edition near-duplicate.
+
+#### 4. Historical orthography policy
+
+The existing `stage2-quality-v0.2` policy (`historical_orthography_exception=true`,
+`orthography_era="pre-pukui-elbert"`, `haw_no_diacritics` flag) applies verbatim.
+The 1868 edition is the same pre-Pukui-Elbert orthographic era as 1839; no separate
+policy is needed. The policy language does not name a specific year — it applies to
+all pre-1949 Hawaiian text. No change required.
+
+#### 5. Train-only / dev-test rule
+
+Same Tier A rule: `split="train"` only, 0% dev/test. Combined Bible token cap (≤30%
+of parallel-train tokens) applies across BOTH `bible.jsonl` + `bible-haw1868.jsonl`.
+The manifest builder must sum both sources when checking the Bible cap.
+
+### Yield Estimate
+
+| Segment | Verse count | Est. net-new candidates |
+|---|---|---|
+| GEN–2KI (already in bible.jsonl) | ~10,221 | ~0 (dedup_cluster_id collapses to 1839) |
+| Remaining 54 books (not yet fetched) | ~20,881 | **~19,000–20,500** (after filtering empties, versification gaps) |
+| Total haw1868 full Bible | 31,102 | **~19,000–20,500 net-new pairs** |
+
+This would roughly double the Bible candidate pool (10,221 → ~30,000), covering the
+full Protestant canon without the ~20k remaining baibala.org chapter scraping calls.
+
+### Next Concrete Implementation Step
+
+1. **Rights confirmation (Linus, immediate):** Confirm eBible haw1868 rights posture.
+   eBible metadata says `public domain`; eBible.org terms allow free use of PD texts.
+   Capture a ToS snapshot from `http://ebible.org/terms/` analogous to the baibala.org
+   snapshot. Add a `biblenlp-haw1868` entry to `data-sources/bible/source_registry.json`
+   (new `sides.haw1868` block or a separate registry at `data-sources/biblenlp-haw/`).
+
+2. **Hub probe (cheap, no bulk download):** Hit the `bible-nlp/biblenlp-corpus`
+   datasets-server `/rows` endpoint for `haw1868`, limit=5, to confirm `{vref, text}`
+   schema and check a sample verse for ʻokina encoding and character normalization needs.
+
+3. **Download haw1868 JSONL** (single parquet/JSONL pull, ~1–2 MB compressed; 31k rows):
+   `huggingface-cli download --repo-type dataset bible-nlp/biblenlp-corpus --include "haw1868*"`
+   or via `datasets` Python API. Store at `data/raw/biblenlp-haw/20260503/haw1868.jsonl`.
+
+4. **Extend `322_build_bible_candidates.py`:** Add `--from-biblenlp-jsonl` flag with
+   vref parser + join logic. Output to `data/stage2/candidates/bible-haw1868.jsonl`.
+   Reuse existing normalization and `compute_pair_hash`.
+
+5. **Tests:** Add fixtures and test class in `code/tests/test_bible_adapter.py` for the
+   new input mode (synthetic vref JSONL → candidate rows).
+
+### Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| eBible haw1868 ToS disallows training use | High | ToS snapshot first; if restricted, treat as eval-only |
+| BibleNLP corpus digitization adds its own license layer | Medium | Verify dataset card license field before `--execute` |
+| 1839 ≈ 1868 near-duplicates inflate Bible token share silently | Medium | `dedup_cluster_id` collapse; count combined token share against ≤30% cap |
+| Versification differences (minor verse splits) | Low | Drop orphan vrefs; they are a small fraction |
+| ʻOkina encoding in eBible corpus differs from baibala.org | Low | Confirmed `normalize_haw` already handles all common mis-encodings |
+
+### Source Strategy Impact
+
+This changes the Bible acquisition plan:
+
+**Before:** Scrape remaining 54 books from baibala.org chapter-by-chapter (~20k HTTP
+requests, rate-limited at 1.5 s/req = ~8 hours wall-clock).
+
+**After:** Download haw1868 JSONL in one shot from the BibleNLP hub (~1 API call),
+covering all 66 books. Continue to use baibala.org 1839 for GEN–2KI (already done).
+Use haw1868 for books ISA onward. The two editions serve as mutual cross-validation.
+
+**Recommend updating `data-sources/stage2-parallel-fetch-plan.json`** to promote
+`biblenlp-haw` source from `pending_endpoint_check` / `eval cross-check only` to
+**Tier A supplementary — train-eligible for books not covered by baibala-hemolele-1839**,
+rights confirmation pending.
+
+---
+
+## Decision: 1868 Hawaiian Bible Stage-2 Candidates Materialized
+
+**Date:** 2026-05-01  
+**Author:** Linus (Data Engineer)
+
+### Decision
+
+Generated `data/stage2/candidates/bible_haw1868_kjv.jsonl` — 31,101 rows for the 1868 Hawaiian Bible paired with KJV, kept separate from `bible.jsonl` (1839 edition).
+
+### Key Facts
+
+- **Output path:** `data/stage2/candidates/bible_haw1868_kjv.jsonl`
+- **source:** `baibala-hemolele-1868` | **edition:** `haw1868-usfm+kjv-tsv`
+- **Rows:** 31,101 — all 1:1, no duplicate pair_ids or dedup_cluster_ids
+- **Missing sides:** 1 haw-side missing, 1 eng-side missing (different keys)
+- **Overlap with 1839 manifest:** 10,221 of 11,828 manifest dedup_cluster_ids overlap → merging would collapse those to 1,607 new 1839-only rows + 20,880 net-new 1868 rows
+
+### Implication
+
+Before merging into `stage2_manifest.jsonl`, the team needs to decide how to handle 10,221 verse dedup_cluster_ids shared between editions (same verse key = same dedup ID). The 1868 file covers the full Bible (31K rows) vs. the current manifest's 11,828 rows (GEN–2KI subset of 1839).
+
+---
+
+## Team Directive: Dedupe Bible Edition Overlap
+
+**Date:** 2026-05-01  
+**By:** yashasg (via Copilot)
+
+Do not keep both the 1839 and 1868 Bible as independent Stage 2 training pairs; dedupe/collapse Bible verse overlap. Captured for team record.
+
+---
+
+## Team Directive: Stage 2 Total & Nupepa Expansion
+
+**Date:** 2026-05-01  
+**By:** yashasg (via Copilot)
+
+Treat the deduped Stage 2 total as roughly 32k canonical rows after collapsing overlapping 1839/1868 Bible verses; next Stage 2 data expansion should use Playwright to pull data from Nupepa. Captured for team record.
+
