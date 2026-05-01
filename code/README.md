@@ -56,8 +56,10 @@ The skeleton ships separate configs so hardware choices stay explicit:
   data-parallel throughput. True DDP requires a separate experiment.
 - **`configs/llama31_8b_a100.json`** — *serious-prototype target.*
   Defaults to `meta-llama/Llama-3.1-8B` (HF-gated), QLoRA on, bf16 on,
-  longer sequence length, gradient accumulation tuned for a single
-  A100, and checkpoint-first eval cadence (`save_steps=100`,
+  longer sequence length, A100-only micro-batch tuning (`batch=4`,
+  `gradient_accumulation_steps=4`) to improve VRAM occupancy while keeping
+  the same effective update batch as the Kaggle-stable baseline, and
+  checkpoint-first eval cadence (`save_steps=100`,
   `eval_steps=500`) with loss-only eval memory controls. The target
   hardware is recorded as `hardware_profile: "a100-40gb-single"` — a
   config-level hint, not a code assertion.

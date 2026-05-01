@@ -16,8 +16,8 @@
 
   "learning_rate": 0.0002,
   "num_train_epochs": 1.0,
-  "per_device_train_batch_size": 1,
-  "gradient_accumulation_steps": 16,
+  "per_device_train_batch_size": 4,
+  "gradient_accumulation_steps": 4,
   "warmup_ratio": 0.03,
   "weight_decay": 0.0,
   "lr_scheduler_type": "cosine",
@@ -41,6 +41,7 @@
   "notes": {
     "purpose": "Prototype-tier serious run target: Llama-3.1-8B + QLoRA on a single A100 using the cleaned multi-source Stage 1 corpus.",
     "hardware": "Tuned for 1x A100 40GB (or 80GB). bf16 requires Ampere or newer; A100 qualifies.",
+    "throughput_tuning": "A100-only micro-batch tuning: per_device_train_batch_size=4 with gradient_accumulation_steps=4 keeps the same effective update batch as batch=1/accum=16 while using more VRAM and reducing accumulation overhead. Do not copy these values into the Kaggle T4x2 config.",
     "gate": "Requires HF access to meta-llama/Llama-3.1-8B and a real Stage-1 manifest/token report passing strict checks.",
     "checkpoint_cadence": "Saves every 100 optimizer steps and delays first eval until step 500 so checkpoint-100 exists before eval can fail.",
     "eval_memory": "Eval is loss-only with per-device eval batch 1 and eval_accumulation_steps 1 to avoid retaining large Llama logits during checkpoint-adjacent eval.",
