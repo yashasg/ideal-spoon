@@ -219,3 +219,88 @@ Quality=4 (Validated) Hawaiian Wikisource scan quantitatively confirmed the meta
 - Linus: W1-from-Wikisource path confirmed empty today; no candidate seeding this round
 - Rusty: no language-fit work needed; zero candidate text
 - User: non-replacement directive honored; scan is additive only
+
+## 2026-05-01 — Stage-2 Bible verse-id adapter scaffolding (issue #16)
+
+Landed the first real Stage-2 source adapter contract for the
+(Baibala Hemolele × PD English Bible) verse-aligned pair. Live fetch
+is intentionally inert pending Linus' edition pin; everything else on
+the issue acceptance is in place and tested.
+
+**Architecture decisions:**
+- Two-script split mirroring the 100/200/300 numbering: `206_fetch_baibala_raw.py`
+  owns raw HTTP + provenance, `322_build_bible_candidates.py` owns
+  verse-id pair JSONL emission. Keeps fetch/parse decoupled and lets
+  fixture-backed tests exercise the candidate contract without any
+  network or HTML samples.
+- Source registry as JSON (`data-sources/bible/source_registry.json`)
+  rather than Python module: edition pins are config, not code, and
+  Linus can edit `edition_pinned_by` without touching scripts.
+- `--execute` on the fetcher is **triple-gated**: (a) registry has a
+  non-null `edition_pinned_by`, (b) `--confirm-edition` matches the
+  registry edition_or_version, (c) `--tos-snapshot <path>` points at
+  an existing file. Refuses with rc=2 and a clear message otherwise.
+- ʻokina canonicalization (U+2018/U+2019/ASCII apostrophe → U+02BB)
+  applied **before** sha256 / pair_id computation so pair hashes are
+  stable across upstream rendering quirks. Mirrors
+  `code/llm_hawaii/stage2_quality.py::OKINA_MISENCODINGS`.
+- Stdlib-only, no new requirements; scripts run on a fresh checkout.
+
+**Patterns reused:**
+- `ProvenanceRecord` dataclass shape from `202_fetch_hawwikisource_raw.py`
+  (extended with `edition_or_version` + `tos_snapshot_path`).
+- `compute_pair_hash()` imported as the canonical pair-hash helper from
+  `320_build_stage2_manifest.py`; tests assert the candidate's
+  `sha256_pair` matches that helper byte-for-byte.
+- Dry-run-by-default + hard `--limit` cap (5 chapters; ceiling 200) per
+  the safety posture in `data-sources/stage2-parallel-fetch-plan.json`.
+
+**Key file paths:**
+- `data-sources/bible/source_registry.json` — pinned pair + 66-book canon.
+- `data-sources/bible/README.md` — run order, rights/boundaries.
+- `scripts/206_fetch_baibala_raw.py` — raw fetcher (gated --execute).
+- `scripts/322_build_bible_candidates.py` — verse-id pair builder.
+- `code/tests/fixtures/bible/{haw,eng}/GEN_1.txt` — 5-verse synthetic
+  fixture (clearly labelled NOT real Bible content).
+- `code/tests/test_bible_adapter.py` — 18 tests, stdlib only.
+
+**Validation:**
+- 18/18 new tests pass; full `code/tests` suite still green.
+- `322 --execute` emits 5 rows to `data/stage2/candidates/bible.jsonl`
+  (correctly gitignored under `/data/`).
+- `320 --check --strict --manifest-in data/stage2/candidates/bible.jsonl`
+  → `schema_violations: []`, rc=0.
+- GitHub issue #16 progress comment posted (comment id 4357023441).
+
+**Open for Linus / future agents:**
+1. Pin edition in `source_registry.json` (`edition_pinned_by`,
+   `edition_pinned_at_utc`).
+2. Live `baibala.org` URL/CGI confirmation; today's
+   `url_template_status="placeholder_pending_endpoint_check"`.
+3. ToS snapshot capture under
+   `data/raw/baibala-hemolele-1839/<YYYYMMDD>/tos_snapshot.html`.
+4. Real `parse_baibala_chapter_html()` implementation (currently
+   raises NotImplementedError with a documented contract).
+5. Versification reconciliation across editions; bulk run to hit
+   "few thousand verse-aligned rows" acceptance.
+
+**User preferences honored:**
+- No corpus payloads committed (verified via `git check-ignore`).
+- No git history changes; all work left in working tree per task spec.
+- Synthetic fixtures over real PD Bible text — avoids any rights
+  ambiguity for the test fixture.
+
+---
+
+## 2026-05-01T00:19:05Z — Stage 2 Readiness Checkpoint (Bible Adapter Landed)
+
+**Team Orchestration:** Scribe session; Ralph Round 1 concluded.
+
+**Your outcome:** Bible verse-id adapter contract scaffolded/tested/dry-run-clean. Edition pin in `source_registry.json` (not code), triple-gated `--execute`, ʻokina canonicalization locked in, synthetic test fixtures, 18/18 tests pass.
+
+**Team outcomes:** Linus landed Tatoeba adapter (41 tests), Basher landed SFT trainer + config (target-only masking), Rusty landed eval gate (29 tests).
+
+**Decisions merged:** Edition pin in JSON convention, triple-gated fetcher gate pattern, Tatoeba alignment_method="manual", SFT custom collator (no TRL), eval gate live, Colab GPU assessment conditional.
+
+**Next:** Linus pins Hawaiian edition in `source_registry.json` to unblock your live fetcher.
+

@@ -28,6 +28,13 @@
 
 ## Learnings
 
+- **Stage 2 Tatoeba adapter (issue #17):** `alignment_method="manual"` is the correct schema value for Tatoeba (human-curated links, deterministic). `"tmx-line"` would be inaccurate. `register="unknown"` is correct for Tatoeba mixed-domain content; `"educational"` would misrepresent many pairs.
+- **Stage 2 adapter pattern:** Adapters should produce candidates JSONL under `data/stage2/candidates/` with all computable manifest fields pre-populated (hashes, ratios, lang_id, etc.), so `320_build_stage2_manifest.py --check` can validate schema compliance before the manifest builder wires them in.
+- **Tatoeba eng_sentences streaming:** `eng_sentences_detailed.tsv.bz2` is large. Stream through it keeping only IDs needed from the links table. Early-exit once all needed IDs are found.
+- **Adapter self-test pattern:** Include a `--self-test` flag that runs in-memory against synthetic string fixtures (no network, no disk). This lets tests invoke the adapter's core logic without requiring file system fixtures.
+- **Key paths:** `data-sources/tatoeba/fetch.py`, `data-sources/tatoeba/PINNED_DUMP.json`, `code/tests/test_tatoeba_adapter.py`, `code/tests/fixtures/tatoeba/*.tsv`.
+- **Validation (issue #17):** ✅ py_compile clean, ✅ 41/41 tests green, ✅ manifest schema validation passes, ✅ self-test exits 0.
+
 - When a JSONL converter has a hard-coded path string that can drift from reality (e.g., file renamed `.md` → `.txt`), centralise it as a named constant at the top of the file. This makes regeneration idempotent.
 - `eval_eligible` and `audit_only` are independent policy dimensions; a tokenizer audit candidate can also be eval-eligible for a specific probe without being general training data.
 - For a "safe to miss" probe pattern: check file existence first, return early with `status="missing"`, never raise. The eval framework tolerates this — only `status="invalid"` on W1 triggers an exit code change.
@@ -718,4 +725,24 @@ longer reads it. Final contract logged at
 - Session log: `.squad/log/2026-04-30T09-15-54Z-training-readiness.md`
 
 **Next:** Ready for compute environment preflight + Stage 1 CPT run.
+
+
+---
+
+## 2026-05-01T00:19:05Z — Stage 2 Readiness Checkpoint (Tatoeba Adapter Landed)
+
+**Team Orchestration:** Scribe session; Ralph Round 1 concluded.
+
+**Your outcome:** Tatoeba en↔haw adapter with alignment_method="manual", register="unknown", 2025-05-01 pinned dump, 41/41 tests pass.
+
+**Team outcomes:** Frank landed Bible adapter (18 tests), Basher landed SFT trainer + config, Rusty landed eval gate (29 tests).
+
+**Decisions merged:** Tatoeba alignment/register choices (manual + unknown), Bible edition pin in JSON, SFT custom collator (no TRL), eval gate live, Colab GPU assessment.
+
+**Team integration points:** 
+- Frank needs your pin for Hawaiian edition in `source_registry.json` to unblock live fetcher.
+- Rusty's eval gate consumes manifest fields: `sha256_pair`, `sha256_normalized`, `sha256_normalized_haw`, `sha256_normalized_en`.
+- Your adapter pattern (alignment_method + register in schema) sets template for Stage 2 adapters.
+
+**Next:** Pin Hawaiian edition; confirm WEB as English anchor (or swap for KJV).
 

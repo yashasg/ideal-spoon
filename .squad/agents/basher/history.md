@@ -722,3 +722,31 @@ QLoRA + bitsandbytes 4-bit cannot use DDP: bitsandbytes wraps parameters in cust
 - Do not raise `max_seq_len` beyond 2048, raise LoRA rank, or disable gradient checkpointing based only on spare-memory observation; those are more likely to destabilize training.
 
 **Fallback:** If Kaggle OOMs, revert batch to 1 and accumulation to 16 first. Then fall back to seq_len 1024 / accumulation 32, then LoRA rank 16 / alpha 32.
+
+- **Stage-2 SFT masking pattern:** `tokenize_sft_example` tokenizes prompt and target *separately* with `add_special_tokens=False`, then concatenates: `prompt_ids + target_ids + [eos_id]`. Labels: `[-100] * n_prompt + target_ids + [eos_id]`. EOS appended explicitly and always carries loss. Truncation applied to right of combined sequence.
+- **SFT collator (no TRL):** `make_sft_collator` is pure Python — pads `input_ids` with `pad_token_id` and `labels` with `-100` (never with pad_token_id). Unlike Stage-1 CLM collator which rebuilds labels from padded input_ids, SFT collator *preserves* pre-computed labels.
+- **Stage dispatch in `run_training`:** if `cfg.stage == "stage2-sft"` → `build_sft_dataset` + `make_sft_collator`; else Stage 1 path unchanged.
+- **Key file paths (Stage 2):** `code/llm_hawaii/data.py` (SFT fns), `code/configs/stage2_smoke.json`, `code/configs/stage2_prototype.json`, `code/examples/stage2_sft.jsonl.example`, SFT tests in `code/tests/test_data.py::TestSFTData`.
+- **`_DummyTokenizer` update:** added `pad_token_id=0`, `eos_token_id=999`, `**kwargs` to `__call__`; token range now 1-998 (0 and 999 reserved). All existing Stage-1 tests still pass.
+
+---
+
+## 2026-05-01T00:19:05Z — Stage 2 Readiness Checkpoint (SFT Trainer Landed + Colab Assessment)
+
+**Team Orchestration:** Scribe session; Ralph Round 1 concluded.
+
+**Your outcomes:**
+1. **Issue #21/#22 SFT trainer:** Custom tokenizer + collator (no TRL), target-only labels at tokenization time, EOS in target (not masked), separate tokenization prevents BPE boundary ambiguity.
+2. **Colab Pro assessment:** Conditional — check GPU before committing (A100/L4: switch; T4 16GB: stay on Kaggle).
+
+**Team outcomes:** Frank landed Bible adapter (18 tests), Linus landed Tatoeba adapter (41 tests), Rusty landed eval gate (29 tests).
+
+**Decisions merged:** SFT custom collator pattern, Colab GPU conditional, Tatoeba alignment/register choices, Bible edition pin in JSON, eval gate live.
+
+**Team integration points:**
+- Rusty's eval gate (issue #23) consumes predictions keyed by `pair_id` from your SFT runner.
+- Linus flagged manifest schema evolution; eval gate reads `sha256_pair`, `sha256_normalized`, `sha256_normalized_haw`, `sha256_normalized_en`.
+- Your SFT config fields (`sft_instruction_field`, etc.) default to `scripts/330_emit_stage2_sft_jsonl.py` output.
+
+**Next:** Emit SFT predictions keyed by `pair_id`; coordinate with Rusty on eval gate intake format.
+

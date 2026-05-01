@@ -648,3 +648,105 @@ the regenerated JSONL on disk, and `docs/eval_pipeline.md:230`.
 **Deliverable:** Decision written to `.squad/decisions/inbox/rusty-vram-tradeoff.md` with implementation path, memory breakdown, and conditional fallback strategy.
 
 **Status:** ✅ Complete. Team can proceed with Stage 1 training and optionally apply seq_len increase for better Hawaiian language modeling quality.
+
+---
+
+## 2026-05-02 — Stage 2 eval gate landed (issue #23)
+
+**Trigger:** yashasg ralph-loop dispatch on issue #23 (Stage 2 chrF/chrF++ both
+directions + leakage + orthography retention).
+
+**Files touched:**
+
+- `code/llm_hawaii/stage2_eval.py` — new module: `chrf_corpus`,
+  `chrf_both_directions`, `TranslationPair`, `load_translation_pairs`,
+  `leakage_check`, `orthography_retention`, `Stage2EvalConfig`,
+  `run_stage2_eval`. Schema label `stage2_eval.v1`.
+- `scripts/410_stage2_eval.py` — CLI; `--self-test` smoke contract.
+- `code/tests/test_stage2_eval.py` — 29 tests (chrF correctness incl. sacrebleu
+  parity when available, direction separation, leakage states pass/fail/
+  skipped/missing, orthography tripwires, end-to-end orchestrator, CLI smoke).
+- `code/tests/fixtures/stage2_eval/{eval_pairs,predictions}.jsonl` — 5-row
+  bilingual fixture (3 en→haw, 2 haw→en) with intentional wrong-ʻokina to
+  exercise the retention tripwire.
+- `code/llm_hawaii/__init__.py` — re-export `stage2_eval`.
+- `code/llm_hawaii/evaluate.py` — flipped the stage2-chrf TODO into a pointer
+  to the implementation.
+- `docs/eval_pipeline.md` — chrF row now names the module + CLI.
+
+**Architecture decisions / durable learnings:**
+
+- **Generation is decoupled from scoring.** The gate consumes a predictions
+  JSONL keyed by `pair_id` rather than loading a model. Tests run with
+  zero ML deps; the CLI is a pure scorer. Whoever owns generation (Basher
+  for the Stage 2 SFT runner) feeds in `{pair_id, hypothesis}`. This
+  matches the W1 pattern and keeps the gate exercisable on a laptop.
+- **Direction separation is structural, not a convention.** The
+  `TranslationPair` dataclass validates `direction ∈ {en_to_haw,
+  haw_to_en}` at construction; `chrf_both_directions` returns sibling
+  dicts; nowhere does the module average across directions. This pins
+  `docs/eval_pipeline.md` §3.3's "never averaged" contract in code.
+- **chrF backend choice is recorded in the report**: `backend` field
+  in each chrF dict carries either `pure_python_v1` or
+  `sacrebleu_<version>`. Cross-run comparability requires this — a
+  silent backend switch could otherwise look like a model regression.
+- **sacrebleu is not pinned as a hard dep.** The pure-Python fallback
+  mirrors sacrebleu's corpus-level chrF formula (clipped overlap →
+  per-order P/R → F-beta=2 → arithmetic mean over effective orders).
+  Verified by the `test_pure_python_matches_sacrebleu_when_available`
+  parity test (skipped locally when sacrebleu absent). For
+  release-tier eval, pin sacrebleu and drop the fallback; documented
+  inline in the module docstring.
+- **Effective-order behavior matches sacrebleu**: orders where the
+  corpus has zero reference n-grams (e.g. char 6-gram on a 5-char
+  reference) are dropped from the average rather than scored as 0.
+  Tested explicitly.
+- **Leakage check fails closed.** Missing ledger or manifest files do
+  NOT silently report `pass` — the verdict becomes `fail` with status
+  `missing`. `None` paths report `skipped` so cron summaries can
+  distinguish "we checked and it was clean" from "we never checked".
+  Also reads multiple manifest hash fields (`sha256_pair`,
+  `sha256_normalized`, `sha256_normalized_haw/en`) so it survives
+  Linus's manifest schema evolution.
+- **Retention probe is en→haw only.** haw→en pairs would measure
+  *English* orthography on the hypothesis; nonsensical for ʻokina /
+  kahakō survival. Pinned by `test_haw_to_en_excluded`.
+- **Wrong-ʻokina is hypothesis-side only.** A model that injects
+  U+0027 / U+2018 / U+2019 / U+02BC between letters fires the
+  `wrong_okina_introduced` tripwire even if the reference has none.
+  Symmetric tracking would mask the regression.
+- **No blocking thresholds.** Per issue #23 acceptance, numbers are
+  advisory at prototype tier; the report carries an explicit advisory
+  string saying so. Gate promotion to release tier is a separate
+  decision.
+
+**Validation:** 29/29 new tests green. Full suite 192/192 minus the
+pre-existing torch-missing error (`test_check_runtime_capability`).
+`python3 scripts/410_stage2_eval.py --self-test` exits 0 and prints a
+sample report with all four chrF numbers + leakage verdict +
+retention tripwires.
+
+**Hand-off:** Basher's Stage 2 SFT runner needs to emit a predictions
+JSONL keyed by `pair_id`; pointer the runner at this gate. Linus's
+manifest schema for #11 already provides the hash fields the leakage
+check consumes.
+
+---
+
+## 2026-05-01T00:19:05Z — Stage 2 Readiness Checkpoint (Eval Gate Landed)
+
+**Team Orchestration:** Scribe session; Ralph Round 1 concluded.
+
+**Your outcome:** Stage-2 eval gate live (issue #23). chrF + chrF++ for both en→haw and haw→en (never averaged), leakage/contamination check, Hawaiian orthography retention tripwires, 29 tests pass, full suite green.
+
+**Team outcomes:** Frank landed Bible adapter (18 tests), Linus landed Tatoeba adapter (41 tests), Basher landed SFT trainer + Colab assessment.
+
+**Decisions merged:** Eval gate live (generation decoupled, chrF backend recorded, direction separation structural, leakage check fails closed, no blocking CI thresholds), SFT custom collator (no TRL), Tatoeba alignment/register, Bible edition pin in JSON, Colab GPU conditional.
+
+**Team integration points:**
+- Basher (issue #11/#14) must emit SFT predictions keyed by `pair_id`.
+- Linus must preserve manifest schema fields: `sha256_pair`, `sha256_normalized`, `sha256_normalized_haw`, `sha256_normalized_en` (eval gate reads these for leakage check).
+- Your gate's API: takes `predictions.jsonl` keyed by `pair_id`, returns report with chrF numbers + leakage verdict + retention tripwires.
+
+**Next:** Await SFT runner predictions from Basher; validate leakage check against pinned manifest hashes.
+

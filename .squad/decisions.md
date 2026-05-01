@@ -3448,3 +3448,111 @@ PYTHONPATH=code python3 -m llm_hawaii.train \
 PYTHONPATH=code python3 -m llm_hawaii.train \
   --config code/configs/stage1_fineweb2_haw_kaggle_t4x2.json
 ```
+
+---
+
+## Decision: Stage-2 Bible verse-id adapter — edition pin lives in JSON, not code (2026-05-01)
+
+**Date:** 2026-05-01
+**Owner:** Frank (Hawaiian Data Collector)
+**Tracks:** issue #16
+**Status:** Adapter contract landed in working tree; awaiting Linus rights review for edition pin.
+
+Stood up the first real Stage-2 source adapter for the (Baibala Hemolele × public-domain English Bible) verse-id-aligned pair. Edition pin lives in JSON (`source_registry.json`), not Python. Triple-gated `--execute` enforced on fetchers. ʻokina canonicalization runs before pair hashing. Synthetic fixtures over real PD text. Two-script split (fetch vs build) for every Stage-2 source.
+
+**Validation:** 18/18 new tests pass; full `code/tests` suite still green. `322 --execute` emits 5 rows to `data/stage2/candidates/bible.jsonl` (gitignored). Schema check → rc=0.
+
+**Files:** `data-sources/bible/{source_registry.json, README.md}`, `scripts/{206_fetch_baibala_raw.py, 322_build_bible_candidates.py}`, `code/tests/fixtures/bible/`, `code/tests/test_bible_adapter.py`.
+
+---
+
+## Decision: Tatoeba en↔haw adapter — alignment_method and register choices (2026-05-01)
+
+**Agent:** Linus (Data Engineer)
+**Date:** 2026-05-01
+**Issue:** #17 Stage 2 source adapter: Tatoeba en-haw sentence pairs
+
+**alignment_method = "manual"** — Tatoeba sentence links are manually added by human contributors, not derived from TMX. Semantically accurate; in schema's `DETERMINISTIC_METHODS` (no embedding score required).
+
+**register = "unknown"** — Tatoeba contains mixed-domain content. `"unknown"` is more conservative and accurate than `"educational"`.
+
+**Pinned dump date = 2025-05-01** with three URLs from `data-sources/stage2-parallel-fetch-plan.json`.
+
+**Team Impact:** Quality scorer (321) will treat Tatoeba pairs as deterministic and skip embedding checks. Downstream register-balancing should treat Tatoeba as unlabelled.
+
+**Files:** `data-sources/tatoeba/{fetch.py, README.md, PINNED_DUMP.json}`, `code/tests/fixtures/tatoeba/*.tsv`, `code/tests/test_tatoeba_adapter.py` (41 tests, all green).
+
+---
+
+## Decision: Stage-2 SFT data path and target-only masking (no TRL) (2026-05-01)
+
+**Date:** 2026-05-01
+**Author:** Basher (Training Engineer)
+**Issues:** #21, #22
+
+Stage-2 SFT uses custom tokenizer + collator in `code/llm_hawaii/data.py` rather than TRL's `SFTTrainer`.
+
+**Rationale:** No new heavy deps; explicit masking at tokenization time; EOS in target (not masked); separate tokenization prevents BPE boundary ambiguity.
+
+**Dispatch:** `run_training` dispatches on `cfg.stage == "stage2-sft"` and calls `build_sft_dataset` + `make_sft_collator`.
+
+**Config fields added:** `sft_instruction_field`, `sft_source_field`, `sft_target_field` (defaults match `scripts/330_emit_stage2_sft_jsonl.py` output).
+
+**Validation:** Target-only labels at tokenization; prompt/padding = -100 (inspectable); EOS placement correct; no BOS/EOS injection mid-sequence.
+
+---
+
+## Decision: Colab Pro vs Kaggle T4x2 — conditional GPU assessment (2026-05-01)
+
+**Date:** 2026-05-01
+**Author:** Basher (Training Engineer)
+**Context:** 1h19m lost to setup/config bugs; 30h budget remaining; user asking about Colab Pro for Llama-3.1-8B QLoRA Stage 1.
+
+**Verdict:** Conditional — Check the GPU before committing.
+
+| Colab GPU | Switch? | Config |
+|-----------|---------|--------|
+| A100 40GB | Yes | `stage1_fineweb2_haw.json` (exists) |
+| L4 24GB   | Yes | New config: bf16, single-GPU, batch=1, accum=16 |
+| T4 16GB   | No  | Stay on Kaggle T4x2 (32GB total beats 16GB single) |
+
+**How to check before committing:** `print(torch.cuda.get_device_name(0))` and `torch.cuda.get_device_properties(0).total_memory / 1e9`.
+
+---
+
+## Decision: Stage 2 eval gate landed (issue #23) (2026-05-01)
+
+**Owner:** Rusty (NLP Researcher)
+**Date:** 2026-05-01
+**Status:** IMPLEMENTED — 29 tests green, full suite passes.
+
+Stage 2 prototype eval gate is live at `code/llm_hawaii/stage2_eval.py` with CLI front-end `scripts/410_stage2_eval.py`.
+
+**Key decisions:**
+1. Generation decoupled from scoring — gate takes `predictions.jsonl` keyed by `pair_id`.
+2. chrF backend recorded, not pinned — sacrebleu when importable; pure-Python fallback otherwise.
+3. Direction separation is structural — `chrf_both_directions` returns `en_to_haw` / `haw_to_en` dicts; no averaged number.
+4. Leakage check fails closed — missing ledger/manifest = `fail` verdict with status `missing`.
+5. No blocking CI thresholds — numbers are advisory at prototype tier.
+
+**Files:** `code/llm_hawaii/stage2_eval.py`, `scripts/410_stage2_eval.py`, `code/tests/test_stage2_eval.py` (29 tests), `code/tests/fixtures/stage2_eval/`.
+
+**Hand-offs:** Basher (predictions keyed by `pair_id`), Linus (manifest schema fields: `sha256_pair`, `sha256_normalized`, etc.).
+
+---
+
+## Decision: Colab Pro ROI for Stage-1 Prototype (2026-05-01)
+
+**Author:** Livingston (Cost Strategist)
+**Date:** 2026-05-01
+**Status:** Recommendation — hold off for now
+
+**Analysis:** Kaggle free tier has ~28.7h quota remaining (more than enough for prototype). The 1h19m burn was setup friction, not compute scarcity. Colab Pro does not solve setup issues.
+
+**Recommendation:** Do not buy Colab Pro right now. You have sufficient Kaggle quota. Revisit if quota exhaustion is confirmed AND the run is not done.
+
+**When Colab Pro *would* make sense:**
+1. Confirm remaining 28h41m is not enough to complete the run.
+2. Need A100 (bf16, faster throughput) — requires new config.
+3. Iterating rapidly and exhausting free quota repeatedly in the same week.
+
