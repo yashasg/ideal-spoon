@@ -1,11 +1,364 @@
 # Decisions
 
+> Updated 2026-05-01T08:52:06Z: Merged Frank ready-made Hawaiian dataset sweep. Outcome: Stage 2 hub sources well covered (Tatoeba, OPUS, NLLB, BibleNLP, Global-PIQA, Taxi1500 in plan; FLORES+/Belebele/WMT24++ verified absent). Stage 1 hub sources not previously surveyed; confirmed present: MADLAD-400 (~109k tokens), Glot500-c, GlotCC-v1, HPLT v2 cleaned (all haw_Latn); confirmed absent: CC100, mC4, WikiMatrix, NTREX-128, likely CulturaX. Recommend Stage 2 execution order: NLLB mined (largest yield) → BibleNLP haw1868 (31k verses) → OPUS bible-uedin (dedup cross-check). Stage 1 three probes (MADLAD-400, Glot500-c, HPLT v2) require Linus rights sign-off before adapter implementation. Full report in `.squad/decisions/inbox/frank-ready-dataset-sweep.md`.
+>
+> Updated 2026-05-01T08:30:25Z: Merged Frank Pentateuch raw fetch. Outcome: Exodus–Deuteronomy HAW 137 chapters (~1.95 MB) fetched via Baibala Hemolele 1839 pin; provenance appended (137 rows in fetch.jsonl); cumulative 187 HAW chapters on disk (Genesis 50 + Pentateuch tail 137); candidate emission deferred pending Linus confirmations on USFM cleanup stability (EXO/LEV/NUM/DEU) and `322` book-bounded build support; next raw batch planned (JOS/JDG/RUT, 49 chapters, ~75 s polite).
+>
+> Updated 2026-05-02T08:23:02Z: Merged Frank Bible raw fetch + Linus parser fix + Genesis emission. Outcome: HAW Genesis 50 chapters (840 KB) + ENG KJV/ASV USFM zips (5.1 MB) fetched; Strong's number leakage identified in dry-run (1,533 rows); three-pass cleanup fix shipped in `206b_parse_eng_usfm.py`; 1,533 clean Genesis rows written; manifest dry-run 3,140 total rows, 0 violations; KJV pinned as ENG anchor; full HAW corpus (65 books) + OPUS adapter deferred.
+>
+> Updated 2026-05-01T00:23:47Z: Merged Stage 2 80k source plan finalization (Frank + Linus). Outcome: User directive captured (80k directional SFT rows); Frank's 4-source discovery accepted with gates; Linus reviewed + cleared all 4 sources; 11-bucket acquisition roadmap ranked; honest yield math confirmed (~28–35k pairs from human-parallel alone; NLLB mined + synthetic BT required to reach 80k); guardrails enforced (NLLB ≥0.80 LaBSE, BT ≤15% cap, never dev/test); HK statutes promoted to all-four-pairs; all scripts/tests/docs updated; team ready for adapter implementation.
+>
 > Updated 2026-05-01T00:59:31Z: Merged Linus Baibala Hemolele 1839 edition pin. Outcome: Edition confirmed on baibala.org with correct Greenstone URL pattern and verse anchor format; all 66 books mapped with `greenstone_oid` and `book_name_lower`; sample HTML + ToS captured; working tree ready for Frank parser implementation.
 >
 > Updated 2026-04-30T21:36:58Z: Merged Basher Kaggle venv robustness + docs idempotency and Copilot W1 eval skip directive. Outcome: `scripts/setup_training.py` now probes venv pip health and auto-recreates broken envs; `docs/kaggle-t4x2-setup.md` uses absolute cd paths; W1 provisional micro-eval skipped per directive.
 >
 > Updated 2026-04-30T10:06:39Z: Merged Basher QLoRA bitsandbytes compute dtype fix. Outcome: `_bnb_4bit_config()` now correctly derives compute dtype from TrainConfig `bf16`/`fp16` flags. Kaggle T4x2 config (fp16=true, bf16=false) now uses torch.float16 instead of unsupported torch.bfloat16.
 
+
+---
+
+## User Directive: Stage 2 target raised to 80k directional SFT rows (2026-05-01T07:09:23Z)
+
+**By:** yashasg (via Copilot)  
+**What:** Stage 2 target raised from 40k to 80k directional SFT rows.  
+**Why:** User request — captured for team memory.  
+**Status:** IMPLEMENTED — all downstream tasks aligned.
+
+---
+
+## Decision: Frank — Ready-made Hawaiian dataset sweep (2026-05-01T08:52:06Z)
+
+**Owner:** Frank (Hawaiian Data Collector)  
+**Date:** 2026-05-01  
+**Status:** RESEARCH / INVENTORY — no code or data fetched
+
+### Question
+
+Did we look for ready-made public datasets that already package Hawaiian (`haw`) text or parallel pairs, the way FineWeb-2 packages haw_Latn for Stage 1?
+
+### What we already had
+
+Already enumerated in plan / on disk:
+
+| Source | Hub | Stage | Status |
+|---|---|---|---|
+| FineWeb-2 `haw_Latn` | HF `HuggingFaceFW/fineweb-2` | Stage 1 mono | Pinned & fetched. 95,507 train + 887 test. |
+| Hawaiian Wikipedia dump | dumps.wikimedia.org | Stage 1 mono | In plan, P0. |
+| Hawaiian Wikisource dump | dumps.wikimedia.org | Stage 1 mono | In plan. |
+| Tatoeba haw-eng | downloads.tatoeba.org + OPUS | Stage 2 parallel | In plan; 121 candidates on disk. |
+| OPUS subsets | opus.nlpl.eu | Stage 2 parallel | In plan; endpoint-verification pending. |
+| NLLB mined haw-eng | HF `allenai/nllb` | Stage 2 parallel (mined) | In plan; not fetched. |
+| BibleNLP `haw1868` | HF `bible-nlp/biblenlp-corpus` | Stage 2 parallel (verse) | In plan; not fetched. |
+| Global-PIQA parallel haw_Latn | HF `mrlbenchmarks/global-piqa-parallel` | Eval-only | In plan. |
+| Taxi1500 haw_Latn | github.com/cisnlp/Taxi1500 | Eval-only diagnostic | In plan. |
+| FLORES+ haw_Latn | HF `openlanguagedata/flores_plus` | Eval | Probed 2026-05-02 — **NOT present**. |
+| Belebele haw | HF `facebook/belebele` | Eval | Probed 2026-05-02 — **NOT present**. |
+| WMT24++ haw | HF `google/wmt24pp` | Eval | Probed 2026-05-02 — **NOT present**. |
+
+Stage-2 hub-packaged sources well covered. Stage-1 hub-packaged sources **beyond FineWeb-2 not previously surveyed.**
+
+### What we found (Stage 1 gap survey)
+
+Searched 2026-05-04. Stage 1 hub-packaged monolingual sources:
+
+| Dataset | Hub | Has `haw_Latn`? | Recommendation |
+|---|---|---|---|
+| **MADLAD-400** | HF `allenai/MADLAD-400` | **Yes** (~109k tokens) | **Probe + dedup vs FineWeb-2.** Second-source signal on cleaning gates. |
+| **Glot500-c / GlotCC-v1** | HF `cis-lmu/Glot500`, `cis-lmu/GlotCC-V1` | **Yes** (≥30k threshold) | **Probe + dedup vs FineWeb-2.** Same role as MADLAD. |
+| **HPLT v2 cleaned** | data.hplt-project.org + HF | **Yes** (explicit haw_Latn) | **Probe.** Cleanest licensing posture. |
+| **OSCAR-2301** | HF `oscar-corpus/OSCAR-2301` | Likely yes | **Skip.** Heavy overlap with FineWeb-2. |
+| **CulturaX** | HF `uonlp/CulturaX` | **Likely no** (167 langs only) | **Skip.** Verify-absent and record. |
+| **CC100** | statmt.org | **No** (100 langs, haw not in list) | **Skip / verify-absent.** |
+| **mC4** | HF `allenai/c4` | **No** (101 langs, haw not in list) | **Skip / verify-absent.** |
+| **WikiMatrix** | HF `facebook/wikimatrix` | **No** (85 langs, haw not in list) | **Skip / verify-absent.** |
+| **NTREX-128** | github.com/MicrosoftTranslator/NTREX | **No** (128 langs, haw not in list) | **Skip / verify-absent.** Record alongside FLORES+/Belebele. |
+| **xP3 / Aya** | HF `bigscience/xP3*`, CohereForAI | Not surveyed | **Probe-and-record-absent.** Low expected yield. |
+
+### Top-3 ready-made adds ranked
+
+For **Stage 2 row count**, no new external dataset found moves needle materially beyond what is already planned. Honest top-3 is "execute what we already planned":
+
+1. **NLLB mined haw-eng (`allenai/nllb`)** — in plan, not fetched. Largest expected yield. Mined → ≤synthetic/mined budget, never dev/test, never released.
+2. **BibleNLP `haw1868`** — in plan, not fetched. Verse-aligned Baibala vs eBible. ~31k verses, complies with ≤30% bible-token-share cap.
+3. **OPUS bible-uedin haw** — ~31k verses; however same Baibala source as direct fetch + BibleNLP above. Treat as **cross-check/dedup signal**, not additive.
+
+**Stage 1 adds** (separate from 80k Stage-2 target):
+
+- **MADLAD-400 `haw_Latn`**, **Glot500-c `haw_Latn`**, **HPLT v2 cleaned `haw_Latn`** worth single fetch each, deduped vs FineWeb-2. Net gain small (FineWeb-2 already harvests most public Hawaiian web text), but provide second-source signal on cleaning gates + independent dedup hashes for contamination claims.
+
+### Decisions locked
+
+1. **Do not add** CulturaX / CC100 / mC4 / WikiMatrix / NTREX-128 / xP3 — **verify-and-record-absent only.** They either don't include `haw` or are downstream of sources we already pull.
+2. **Stage 2 80k focus:** Execute NLLB → BibleNLP → finish OPUS verification. Do not block on adding new external parallel sources.
+3. **Stage 1 three probes** (MADLAD-400, Glot500-c, HPLT v2 cleaned) require **Linus rights sign-off** before adapter implementation. Same posture class as FineWeb-2 (ODC-By/CC-derived web crawls)?
+
+### Asks
+
+- **Linus:** Rights/posture objection to adding MADLAD-400 / Glot500-c / HPLT-v2 cleaned `haw_Latn` to Stage-1 plan as ODC-By/CC-derived web crawls?
+- **Linus / Rusty:** Is second-source dedup-signal value worth adapter cost given 80k Stage-2 focus? If "no, focus on parallel," defer Stage-1 probes.
+
+---
+
+## Decision: Frank — Stage 2 source discovery: 4 new sources + 6 deferred leads (2026-05-01)
+
+**Owner:** Frank (Hawaiian Data Collector)  
+**Date:** 2026-05-02  
+**Status:** COMPLETE — 4 sources added to `data-sources/stage2-parallel-fetch-plan.json`
+
+### Summary
+
+User asked: "wait that was easy, lets find more data." Existing 13 source rows insufficient to reach ~20k canonical pairs without over-leveraging Bible. This pass discovered 4 new rights-light parallel sources ready to inventory, and documented 6 leads requiring further review or rights interpretation.
+
+### Sources Accepted (4)
+
+All conservatively scoped: dry-run-by-default, single pinned identifier or paginated metadata-only before any body fetch.
+
+| source_id | alignment_type | rights | gating |
+|---|---|---|---|
+| `andrews-1865-en-haw-vocab-appendix` | dictionary-example | public_domain_candidate | None — ready to fetch |
+| `kaikki-haw-en-wiktionary` | dictionary-example | open_license_candidate (CC BY-SA 4.0 + GFDL) | None — ready to fetch |
+| `wikimedia-cx-en-haw-published` | parallel-doc | open_license_candidate (CC BY-SA 4.0) | Linus to pin `stats.mt < 0.5` cutoff |
+| `hawaiian-kingdom-statutes-bilingual` | parallel-doc | public_domain_candidate (1846–1897, sovereign-edicts) | Linus to pin bilingual pair + confirm cap |
+
+Honest yield from these four: **~5–13k canonical pair candidates** (pre-dedupe), assuming all gates pass.
+
+### Deferred Leads (6)
+
+Not yet defensible for fetch-plan inventory:
+- **UDHR Hawaiian:** Rights fine (OHCHR); endpoint not stable. Defer.
+- **Mozilla Firefox haw l10n:** No active haw locale. Drop.
+- **Ulukau bilingual nūpepa:** PD haw side; copyrighted English translation. Needs fair-use analysis.
+- **Ka Wai Ola (OHA):** Copyrighted, no permissive license. Requires direct permission.
+- **Hawaiʻi State Constitution (UH translation):** Copyrighted translation. Requires permission.
+- **Governor proclamations:** PD but low yield, per-document review needed. Low priority.
+
+### Verified Absent (3)
+
+Confirmed these do NOT include Hawaiian; pinned to `deferred_or_excluded` to avoid re-suggestion:
+- FLORES+ (222 languages, no haw)
+- Belebele (122 languages, no haw)
+- WMT24++ (48 languages, no haw)
+
+---
+
+## Decision: Linus — Stage 2 yield plan & source ranking (2026-05-01)
+
+**Owner:** Linus (Data Engineer)  
+**Date:** 2026-05-01  
+**Status:** GUIDANCE — team-relevant
+
+### Summary
+
+Ranked sources 1–8 by yield, blocker status, and adapter readiness. Identified that achieving the original 20k canonical-pair target from human-parallel inventory alone was insufficient; adapted strategy accordingly for 80k target.
+
+### Key Findings
+
+- **Target (original):** 40k SFT rows = ~20k canonical pairs  
+- **Bible ceiling:** ≤30% of parallel-train tokens ≈ 6k pairs (unchanged constraint)  
+- **Honest gap:** Remaining ~14k pairs require non-Bible sources; inventory exists but adapters are mostly unwritten  
+- **Rights-cleared and ready:** Tatoeba (adapter ready), Bible (parser pending), OPUS (draft + rights clear), Wiki langlinks (draft), NLLB (clear for prototype)
+
+### Source Ranking (Priority Order)
+
+| # | Source | Type | Rights | Est. Yield | Status | Blocker |
+|---|---|---|---|---|---|---|
+| 1 | **Tatoeba** | parallel-sentence | 🟢 CC BY 2.0 FR | 0.5–2k | ✅ Adapter ready | None — execute |
+| 2 | **Bible** | parallel-verse | 🟢 PD (1839 + KJV) | 8–12k (capped 30%) | 🟡 Parser pending | Frank owns parser |
+| 3 | **OPUS haw** | parallel-sentence | 🟡 Per-corpus CC/GPL | 1–5k | ❌ No adapter | Write next |
+| 4 | **NLLB mined** | mined parallel | 🟡 Cleared for prototype | 5–15k | ❌ No adapter | Rusty: quality floor |
+| 5 | **Wiki langlinks** | comparable-aligned | 🟢 CC BY-SA 4.0 | 3–5k | ❌ No adapter | LaBSE infra decision |
+| 6 | **Weblate** | parallel-sentence | 🟡 Per-project license | 1–3k | ❌ No adapter | Per-project filter |
+| 7 | **Wikisource** | comparable-aligned | 🟢 CC BY-SA 4.0 | <500 | ❌ No adapter | LaBSE + cultural filter |
+| 8 | **Dict examples** | dictionary | 🟡 Mixed rights | <1k | ❌ No adapter | Per-source gating |
+
+### Next 3 Adapter Priorities
+
+1. **OPUS haw subsets:** Static downloads, permissive licenses, diverse non-Bible sentences
+2. **NLLB mined haw-eng:** Largest single yield, requires quality threshold + origin URL tracking
+3. **Wiki-aligned:** Encyclopedic register, CC license, needs LaBSE embedding model
+
+---
+
+## Decision: Linus — Review and clear Frank's 4 new sources (2026-05-01)
+
+**Owner:** Linus (Data Engineer)  
+**Date:** 2026-05-02  
+**Status:** COMPLETE — edits applied to `data-sources/stage2-parallel-fetch-plan.json`
+
+### Verdicts
+
+| source_id | Verdict | Action |
+|---|---|---|
+| `andrews-1865-en-haw-vocab-appendix` | ✅ Accept with schema fix | Trimmed `concrete_urls` to single pin; backups in note |
+| `kaikki-haw-en-wiktionary` | ✅ Accept as-is | No edits required |
+| `wikimedia-cx-en-haw-published` | ✅ Accept — gate resolved | `stats.mt < 0.5` cutoff confirmed; `do_not_invoke_until` cleared |
+| `hawaiian-kingdom-statutes-bilingual` | ✅ Accept — gates resolved | Pair pinned (1897); rights cleared via PD + sovereign-edicts; `verification_status` updated |
+
+### Rights Rulings
+
+**Andrews 1865:** US PD by term (pre-1929). IA ToS covers digitization only. ✅ Cleared.
+
+**Kaikki:** CC BY-SA 4.0 + GFDL from Wiktionary. Per-row attribution in provenance. ✅ Cleared.
+
+**Wikimedia CX:** CC BY-SA 4.0 per Wikimedia Terms. `stats.mt` field indicates fraction unedited MT; threshold `< 0.5` is conservative and defensible. ✅ Threshold confirmed.
+
+**HK Statutes:** All four paired codes are 1846–1897 imprints (pre-1929 = PD by term). Sovereign-edicts doctrine adds belt-and-suspenders support. 1897 Penal Laws pair pinned (`esrp641724381` ↔ `esrp641728581`, both clean OCR Cornell scans). ✅ Cleared.
+
+### Validation
+
+- JSON valid, 17 sources + 8 deferred + 5 open_questions
+- `107 --dry-run` reports source_count=15, gated_static_download=1 (correct: 2 sources unblocked)
+- 10/10 unit tests pass
+
+---
+
+## Decision: Linus — Stage 2 target updated to 80k directional SFT rows (2026-05-01)
+
+**Owner:** Linus (Data Engineer)  
+**Date:** 2026-05-02  
+**Status:** IMPLEMENTED
+
+### Summary
+
+Per user directive, Stage 2 SFT row target raised from 40k (20k canonical pairs) to 80k (40k canonical pairs before retention). All scripts, tests, and documentation updated to reflect new target.
+
+### Changes Made
+
+| File | Change |
+|---|---|
+| `scripts/107_collect_stage2_parallel.py` | `SFT_ROW_TARGET = 80_000`; docstring updated |
+| `code/tests/test_stage2_parallel_fetch_scripts.py` | Test expectations updated to 80k/40k |
+| `docs/data-pipeline.md` | Script 107 description: 80k rows = ~40k canonical pairs |
+
+### Validation
+
+- ✅ Compile: `py_compile` all scripts pass
+- ✅ Tests: 10/10 unit tests pass
+- ✅ Dry-run: `--dry-run` reports `target_sft_rows: 80,000` and `canonical_pair_target: 40,000`
+
+---
+
+## Decision: Frank — Stage 2 80k acquisition plan (2026-05-01)
+
+**Owner:** Frank (Hawaiian Data Collector)  
+**Date:** 2026-05-02  
+**Trigger:** User directive — 80k target  
+**Status:** GUIDANCE — strategy document, not yet implemented
+
+### Honest Yield Math
+
+**80k directional SFT rows** = ~40k canonical pairs post-retention. Retention slicing (dedupe, Bible-cap, register-cap, ASCII-okina, eval contamination) realistically drops **15–25%**, so we need **~48–55k raw candidate pairs**.
+
+**Critical finding:** Rights-light human-parallel sources alone yield **~28–35k accepted canonical pairs** (~56–70k directional rows). This is below 80k.
+
+**Required gap-closers:**
+1. **NLLB mined haw-eng** (8–15k pairs) — Linus cleared for prototype only with per-row origin URLs
+2. **Synthetic back-translation** (5–10k pairs) — Stage-1-merged base, flagged `synthetic=true`, never dev/test, ≤15% cap
+
+### 11-Bucket Acquisition Roadmap
+
+| Rank | Bucket | Rights | Est. Accepted Pairs | Cumulative | Next Step |
+|---|---|---|---|---|---|
+| 1 | Bible (1839 + WEB/KJV) | 🟢 PD | 8–12k (≤30% cap) | ~10k | Pin WEB endpoint |
+| 2 | **NLLB mined** | 🟡 Prototype-only | **8–15k** @ LaBSE ≥0.80 | ~22k | Rusty: 0.80 floor |
+| 3 | OPUS haw | 🟡 Per-corpus CC/GPL | 2–5k | ~25k | Draft + fetch |
+| 4 | Wiki langlinks | 🟢 CC BY-SA 4.0 | 3–5k | ~29k | LaBSE infra |
+| 5 | **HK statutes (all 4 pairs)** | 🟢 PD + sovereign-edicts | 3–6k (≤15% cap) | ~33k | Rusty: alignment design |
+| 6 | CX EN→HAW | 🟢 CC BY-SA 4.0 | 1–3k | ~35k | Gate: `stats.mt < 0.5` |
+| 7 | Tatoeba | 🟢 CC BY 2.0 FR | 0.5–2k | ~36k | Execute ready adapter |
+| 8 | **Synthetic BT** | n/a (synthetic) | **5–10k** (≤15% cap) | ~44k | Rusty: BT floor |
+| 9 | Kaikki Wiktionary | 🟢 CC BY-SA 4.0 + GFDL | 0.3–0.7k | ~44.5k | Capped, never dev/test |
+| 10 | Andrews 1865 | 🟢 PD | 0.2–0.5k | ~45k | Capped, never dev/test |
+| 11 | Wikisource | 🟢 CC BY-SA 4.0 | <0.5k | ~45k | Low ROI; defer |
+
+**Plan cumulative midpoint: ~45k accepted pairs → 68–76k directional rows post-retention. Realistic outcome: 70–80k rows, with 80k credible only if upper end of NLLB (15k) and BT (10k) both deliver.**
+
+### Guardrails (Load-Bearing)
+
+**NLLB mined:**
+- LaBSE ≥0.80 cosine (stricter than 0.75 for curated comparable)
+- Below-floor → `alignment_review_required=true`, excluded from train
+- Per-row `license_observed` = `unknown`, origin URL recorded
+- Never dev/test
+
+**Synthetic BT:**
+- Per-pair `model_id`, `model_checkpoint_sha`, `generation_decode_params` recorded
+- Round-trip quality floor set by Rusty (BLEU or LaBSE)
+- ≤15% of parallel-train tokens cap (enforced in `320_build_stage2_manifest.py`)
+- Never dev/test; cross-checked against `eval_hashes.jsonl` before manifest ingest
+
+### What Does NOT Get Us to 80k
+
+- **Bible relaxation:** 30% cap is non-negotiable
+- **Dictionary examples:** Combined sub-1k yield; cap honestly
+- **Wikisource:** <500 yield; register diversity but not gap-closer
+- **JW300 / BibleNLP:** Stay excluded
+- **Pukui-Elbert modern edition:** Rights-encumbered
+- **Cultural-hard-escalate web scrape:** Not safe to scale without cultural owner
+- **Ulukau / Ka Wai Ola / State Constitution / OHA columns:** Lead-only; require permission grants
+
+### Honest Answer: Can 80k be reached from human-parallel only?
+
+**No.** Human-parallel sources alone max out ~56–70k directional rows. Reaching 80k requires NLLB mined + synthetic BT with guardrails. If either is rejected, target needs renegotiation.
+
+### Next 6 Adapter Priorities
+
+| Order | Script | Owner | Blocker |
+|---|---|---|---|
+| 1 | `108_collect_opus_haw.py` + fetch | Linus | None — execute |
+| 2 | `109_collect_nllb_haw.py` + fetch | Linus | Rusty: 0.80 floor |
+| 3 | `110_collect_wiki_aligned.py` + fetch | Linus | `sentence-transformers` decision |
+| 4 | `111_collect_hk_statutes.py` + fetch (all 4 pairs) | Frank | Rusty: alignment design |
+| 5 | `112_collect_cx_published.py` + fetch | Frank | None — gate cleared |
+| 6 | `120_generate_bt_pairs.py` (synthetic BT) | Rusty (model) + Frank (provenance) | Rusty: BT floor + decode params |
+
+---
+
+## Decision: Linus — 80k acquisition strategy encoded into source artifacts (2026-05-01)
+
+**Owner:** Linus (Data Engineer)  
+**Date:** 2026-05-02  
+**Status:** IMPLEMENTED
+
+### Summary
+
+Encoded the 80k directional SFT row acquisition strategy into `data-sources/stage2-parallel-fetch-plan.json` and `docs/data-pipeline.md`. Hawaiian Kingdom statutes promoted from 1897-only pin to all-four-pairs (1897, 1869, 1859, 1846). Guardrails confirmed and enforced at inventory level.
+
+### HK Statutes Promotion
+
+All four paired legislative codes are 1846–1897 Hawaiian Kingdom imprints (pre-1929 PD + sovereign-edicts doctrine):
+
+- **1897 Penal Laws:** `esrp641724381` (EN) ↔ `esrp641728581` (HAW) — primary pin, cleanest OCR
+- **1869 Penal Code:** `esrp475081650` ↔ `esrp468790723`
+- **1859 Civil Code:** `civilcodehawaii00armsgoog` ↔ `hekumukanawaiam00hawagoog`
+- **1846 Statute Laws:** `statutelawshism00ricogoog` ↔ `kanawaiikauiaek00ricogoog`
+
+**Section-id-first alignment for all; LaBSE fallback for sub-sections.** Combined register cap: **≤15% of parallel-train tokens** (newly confirmed as hard cap).
+
+### Guardrails Confirmed
+
+| Rule | Detail |
+|---|---|
+| Bible cap | ≤30% of parallel-train tokens |
+| Legal register (HK statutes) | ≤15% combined across all 4 code pairs |
+| Software l10n (OPUS) | ≤15% of parallel-train tokens |
+| NLLB quality floor | LaBSE cosine ≥0.80 |
+| Synthetic BT cap | ≤15% of parallel-train tokens |
+| Synthetic BT dev/test | 0% — never |
+
+### Validation
+
+- ✅ JSON valid
+- ✅ `py_compile` passes on all scripts
+- ✅ 10/10 unit tests pass
+- ✅ `--dry-run` reports `target_sft_rows: 80,000` and `canonical_pair_target: 40,000`
+
+### Open Gates (Team Coordination)
+
+- **Rusty:** LaBSE 0.80 floor for NLLB; synthetic BT round-trip quality floor + decode params
+- **Linus:** Implement synthetic cap registry in `320_build_stage2_manifest.py`
+- **Frank:** `111_collect_hk_statutes.py` adapter for all-four-pairs
+- **Coordinator:** Confirm NLLB mined + synthetic BT policy acceptable; renegotiate 80k target if rejected
 
 ---
 
@@ -3924,3 +4277,513 @@ Eval perplexity on the FineWeb-2-haw dev split is the only signal we have during
 ### Team impact
 
 Any config that sets `per_device_eval_batch_size` or `eval_accumulation_steps` will now have those respected. Configs that don't set them are unaffected (None → not forwarded → Trainer default).
+
+---
+
+## Frank — Stage 2 first real fetch pass
+
+**Owner:** Frank (Hawaiian Data Collector)
+**Date:** 2026-05-01
+**Status:** COMPLETE (this pass) — ledger of actual fetched data, distinct from roadmap estimates.
+
+### Headline (to answer user directly)
+
+**The "40k canonical pairs / 80k directional rows" figure is a TARGET, not data on disk.**
+Pre-fetch on-disk total was 10 candidate rows (5 Bible smoke + 5 stale manifest). Post-fetch on-disk total is **126 candidate rows** (5 Bible + 121 Tatoeba). That is ~0.3% of target. All other yield estimates in prior memos remain projections gated on adapters not yet written.
+
+### What this pass actually did
+
+Executed `scripts/107_collect_stage2_parallel.py` then `scripts/207_fetch_stage2_parallel_raw.py --execute` source-by-source for all rights-cleared static-download sources with no open gates, plus the existing Tatoeba source-specific adapter.
+
+### Actual artifacts on disk (post-pass)
+
+#### Raw bytes (gitignored, with provenance ledgers)
+
+| source_id | artifacts | bytes | notes |
+|---|---|---|---|
+| `tatoeba-haw-eng` | 3 | ~34.6 MB | haw + eng sentences + links |
+| `andrews-1865-en-haw-vocab-appendix` | 1 | 2.73 MB | IA djvu.txt — full book OCR |
+| `kaikki-haw-en-wiktionary` | 1 | 5.22 MB | full Hawaiian Wiktionary jsonl |
+| `wikimedia-cx-en-haw-published` | 1 | 29 KB | API page 1 only — needs paginating adapter |
+| `hawaiian-kingdom-statutes-bilingual` | 8 | ~2 MB | IA detail pages for all 4 paired codes; book bodies require source-specific adapter |
+
+#### Candidate JSONL (post-adapter)
+
+| file | rows |
+|---|---|
+| `data/stage2/candidates/bible.jsonl` | 5 (pre-existing) |
+| `data/stage2/candidates/tatoeba.jsonl` | **121 (new)** |
+| `data/stage2/stage2_manifest.jsonl` | 5 (stale; not regenerated this pass) |
+
+### Sources skipped this pass — and why
+
+- Bible (haw + eng): no full scrape per scope; eng PD zips deferred; haw still gated on edition pin + ToS snapshot.
+- OPUS, BibleNLP, Weblate, Wikisource, Wiki langlinks, Pukui-Elbert: adapter-needed or rights/endpoint gates open.
+- NLLB mined, BT synthetic: blocked on Rusty (LaBSE 0.80, BT quality floor) and Linus (cap registry in 320).
+- Eval-only (`global-piqa-parallel-haw`, `taxi1500-haw`): auto-skipped, correct.
+
+### Blockers surfaced this pass
+
+1. **HK statutes:** generic fetcher pulls IA detail HTML, not book bodies. The provenance anchor is correct, but the candidate-row builder needs `111_collect_hk_statutes.py` (Frank's roadmap, blocked on Rusty alignment design).
+2. **Wikimedia CX:** single API call returns one page; need pagination + parser before this source produces candidates.
+3. **Andrews 1865 + kaikki:** raw OCR / dump captured; downstream extractors still unwritten.
+
+### Honest gap to 80k target
+
+Actual: 126 candidate rows.
+Target: 80,000 directional SFT rows (~40,000 canonical pairs).
+**Delta:** ~99.7%, entirely in the adapter-needed bucket (Bible parser → 8–12k, NLLB mined → 8–15k, OPUS → 2–5k, HK statutes → 3–6k, Wiki langlinks → 3–5k, BT → 5–10k, CX → 1–3k, Andrews/kaikki/Wikisource → sub-2k combined).
+
+Prior decisions.md memos already document these as estimates. This memo's job is just to make sure the actual-vs-estimate distinction is unambiguous in the team record.
+
+### No code edits this pass
+
+`107`, `207`, and `data-sources/tatoeba/fetch.py` ran clean as written; no first-batch fetch bugs.
+
+---
+
+## Stage 2 Count Audit — Actual vs Estimate
+
+**Author:** Linus  
+**Date:** 2026-05-02  
+**Trigger:** User asked whether the 80k/40k row target is data already in hand.
+
+### Decision: 80k/40k is an estimate — zero real pairs on disk
+
+After auditing all Stage 2 artifacts:
+
+- `data/stage2/stage2_manifest.jsonl` → **5 rows**, all from `baibala-hemolele-1839`, EN side is placeholder test text ("This is a marker for the writer's test."). **Not real parallel data.**
+- `data/stage2/stage2_sft.jsonl` → **does not exist** (correct; smoke data does not justify SFT emission).
+- `data/stage2/candidates/bible.jsonl` → **5 rows**, same smoke set.
+
+**Real parallel pairs on disk: 0.**
+
+### Raw artifacts fetched but not yet converted
+
+| Source | File | Size | Est. pairs on conversion |
+|---|---|---|---|
+| `tatoeba-haw-eng` | `haw_sentences_detailed.tsv.bz2` + links | ~33 MB | 500–2,000 |
+| `andrews-1865-en-haw-vocab-appendix` | `cu31924026916167_djvu.txt` | 2.6 MB | 200–500 |
+
+These are the only two Stage 2 sources with raw data fetched. Both need a conversion script run before they contribute candidate rows.
+
+### Next concrete queue (post Frank's safe first batch)
+
+1. **Convert `tatoeba-haw-eng`** raw TSVs → `data/stage2/candidates/tatoeba-haw-eng.jsonl`
+2. **Convert `andrews-1865-en-haw-vocab-appendix`** OCR text → `data/stage2/candidates/andrews-1865-en-haw-vocab-appendix.jsonl`
+3. **Fetch + convert `kaikki-haw-en-wiktionary`** → `data/stage2/candidates/kaikki-haw-en-wiktionary.jsonl`
+
+After all three: run `320_build_stage2_manifest.py` to get first real accepted count.
+
+### Team implications
+
+- Do **not** report any row count to the user as "data we have" until `stage2_manifest.jsonl` contains rows with real (non-placeholder) text and `alignment_confidence_tier: accept`.
+- The 80k target requires NLLB mined + synthetic BT in addition to human-parallel sources; human-parallel alone projects ~28–35k pairs at best.
+- `stage2_sft.jsonl` must not be generated from smoke data. Gate on manifest having meaningful accepted rows.
+
+---
+
+## Decision: Frank — Stage 2 Second Raw Fetch Pass (HK Statutes + CX Revisions)
+
+**Owner:** Frank (Hawaiian Data Collector)  
+**Date:** 2026-05-02  
+**Status:** Decision — informational + two hand-offs (Rusty alignment infra; Linus plan-entry rename)  
+**Reference:** `.squad/orchestration-log/2026-05-01T08-09-38Z-frank-stage2-second-batch.md`
+
+### Summary
+
+Both known raw-only Stage-2 leads now have body text on disk:
+
+- **Hawaiian Kingdom statutes** — 8 IA `_djvu.txt` OCR files (6.86 MB total) for all four paired imprints, written under `data/raw/hawaiian-kingdom-statutes-paired-imprints/20260501/`. IA filename mapping recorded in `fetch.jsonl`.
+- **Wikimedia CX EN→HAW** — 42 article-revision JSON responses (1.2 MB; 21 EN + 21 HAW) under `data/raw/wikimedia-cx-en-haw-published/20260501/revisions/`, covering all 21 translations surviving the gate `stats.mt<0.5 AND stats.human>0`.
+
+**Zero new candidate rows.** On-disk Stage-2 candidate inventory unchanged at **1,612** (Andrews 1194 + Kaikki 292 + Tatoeba 121 + Bible smoke 5). Both adapters blocked on alignment infra Frank does not own.
+
+### Numbers
+
+| Source | Files | Bytes | Output dir |
+|---|---|---|---|
+| HK statutes paired imprints | 8 | 6,860,576 | `data/raw/hawaiian-kingdom-statutes-paired-imprints/20260501/` |
+| CX revision wikitext | 42 | ~1,200,000 | `data/raw/wikimedia-cx-en-haw-published/20260501/revisions/` |
+
+### Key Findings
+
+**HK statutes candidate adapter not shipped:**
+
+- 1859 Civil Code: EN has 1866 appendix laws bound in, breaking monotonic Section-N numbering
+- 1869 Penal Code: HAW `Pauku N` yields only 3 regex matches — column/page-region OCR needed
+- 1897 Penal Laws: EN uses §N continuously; HAW uses Pauku N with chapter resets — integer intersection invalid
+- 1846 Statute Laws: bilingual *interleaved-columns* imprint, needs page-layout-aware OCR
+
+Per identity (precision > recall), no rows emitted. Per Rusty's "section-id-first vs LaBSE-fallback" memo.
+
+**CX candidate adapter not shipped:**
+
+Needs LaBSE infra Frank does not own. Fetch plan step 4 delegates to "standard Tier-B pipeline (Rusty owns threshold; default 0.75)." Substantive HAW content thinner than gate suggests:
+
+| Pair shape | Count |
+|---|---|
+| HAW=0 words (target deleted/empty) | 8 |
+| HAW < 50 words | 5 |
+| HAW < 250 words and ratio HAW/EN < 0.10 | 6 |
+| HAW comparable to EN (ratio 0.5–1.5) | **2** |
+
+Two substantive pairs: translationIds **1378441** and **2851619**. Yield from this corpus: low tens of pairs post-LaBSE at best (not 1–3k as originally projected).
+
+### Hand-offs
+
+→ **Rusty (alignment infra):** HK statutes need layout-aware re-OCR or LaBSE-based sentence alignment; CX needs LaBSE thresholding (default 0.75).
+
+→ **Linus (fetch plan):** Plan entry `hawaiian-kingdom-statutes-bilingual` mislabels esrp468790723 as "1869 Penal Code HAW" when it's the 1850 reissue that was the *source* for the EN code. Consider relabeling or splitting.
+
+### Files
+
+- `scripts/208_fetch_hk_statutes_djvu.py` (new, ~170 LOC, stdlib-only)
+- `scripts/209_fetch_cx_published_revisions.py` (new, ~205 LOC, stdlib-only)
+- Raw output directories and `fetch.jsonl` ledgers (gitignored)
+
+---
+
+## Decision: Linus — Bible & OPUS Status Reconciliation
+
+**Owner:** Linus (Data Engineer)  
+**Date:** 2026-05-02  
+**Status:** Decision — gates clarified; priority queue established  
+**Reference:** `.squad/orchestration-log/2026-05-01T08-09-38Z-linus-queue-bible-opus.md`
+
+### Bible (Baibala Hemolele 1839 × English PD)
+
+**Gate Status:** ✅ **ALL GATES CLEARED** (as of 2026-05-01)
+
+Prior fetch plan showed stale gates (`rights_review_required`, `verification_status: pending_rights_review`). Both resolved:
+
+1. **Edition pinned:** `baibala-hemolele-1839` — Linus confirmed live Greenstone URL, all 66 books mapped with `greenstone_oid` and `book_name_lower`.
+2. **ToS snapshot captured:** `data/raw/baibala-hemolele-1839/20260501/tos_snapshot.html` (SHA-256: `254c552c...`).
+3. **Rights confirmed:** Public domain 1839 imprint; digitization copyright (2003–2008, Partners In Development Foundation) does not extend to the text.
+
+**Action taken:** `stage2-parallel-fetch-plan.json` updated:
+- `rights_status_hint` → `public_domain_confirmed`
+- `verification_status` → `confirmed_live`
+- `do_not_invoke_until` → `[]`
+- Added `edition_pinned`, `edition_pinned_by`, `tos_snapshot_path`, `tos_snapshot_sha256` fields
+
+`python3 scripts/107_collect_stage2_parallel.py --dry-run` passes cleanly.
+
+### What Remains Before Full Bible Production
+
+| Step | State | Owner |
+|---|---|---|
+| HAW HTML parser | ✅ Done | Frank |
+| HAW smoke fetch (3 chapters) | ❌ Not yet run | Frank |
+| ENG USFM zip fetch | ❌ Ready (no gates) | Frank |
+| **ENG USFM-to-verse-txt parser** | ❌ **Unwritten** | **Linus** |
+| Bible candidate build | ❌ Blocked on ENG parser | Frank |
+
+**Blocker detail:** `322_build_bible_candidates.py` currently reads ENG from fixture `.txt` files (one line per verse: `N: text`). Real implementation needs `scripts/206b_parse_eng_usfm.py` to parse KJV USFM zip → `eng/<BOOK>_<chapter>.txt` verse files. This is the only unwritten piece before smoke test can run.
+
+**Smoke command:**
+
+```bash
+# Step 1: HAW smoke fetch (3 chapters, safe)
+python3 scripts/206_fetch_baibala_raw.py \
+  --execute --side haw \
+  --book GEN --chapters 1-3 \
+  --confirm-edition baibala-hemolele-1839 \
+  --tos-snapshot data/raw/baibala-hemolele-1839/20260501/tos_snapshot.html
+
+# Step 2: ENG zip fetch (ready now)
+python3 scripts/207_fetch_stage2_parallel_raw.py \
+  --execute --source bible-eng-pd-anchor
+
+# Step 3: Once ENG parser exists, build smoke candidates
+python3 scripts/322_build_bible_candidates.py --from-raw <YYYYMMDD> --execute
+```
+
+**Yield projection:** 8–12k pairs (largest immediate opportunity).
+
+### OPUS (haw-containing parallel subsets)
+
+**Gate Status:** 🔴 **GATES REMAIN** — both valid (live blockers, not stale)
+
+| Gate | Status | Reason |
+|---|---|---|
+| `rights_review_required` | ❌ Open | Per-corpus licenses not yet snapshotted (Ubuntu/GNOME/KDE permissive but heterogeneous; QED unknown) |
+| `endpoint_check_required` | ❌ Open | Exact version IDs not confirmed at fetch time; OPUS URLs can shift |
+
+**Technical readiness:** Can be raw-fetched with `--allow-rights-review --allow-pending-endpoint` flags. But:
+
+- No candidate converter exists (`adapter_status: "none"`)
+- Tatoeba duplicate risk — upstream adapter already pulled Tatoeba HAW-ENG
+- Software-l10n skew — Ubuntu/GNOME/KDE are UI-string heavy; ≤15% parallel-train token cap applies
+
+**Yield projection:** 2–5k pairs (after dedup + caps).
+
+**Blocker:** Per-corpus rights snapshots + endpoint version confirmation needed before fetch.
+
+### What Blocks OPUS Candidate Rows
+
+| Step | State | Owner |
+|---|---|---|
+| `rights_review_required` gate cleared | ❌ Open | Linus |
+| `endpoint_check_required` gate cleared | ❌ Open | Frank |
+| Raw zip fetch | ❌ Blocked | Frank |
+| Candidate converter | ❌ Not written | Linus |
+| Dedup against upstream Tatoeba | ❌ Not yet done | Linus |
+
+### Priority Order for 80k Gap Closure
+
+1. **Bible ENG USFM parser** (Linus) — unlocks 8–12k pairs, critical path
+2. **Bible HAW smoke + full fetch** (Frank) — 3-chapter smoke first
+3. **OPUS rights snapshots + endpoint check** (Linus rights, Frank endpoint)
+4. **OPUS converter `32X_build_opus_candidates.py`** (Linus)
+
+**Do not fetch OPUS until per-corpus rights snapshots are on disk and endpoint versions confirmed.**
+
+### Impact on 80k Target
+
+- Bible (full): 8–12k pairs ← ENG parser is critical path
+- OPUS: 2–5k pairs ← gates + converter needed
+- HK statutes: 3–6k pairs (pending Rusty LaBSE) ← blocked
+- CX: 0–1k pairs (pending Rusty LaBSE) ← blocked, honest yield much lower than projected
+
+NLLB mining + synthetic BT remain necessary to bridge remaining gap to 80k.
+
+
+---
+
+## Decision: Frank — Bible raw fetch pass (HAW Genesis + ENG KJV/ASV anchor) (2026-05-02)
+
+**Owner:** Frank (Hawaiian Data Collector)  
+**Date:** 2026-05-02  
+**Status:** COMPLETE (execution blocked by downstream text-quality fix)
+
+### Summary
+
+Fetched raw bytes for Bible stage-2 adapter per fetch-plan. HAW Genesis (50 chapters, 840 KB) + ENG KJV/ASV USFM zips (5.1 MB) now on disk with full provenance ledgers. Dry-run candidate generation showed 1,533 Genesis verse pairs, but identified contamination: Strong's number attributes (`|strong="H7225"`) leaking into `text_en`. Holding candidate write pending USFM parser cleanup (Linus task).
+
+### What was fetched
+
+| Side | Source ID | Path | Files | Bytes | ToS |
+|---|---|---|---|---|---|
+| HAW | `baibala-hemolele-1839` | `data/raw/baibala-hemolele-1839/20260501/GEN_001.html` … `GEN_050.html` | 50 chapter HTML | 840 KB | snapshot at 20260501/tos_snapshot.html |
+| ENG | `bible-eng-pd-anchor` | `data/raw/bible-eng-pd-anchor/20260501/eng-kjv2006_usfm.zip` | 1 zip | 2.47 MB | public domain (eBible) |
+| ENG | `bible-eng-pd-anchor` | `data/raw/bible-eng-pd-anchor/20260501/eng-asv_usfm.zip` | 1 zip | 2.87 MB | public domain (eBible) |
+
+### Provenance
+
+- `data/raw/baibala-hemolele-1839/fetch.jsonl` — 54 rows (50 GEN chapters + 4 prior smoke rows). Each row: `raw_sha256`, `source_url`, `fetch_timestamp_utc`, `tos_snapshot_path`.
+- `data/raw/bible-eng-pd-anchor/fetch.jsonl` — 2 rows (KJV + ASV zips).
+
+### Candidate generation validation
+
+- Infrastructure ready: `scripts/322_build_bible_candidates.py` already supports USFM via `scripts/206b_parse_eng_usfm.py`.
+- Dry-run: 50 chapters paired → 1,533 rows emitted (0 skipped).
+- **Blocker:** ENG text contaminated with Strong's markers:
+  ```
+  "text_en": "In the beginning|strong=\"H7225\" God|strong=\"H0430\" created|strong=\"H1254\""
+  ```
+
+### Why candidates not written
+
+`206b_parse_eng_usfm.py` strips standard USFM markers (`\wj`, `\nd`, `\add`, etc.) but does NOT strip `\w …|strong="…"\w*` word-with-attributes markers used in eBible KJV2006 + ASV packaging. Fetch plan explicitly forbids: "USFM-to-plain-text extraction must drop section headers, footnote anchors, and editorial brackets to avoid leaking non-translation tokens into target_text." Emitting 1,533 rows with Strong-number leakage into `text_en` would be overcounting on a contaminated field.
+
+### Next steps (hand-offs)
+
+1. **Parser fix (Linus):** Strip `\w …|strong="…"\w*` markers in `206b_parse_eng_usfm.py` → add regression tests → unblock 1,533 Genesis rows.
+2. **Baibala completion (Frank + Coordinator):** Fetch remaining 65 books (~30 min polite fetching) once parser is fixed.
+3. **OPUS (Linus):** Deferred; requires rights review + per-corpus license snapshots.
+
+### Caller-trap (small fix worth flagging)
+
+`206_fetch_baibala_raw.py --execute` requires `--tos-snapshot` to be absolute path or REPO_ROOT-resolvable. Passing `--tos-snapshot data/raw/.../tos_snapshot.html` (CWD-relative string) crashes inside `fetch_one()` with `ValueError: '...' is not in the subpath of '<REPO_ROOT>'` from `Path.relative_to()`. Real fix: resolve path against REPO_ROOT before `relative_to` is called.
+
+### Sign-off
+
+✅ Fetched HAW Genesis 1-50 (50 chapters, 840 KB) and ENG KJV+ASV USFM zips (5.1 MB) with full provenance. Confirmed end-to-end candidate yield is ~1,533 rows for Genesis alone. Blocked on one-line USFM text-cleanup fix (not Frank's lane). Zero new candidate rows written; total on disk still 1,612. No commits.
+
+---
+
+## Decision: Linus — Bible English USFM parser + wiring (2026-05-02)
+
+**Owner:** Linus (Data Engineer)  
+**Date:** 2026-05-02  
+**Status:** COMPLETE (pending upstream fetch)
+
+### Summary
+
+Delivered stdlib-only English USFM parser (`scripts/206b_parse_eng_usfm.py`) and wired Bible candidate builder (`scripts/322_build_bible_candidates.py`). Parser handles any `.usfm` file or `.zip` of USFM files (KJV, ASV, WEB, etc.). All 50/50 Bible tests passing. Infrastructure now ready to consume WEB or KJV USFM zip on arrival.
+
+### What is now unblocked
+
+**English USFM parser:** `scripts/206b_parse_eng_usfm.py` is live, stdlib-only, and tested:
+- 13 parser unit tests + 7 wired-builder tests
+- Consumes any single `.usfm` file (KJV, ASV, WEB — all use same USFM markers)
+- Consumes any `.zip` of `.usfm` files (e.g. WEB full-Bible zip from ebible.org)
+
+**Builder wiring:** `scripts/322_build_bible_candidates.py` now accepts `--eng-usfm-file` and `--eng-usfm-zip` alongside `--haw-raw-dir`. Single command produces full candidate rows:
+```
+python scripts/322_build_bible_candidates.py --execute \
+  --haw-raw-dir data/raw/baibala-hemolele-1839/<YYYYMMDD>/ \
+  --eng-usfm-zip data/raw/english-bible-web/<YYYYMMDD>/web.zip
+```
+
+**Candidate schema:** Both USFM-wired and raw-HTML paths produce rows that pass `320_build_stage2_manifest.py --check`. All rows carry `split=train`, `prototype_only=true`, `release_eligible=false` per Bible tier policy.
+
+### Remaining gaps
+
+| Gap | Owner | Blocker Level |
+|---|---|---|
+| ENG USFM zip not yet fetched (WEB or KJV) | Frank | HIGH |
+| HAW corpus incomplete (Genesis only, 50/1189 chapters) | Frank | HIGH |
+| ENG edition pin in `source_registry.json` | Linus | MEDIUM (post-fetch) |
+| OPUS adapter not started | Linus | MEDIUM |
+
+### Yield projections (pending full fetch)
+
+- Genesis alone (31 chapters): ~930–1000 pairs
+- Full 66-book canon: ~8k–12k pairs
+- Policy cap: ≤30% of parallel-train tokens
+
+### Sign-off
+
+✅ Parser + wiring complete; 50/50 tests passing. Infrastructure ready for WEB/KJV fetch. No commits.
+
+---
+
+## Decision: Linus — Bible English USFM markup cleanup + Genesis candidate emission (2026-05-02)
+
+**Owner:** Linus (Data Engineer)  
+**Date:** 2026-05-02  
+**Status:** COMPLETE (manifest ready for materialization)
+
+### Summary
+
+Fixed Strong's number leakage in USFM parser. Implemented three-pass cleanup in `_strip_inline_markers()` to handle `\w word|strong="H7225"\w*` annotated-word format. Shipped 1,533 clean Genesis candidates with 0 leakage. Manifest dry-run: 3,140 total rows, 0 violations. KJV pinned as ENG anchor.
+
+### Root cause identified & fixed
+
+**Issue:** `\w word|strong="H7225"\w*` USFM markers left `|strong="…"` fragments in `text_en`.
+
+**Solution:** Three-pass cleanup in `_strip_inline_markers()` (`206b_parse_eng_usfm.py`):
+1. `_WORD_ATTR_RX` — extract bare word from `\w word|attrs\w*`, drop all attributes
+2. `_INLINE_MARKER_RX` — strip existing `\marker` / `\marker*` tokens
+3. `_ATTR_FRAGMENT_RX` — belt-and-suspenders catch leftover `|attr="…"` fragments
+
+No changes to `322_build_bible_candidates.py` or `normalize_en()`.
+
+### Regression tests (3 new)
+
+Added to `TestUSFMParser` in `code/tests/test_bible_adapter.py`:
+- `test_strong_number_attribute_stripped` — direct leakage case
+- `test_nested_inline_markers_with_word_attrs_stripped` — nested marker case
+- `test_plain_text_verse_unchanged_by_cleanup` — determinism guard
+
+**Result:** 53/53 tests passing (+3 new)
+
+### Validation
+
+| Check | Result |
+|---|---|
+| `py_compile 206b_parse_eng_usfm.py 322_build_bible_candidates.py` | ✅ clean |
+| `python3 code/tests/test_bible_adapter.py -v` | ✅ 53/53 OK (+3 new) |
+| `grep '\|strong=' data/stage2/candidates/bible.jsonl` | ✅ 0 matches |
+
+### Genesis candidate emission
+
+```
+python3 scripts/322_build_bible_candidates.py \
+  --execute \
+  --haw-raw-dir data/raw/baibala-hemolele-1839/20260501/ \
+  --eng-usfm-zip data/raw/bible-eng-pd-anchor/20260501/eng-kjv2006_usfm.zip \
+  --fetch-date 20260501
+```
+
+**Result:** 1,533 rows written to `data/stage2/candidates/bible.jsonl`. KJV anchor. 50 HAW Genesis chapters paired, 0 skipped. 0 leakage.
+
+### Manifest dry-run
+
+```
+python3 scripts/320_build_stage2_manifest.py --dry-run
+→ 3,140 total rows   0 violations
+```
+
+Breakdown: baibala-hemolele-1839 = 1,533 | andrews-1865 = 1,194 | kaikki-wiktionary = 292 | tatoeba = 121.
+
+### Decisions locked
+
+1. **KJV (`eng-kjv2006_usfm.zip`) is the pinned English anchor** for Bible pair. ASV on disk but not used. Consistent with Frank's recommendation (canonicality + smaller corpus for Genesis sanity-check).
+
+2. **Cleanup in parser layer, not normalization.** Intentional: parser produces clean plain text regardless of downstream `normalize_en()`. `normalize_en()` in `322` remains thin NFC+strip.
+
+3. **Manifest `--execute` is safe.** Dry-run clean, 0 violations. Recommend triggering materialization post-coordinator confirmation no other candidates pending.
+
+4. **Remaining Bible gap:** Only Genesis (50 chapters) fetched HAW side. Remaining 65 books require `206_fetch_baibala_raw.py --book <code> --execute`. Expected full-Bible yield: ~8k–12k pairs.
+
+### Sign-off
+
+✅ Parser fix shipped; 1,533 clean Genesis rows written; manifest validated 0 violations. Total candidates on disk: 3,140. KJV edition locked; policy compliance confirmed. No commits.
+
+
+---
+
+## Decision: Frank — Pentateuch raw fetch batch completed (EXO/LEV/NUM/DEU) (2026-05-01)
+
+**Owner:** Frank (Hawaiian Data Collector)  
+**Date:** 2026-05-01T08:28Z  
+**Status:** COMPLETE — raw fetch done; candidate emission deferred  
+
+### Summary
+
+Fetched the next bounded, polite Baibala HAW batch after Genesis: **Exodus + Leviticus + Numbers + Deuteronomy** (Pentateuch tail). Used existing `baibala-hemolele-1839` edition pin and on-disk ToS snapshot. One bounded `--execute` invocation per book to honor per-book chapter spec; `--limit 200` (hard cap) on each. Zero candidate emission pending Linus confirmations.
+
+### Actual Raw Fetch Counts
+
+| Book | Chapters fetched | Bytes |
+|---|---|---|
+| EXO | 40 | 567,354 |
+| LEV | 27 | 388,943 |
+| NUM | 36 | 547,196 |
+| DEU | 34 | 490,140 |
+| **This pass** | **137** | **1,993,633** (~1.95 MB) |
+
+Provenance ledger `data/raw/baibala-hemolele-1839/fetch.jsonl`:
+54 → **191** lines (+137). Each row carries source URL, fetch timestamp UTC, HTTP 200, content-type, raw_sha256, raw_storage_path, ToS snapshot path, and source-specific IDs (side/book_code/chapter).
+
+Cumulative HAW canonical chapter HTML on disk under `data/raw/baibala-hemolele-1839/20260501/`: **187 files** (Genesis 50 + Pentateuch tail 137).
+
+### Why This Scope (not "all remaining books")
+
+`206_fetch_baibala_raw.py` has no safe all-book mode:
+
+- `MAX_LIMIT_CHAPTERS=200` hard cap per invocation.
+- A single `--chapters` spec applies to *every* `--book` passed, so multi-book calls fail when a book's chapter count is below the range (verified: `EXO 1-50` rejected for `max_chapter=40`).
+- Per-book/group invocation is the only safe shape; Pentateuch tail is the natural next contiguous block after Genesis and stays well under the cap.
+
+At 1.5 s polite rate this batch was ~3.5 min of traffic. No overload risk; no errors.
+
+### Candidates Emitted
+
+**Zero — intentionally.** Per task directive, Frank did not run `scripts/322_build_bible_candidates.py`. The directive was:
+
+> "Do not emit candidates unless the exact matching English USFM path is already proven clean and the candidate build can be bounded to the fetched books without disrupting Linus's concurrent materialization."
+
+Frank has no signal that `322`'s `--book-codes` style scoping (or equivalent bounded-build flag) is wired and that Linus's USFM Strong's-marker cleanup, confirmed clean for Genesis (1,533 rows), also produces clean text for EXO/LEV/NUM/DEU. Surfacing for Linus.
+
+### Handoff to Linus
+
+1. **Confirm the USFM Strong's-marker cleanup** applied to KJV Genesis also handles EXO/LEV/NUM/DEU (no `|strong="…"` leakage, `\add`/`\add*` stripped, section headers dropped).
+2. **Confirm `322_build_bible_candidates.py` can be invoked book-bounded** (e.g. only on EXO/LEV/NUM/DEU) without colliding with the Stage-2 manifest materialization currently running. If yes, Frank will run the bounded candidate build and report row counts in a follow-up inbox note. If a book-bounded mode is missing, the one-flag addition (e.g. `--book-codes EXO,LEV,NUM,DEU`) is the smallest unblock.
+
+### Next Recommended Bible Batch (after Pentateuch candidates ship)
+
+**JOS (24) + JDG (21) + RUT (4) = 49 chapters** — Historical books group 1. Bounded, ~75 s polite, contiguous canonical block, well under the 200-chapter cap. Same invocation pattern as this pass (per-book `--execute` with the existing edition pin and ToS snapshot).
+
+### Blockers
+
+- **For raw HAW fetch:** None.
+- **For candidate emission:** Blocked on two Linus confirmations above.
+
+### Commits
+
+None (per task directive).
+
