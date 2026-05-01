@@ -1702,3 +1702,24 @@ python3 scripts/320_build_stage2_manifest.py --dry-run
 - Cap determinism confirmed
 
 **Status:** Manifest at v0.2; ready for Rusty eval validation.
+
+---
+
+## Cross-agent note: Frank corrections to dataset inventory (2026-05-01T09:06:22Z)
+
+**From:** Scribe (via Frank hub dataset row counts)  
+**Action needed:** Proceed with rights review for Stage 1 candidate-add sources.
+
+**Updated candidate-add list (revised 2026-05-01T09:06:22Z):**
+
+1. **MADLAD-400 haw** — CC-BY-4.0; ~109k tokens
+2. **Glot500 haw_Latn** — mixed (component-wise); ~1.05M docs
+3. **GlotCC-V1 haw-Latn** — CC0; ~7k docs
+
+**Removed from queue:**
+- ~~HPLT v2 cleaned~~ (haw_Latn config absent per API verify 2026-05-03)
+
+**Deprioritized (no removal, but deferred):**
+- mC4 haw (present but CommonCrawl overlap with FineWeb-2)
+
+**Full details:** `.squad/decisions.md` section "Decision: Frank — Hub dataset row counts + corrections (2026-05-01T09:06:22Z)".

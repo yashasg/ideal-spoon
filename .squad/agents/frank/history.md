@@ -1493,3 +1493,75 @@ For Stage 2 80k row target, no new external dataset moves needle materially beyo
 **Candidate emission:** Deferred pending Linus USFM cleanup confirmation. No code changes to fetcher; next batch (1CH, 2CH, EZR, NEH, EST) follows identical pattern.
 
 **Decision merged:** `.squad/decisions/inbox/frank-bible-jos-rut-fetch.md` → `.squad/decisions.md`
+
+## 2026-05-03 — Hub dataset row counts (confirmed via HF datasets-server + OPUS API)
+
+User asked for row counts of ready-made Hawaiian dataset releases (analogous to FineWeb-2), not local data.
+
+### Monolingual (rows = documents/segments per hub viewer)
+
+| Dataset (HF) | Config | Rows (confirmed) | Bytes | License | Notes |
+|---|---|---:|---:|---|---|
+| HuggingFaceFW/fineweb-2 | haw_Latn | **96,394** (train 95,507 + test 887) | 128.7 MB parquet | ODC-By 1.0 | Already in our local data (Stage 1). |
+| cis-lmu/Glot500 | haw_Latn | **1,053,668** (train) | 137.8 MB parquet | mixed/component-wise | Aggregate over many sub-sources; high duplication risk vs FineWeb-2. |
+| cis-lmu/GlotCC-V1 | haw-Latn | **7,058** (train) | 20.2 MB parquet | CC0 (CC dump derived) | Smaller, single-pass CommonCrawl pull. |
+| allenai/c4 (mC4 multilingual) | haw | **84,398** (train 84,312 + val 86) | 131.4 MB parquet | ODC-By | **Correction to earlier history**: mC4 *does* have haw. Previously marked verify-and-record-absent. |
+| HPLT/HPLT2.0_cleaned | — | **0 / not present** | — | — | **Correction**: HPLT v2 cleaned does NOT have haw_Latn (only hat/hau/heb…). Prior history was wrong. |
+| allenai/MADLAD-400 | haw | unknown via viewer (no parquet); paper reports ~109k tokens / a few thousand docs | — | CC-BY-4.0 (research) | Viewer can't size; cite paper. |
+| oscar-corpus/OSCAR-2301 | — | gated; not queryable anonymously | — | CC0 (CC derived) | Auth needed. |
+| uonlp/CulturaX | — | gated; not queryable anonymously | — | mC4+OSCAR derived | Auth needed; expected absent (built from mC4+OSCAR; haw may pass through). |
+| statmt/cc100 | — | viewer error; haw not in CC100 (per Conneau et al. 2019) | — | — | Confirmed absent. |
+
+### Parallel / eval (rows = sentence pairs)
+
+| Dataset | Config | Rows (confirmed) | License | Stage 2 fit |
+|---|---|---:|---|---|
+| OPUS translatewiki | en-haw v2025-01-01 | **2,219** pairs | CC0 (translatewiki ToS) | Stage 2 train-eligible after dedup. |
+| OPUS wikimedia | en-haw v20230407 | **374** pairs | CC BY-SA | Stage 2 train (license flowdown). |
+| OPUS QED | en-haw v2.0a | **167** pairs | CC BY-NC-ND | Stage 2 mined-only / non-commercial caution. |
+| OPUS Tatoeba | en-haw v2023-04-12 | **93** pairs | CC BY 2.0 FR | Eval-friendly; tiny. |
+| OPUS Ubuntu | en-haw v14.10 | 0 usable | — | Empty for haw. |
+| davidstap/biblenlp-corpus-mmteb | eng-haw | **1,955** verses (train 1,779 / val 81 / test 95) | per BibleNLP | Eval-tier subset of full BibleNLP. |
+| bible-nlp/biblenlp-corpus | full | viewer blocked (custom code); ~31k haw1868 verses per prior probe | mixed bible-text licenses | Stage 2 train (≤30% bible-token cap). |
+| facebook/flores, openlanguagedata/flores_plus | — | viewer blocked / gated; FLORES+ adds haw_Latn (~997 dev + 1012 devtest); FLORES-200 itself does **not** include haw | CC BY-SA 4.0 | Eval-only. |
+| allenai/nllb (NLLB mined bitext) | — | viewer blocked (custom code); Meta release lists haw_Latn-eng_Latn but counts must be read from manifest | ODC-By | Stage 2 mined-tier; never dev/test. |
+| Helsinki-NLP/tatoeba_mt | eng-haw | **0** (no haw config exposed) | — | Use OPUS Tatoeba directly. |
+| Helsinki-NLP/opus-100 | — | **0** (no haw) | — | Confirmed absent. |
+| mteb/NTREX | — | **0** (no haw) | — | Confirmed absent. |
+| Helsinki-NLP/wikimatrix | — | gated/no public viewer; haw not in WikiMatrix v1 per paper | — | Confirmed absent in v1. |
+
+### OPUS aggregate (any pair touching haw)
+
+5 corpora total: translatewiki, wikimedia, QED, Tatoeba, Ubuntu. **bible-uedin is NOT in OPUS for haw** — earlier history note about an "OPUS bible-uedin haw subcorpus" was incorrect; that Baibala path only flows through BibleNLP / direct baibala.org fetch.
+
+### Decisions / corrections to prior records
+
+- mC4 (allenai/c4) `haw` is **present** (84k docs); update verify-and-record-absent ledger.
+- HPLT v2 cleaned `haw_Latn` is **absent**; remove from candidate Stage 1 add list.
+- OPUS bible-uedin haw is **absent**; the only hub-side bible parallel is BibleNLP.
+- No new actions on the 80k Stage 2 target — these confirm priorities already locked (NLLB → BibleNLP).
+
+Inbox note written: `.squad/decisions/inbox/frank-hub-dataset-row-counts.md`.
+
+### No commits, no fetches.
+
+---
+
+## Session: Hub dataset row counts + corrections (2026-05-01T09:06:22Z)
+
+**Scribe action:** Merged Frank hub dataset row counts into decisions.md, updated header, marked prior survey superseded.
+
+**Outcome:** Three corrections locked:
+1. mC4 haw (allenai/c4) is present, 84k docs — deprioritize (CommonCrawl overlap with FineWeb-2).
+2. HPLT v2 cleaned haw_Latn absent — drop from Stage 1 candidate-add.
+3. OPUS bible-uedin haw nonexistent — no triple-counting risk.
+
+**Updated Stage 1 candidate-add (for Linus rights review):** MADLAD-400, Glot500, GlotCC-V1 only.
+
+**Logs written:**
+- `.squad/orchestration-log/2026-05-01T09-06-22Z-frank-hub-dataset-row-counts.md`
+- `.squad/log/2026-05-01T09-06-22Z-hub-dataset-row-counts.md`
+
+**Inbox consolidated:** `.squad/decisions/inbox/frank-hub-dataset-row-counts.md` merged; file deleted.
+
+**Next:** Linus rights review on MADLAD-400, Glot500, GlotCC-V1.

@@ -1,6 +1,8 @@
 # Decisions
 
-> Updated 2026-05-01T08:52:06Z: Merged Frank ready-made Hawaiian dataset sweep. Outcome: Stage 2 hub sources well covered (Tatoeba, OPUS, NLLB, BibleNLP, Global-PIQA, Taxi1500 in plan; FLORES+/Belebele/WMT24++ verified absent). Stage 1 hub sources not previously surveyed; confirmed present: MADLAD-400 (~109k tokens), Glot500-c, GlotCC-v1, HPLT v2 cleaned (all haw_Latn); confirmed absent: CC100, mC4, WikiMatrix, NTREX-128, likely CulturaX. Recommend Stage 2 execution order: NLLB mined (largest yield) → BibleNLP haw1868 (31k verses) → OPUS bible-uedin (dedup cross-check). Stage 1 three probes (MADLAD-400, Glot500-c, HPLT v2) require Linus rights sign-off before adapter implementation. Full report in `.squad/decisions/inbox/frank-ready-dataset-sweep.md`.
+> Updated 2026-05-01T09:06:22Z: Merged Frank hub dataset row counts + corrections. Outcome: Confirmed monolingual counts (FineWeb-2 haw_Latn 96,394 docs; Glot500 haw_Latn 1,053,668; GlotCC-V1 haw-Latn 7,058; mC4 haw 84,398) and parallel counts (OPUS translatewiki 2,219 pairs, wikimedia 374, QED 167, Tatoeba 93; BibleNLP mmteb eng-haw 1,955). Three corrections: (1) mC4 present, move from "absent" to "deprioritized" (overlap with FineWeb-2); (2) HPLT v2 cleaned lacks haw_Latn config, drop from candidate-add; (3) OPUS bible-uedin haw nonexistent. Updated Stage 1 candidate-add for Linus: MADLAD-400, Glot500, GlotCC-V1. Stage 2 execution order unchanged. Full report in `.squad/decisions/inbox/frank-hub-dataset-row-counts.md`.
+>
+> Updated 2026-05-01T08:52:06Z: Merged Frank ready-made Hawaiian dataset sweep. Outcome: Stage 2 hub sources well covered (Tatoeba, OPUS, NLLB, BibleNLP, Global-PIQA, Taxi1500 in plan; FLORES+/Belebele/WMT24++ verified absent). Stage 1 hub sources not previously surveyed; confirmed present: MADLAD-400 (~109k tokens), Glot500-c, GlotCC-v1, HPLT v2 cleaned (all haw_Latn); confirmed absent: CC100, mC4, WikiMatrix, NTREX-128, likely CulturaX. Recommend Stage 2 execution order: NLLB mined (largest yield) → BibleNLP haw1868 (31k verses) → OPUS bible-uedin (dedup cross-check). Stage 1 three probes (MADLAD-400, Glot500-c, HPLT v2) require Linus rights sign-off before adapter implementation. Full report in `.squad/decisions/inbox/frank-ready-dataset-sweep.md`. **[SUPERSEDED by 2026-05-01T09:06:22Z correction above.]**
 >
 > Updated 2026-05-01T08:30:25Z: Merged Frank Pentateuch raw fetch. Outcome: Exodus–Deuteronomy HAW 137 chapters (~1.95 MB) fetched via Baibala Hemolele 1839 pin; provenance appended (137 rows in fetch.jsonl); cumulative 187 HAW chapters on disk (Genesis 50 + Pentateuch tail 137); candidate emission deferred pending Linus confirmations on USFM cleanup stability (EXO/LEV/NUM/DEU) and `322` book-bounded build support; next raw batch planned (JOS/JDG/RUT, 49 chapters, ~75 s polite).
 >
@@ -26,7 +28,76 @@
 
 ---
 
+## Decision: Frank — Hub dataset row counts + corrections (2026-05-01T09:06:22Z)
+
+**Owner:** Frank (Hawaiian Data Collector)  
+**Date:** 2026-05-01  
+**Status:** RESEARCH / CORRECTIONS — three prior findings contradicted
+
+### Summary
+
+Queried HF datasets-server `/size` and OPUS API (2026-05-03). Confirmed counts for monolingual and parallel Hawaiian sources. **Three findings contradict prior decisions.md entries:**
+
+1. **mC4 (`allenai/c4` config `haw`) is present**, ~84,398 documents. Prior decision said "Do not add CulturaX / CC100 / mC4 / WikiMatrix / NTREX-128 — verify-and-record-absent." Correct: move from "absent" to "present, deprioritized" (CommonCrawl overlap with FineWeb-2 already harvests most).
+
+2. **HPLT v2 cleaned does NOT have `haw_Latn` config.** Earlier history listed HPLT v2 cleaned among Stage-1 candidate-add sources. Verified: configs starting with "h" are hat_Latn, hau_Latn, heb_Hebr, hin_Deva, hne_Deva, hrv_Latn, hun_Latn, hye_Armn — no haw_Latn. **Drop from candidate-add list.**
+
+3. **OPUS bible-uedin haw subcorpus does not exist.** Earlier history's "Top-3 ranked" mentioned "OPUS bible-uedin haw subcorpus (~31k pairs)". OPUS API returns only 5 corpora touching haw: translatewiki, wikimedia, QED, Tatoeba, Ubuntu. Bible-uedin not in that set. **Removes triple-counting concern.**
+
+### Confirmed counts
+
+**Monolingual (HF datasets-server `/size`, parquet):**
+
+| Source | Config | Rows | Bytes | License |
+|---|---|---:|---:|---|
+| HuggingFaceFW/fineweb-2 | haw_Latn | 96,394 | 128.7 MB | ODC-By 1.0 |
+| cis-lmu/Glot500 | haw_Latn | 1,053,668 | 137.8 MB | mixed |
+| cis-lmu/GlotCC-V1 | haw-Latn | 7,058 | 20.2 MB | CC0 |
+| allenai/c4 (mC4) | haw | 84,398 | 131.4 MB | ODC-By |
+
+**Parallel / eval (OPUS API, sentence pairs):**
+
+| Source | Pair | Rows | License |
+|---|---|---:|---|
+| OPUS translatewiki | en-haw v2025-01-01 | 2,219 | CC0 |
+| OPUS wikimedia | en-haw v20230407 | 374 | CC BY-SA |
+| OPUS QED | en-haw v2.0a | 167 | CC BY-NC-ND |
+| OPUS Tatoeba | en-haw v2023-04-12 | 93 | CC BY 2.0 FR |
+| davidstap/biblenlp-corpus-mmteb | eng-haw | 1,955 | per BibleNLP |
+
+**Unconfirmed / not exposed:**
+MADLAD-400 haw, OSCAR-2301 (gated), CulturaX (gated), bible-nlp/biblenlp-corpus full, allenai/nllb mined haw-eng, facebook/flores, FLORES+ haw_Latn (eval-only approx 997 dev + 1012 devtest).
+
+**Confirmed absent:**
+HPLT/HPLT2.0_cleaned haw_Latn, statmt/cc100, Helsinki-NLP/opus-100, Helsinki-NLP/tatoeba_mt haw config, mteb/NTREX, facebook/wikimatrix, OPUS ubuntu en-haw (empty), OPUS bible-uedin haw.
+
+### Updated Stage 1 candidate-add list (for Linus rights review)
+
+**Rank-ordered by confidence + dedup value:**
+
+1. **MADLAD-400 haw** — CC-BY-4.0; ~109k tokens; second-source signal.
+2. **Glot500 haw_Latn** — mixed licenses (component-wise); aggregate over 1M docs; high overlap risk, but independent dedup hashes.
+3. **GlotCC-V1 haw-Latn** — CC0; ~7k docs; small clean second-source signal.
+
+~~mC4 haw~~ **deprioritized** (CommonCrawl/FineWeb-2 overlap).  
+~~HPLT v2 cleaned haw_Latn~~ **removed** (config absent).
+
+### Stage 2 execution order unchanged
+
+NLLB mined haw-eng (largest yield) → BibleNLP haw1868 (31k verses) → OPUS cross-check (no bible-uedin).
+
+### Decisions locked
+
+1. mC4 present; record as "deprioritized (CommonCrawl overlap)."
+2. HPLT v2 cleaned removed from Stage 1 candidate-add.
+3. OPUS bible-uedin haw nonexistent; removes triple-counting risk.
+4. Linus proceed with rights review for MADLAD-400, Glot500, GlotCC-V1 only.
+
+---
+
 ## Decision: Frank — Ready-made Hawaiian dataset sweep (2026-05-01T08:52:06Z)
+
+**[SUPERSEDED by 2026-05-01T09:06:22Z correction above.]**
 
 **Owner:** Frank (Hawaiian Data Collector)  
 **Date:** 2026-05-01  
