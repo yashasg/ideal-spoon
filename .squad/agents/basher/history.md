@@ -817,3 +817,15 @@ Rusty's manifest builder now handles all policy scoring. Basher's emitter needs 
 
 **Status:** Implemented, validation passed, ready for coordinator commit.
 
+
+- **Run interrupted mid-epoch at 39.4% (step 2000/5070):** Llama-3.1-8B stage1 multisource run on Kaggle T4x2. Loss 2.09→1.26 (clean cosine decay, no spikes), eval_loss 1.51→1.37 (monotonically improving). LR was at peak ~0.0002 at step 160 (warmup), now decaying on cosine schedule to ~0.000138 at step 2000. `save_steps=100` so a checkpoint at step 2000 should exist on Kaggle output if not deleted. `best_model_checkpoint=None` (no best-metric tracking, eval_loss not set as metric). Resume via `--resume_from_checkpoint /path/to/checkpoint-2000`.
+
+## 2026-05-01 — Trainer State Review (Step 2000 Resume Guidance)
+
+**Artifact:** trainer_state.json from Stage 1 Kaggle run (provided by yashasg).
+
+**Analysis:** Step 2000/5070 checkpoint reviewed. Training trajectory clean (loss 1.26, LR ~1.381e-4 on cosine schedule). Eval trend improving (1.51→1.37). No anomalies detected.
+
+**Checkpoint Status:** `checkpoint-2000` should exist; requires download and integrity verification before resume.
+
+**Guidance:** Verify checkpoint structure, then resume with `--resume_from_checkpoint /path/to/checkpoint-2000` tomorrow.
