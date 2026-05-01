@@ -58,7 +58,7 @@ The skeleton ships separate configs so hardware choices stay explicit:
   Defaults to `meta-llama/Llama-3.1-8B` (HF-gated), QLoRA on, bf16 on,
   longer sequence length, gradient accumulation tuned for a single
   A100, and checkpoint-first eval cadence (`save_steps=100`,
-  `eval_steps=500`) with loss-only eval memory controls. The target
+  `eval_steps=300`) with loss-only eval memory controls. The target
   hardware is recorded as `hardware_profile: "a100-40gb-single"` — a
   config-level hint, not a code assertion.
   Requires HF model access and a real Hawaiian data manifest before
