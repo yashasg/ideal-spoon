@@ -448,6 +448,12 @@ def build_training_args(cfg: TrainConfig, has_eval: bool = False):
     kwargs[eval_strategy_key] = eval_strategy
     if has_eval and cfg.eval_steps:
         kwargs["eval_steps"] = cfg.eval_steps
+    # Eval memory controls — only passed when explicitly set in config so the
+    # Trainer default is preserved for configs that don't need to constrain it.
+    if cfg.per_device_eval_batch_size is not None:
+        kwargs["per_device_eval_batch_size"] = cfg.per_device_eval_batch_size
+    if cfg.eval_accumulation_steps is not None:
+        kwargs["eval_accumulation_steps"] = cfg.eval_accumulation_steps
     return transformers.TrainingArguments(**kwargs)
 
 

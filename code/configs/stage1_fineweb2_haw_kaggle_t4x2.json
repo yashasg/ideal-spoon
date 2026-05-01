@@ -29,8 +29,10 @@
   "output_dir": "runs/llama31-8b-stage1-multisource-kaggle-t4x2",
   "logging_steps": 10,
   "save_steps": 100,
-  "eval_steps": 100,
+  "eval_steps": 500,
   "save_total_limit": 300,
+  "per_device_eval_batch_size": 1,
+  "eval_accumulation_steps": 1,
 
   "stage": "stage1-cpt",
   "hardware_profile": "kaggle-t4x2-fp16-qlora",
@@ -41,7 +43,8 @@
     "device_placement": "device_map='auto' is single-process model sharding across both GPUs — NOT data-parallel DDP. Only one process runs; model layers are spread to fit in the combined ~32GB. QLoRA+bitsandbytes 4-bit cannot use DDP (bnb.nn.Linear4bit breaks DDP gradient gathering). Do NOT use accelerate launch or torchrun with this config.",
     "dtype": "T4 is Turing-class (sm_75): fp16=true, bf16=false. bfloat16 is not supported on T4. If running on A100/L40S, use the A100/general Stage 1 config instead.",
     "memory": "max_seq_len=2048 with per_device_train_batch_size=1 and gradient_accumulation_steps=16 is the stable T4x2 baseline (16 × 2048 = 32768 tokens per update). batch=2/accum=8 was tested and OOMed on real backward pass (tried to allocate ~1.96 GiB with only ~1.60 GiB free on GPU 1). PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True may reduce fragmentation but is not sufficient to hold batch=2; primary fix is batch=1.",
-    "checkpointing": "save_steps/eval_steps=100 and save_total_limit=300 so interrupted Kaggle sessions lose less work without a separate checkpoint watcher. Disk can fill quickly; sync runs/ to persistent storage or a private HF repo before the notebook ends.",
+    "checkpointing": "save_steps=100 so interrupted Kaggle sessions lose less work without a separate checkpoint watcher. eval_steps=500 so checkpoints 100-400 always exist before the first eval fires. save_total_limit=300 keeps the full checkpoint history disk permitting; sync runs/ to persistent storage or a private HF repo before the notebook ends.",
+    "eval_oom_fix": "Trainer default per_device_eval_batch_size=8 allocates ~4.2 GiB of fp16 logits for Llama-3.1-8B (vocab=128256, seq=2048) — enough to OOM GPU 1 with training state resident. Fix: per_device_eval_batch_size=1 (~500 MB) and eval_accumulation_steps=1 (release GPU logits after each step). eval_steps raised to 500 so a checkpoint always exists before first eval.",
     "path_note": "Paths are config-relative for train/eval data. After cloning on Kaggle, copy or mount the off-git data/ tree under /kaggle/working/ideal-spoon/data before preflight. Required files: data/stage1/stage1.jsonl.gz and data/evals/fineweb2_haw/dev.jsonl.",
     "resume": "If interrupted from repo root: PYTHONPATH=code python -m llm_hawaii.train --config code/configs/stage1_fineweb2_haw_kaggle_t4x2.json --resume-from-checkpoint runs/llama31-8b-stage1-multisource-kaggle-t4x2/checkpoint-NNN",
     "oom_fallback": "If Kaggle OOMs: (1) set per_device_train_batch_size back to 1 and gradient_accumulation_steps back to 16; (2) if still OOM, reduce max_seq_len to 1024 and gradient_accumulation_steps to 32 (original conservative baseline); (3) if still OOM, reduce lora_rank to 16/lora_alpha to 32; (4) for a quick plumbing test only, try max_seq_len=512. Record the config diff in the run report."

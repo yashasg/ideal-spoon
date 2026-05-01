@@ -582,6 +582,110 @@ class TestStage2LineagePreflight(unittest.TestCase):
         self.assertNotIn("eval_strategy", args.kwargs)
 
 
+class TestEvalMemoryControls(unittest.TestCase):
+    """per_device_eval_batch_size and eval_accumulation_steps wired into TrainingArguments."""
+
+    def _make_fake_transformers(self):
+        import types
+
+        class FakeTrainingArguments:
+            def __init__(self, eval_strategy=None, **kwargs):
+                self.kwargs = dict(kwargs)
+                self.kwargs["eval_strategy"] = eval_strategy
+
+        return types.SimpleNamespace(TrainingArguments=FakeTrainingArguments)
+
+    def test_per_device_eval_batch_size_passed_when_set(self):
+        import sys
+        from unittest import mock
+        from llm_hawaii.config import TrainConfig
+
+        fake_transformers = self._make_fake_transformers()
+        with mock.patch.dict(sys.modules, {"transformers": fake_transformers}):
+            from llm_hawaii.train import build_training_args
+            args = build_training_args(
+                TrainConfig(eval_steps=100, per_device_eval_batch_size=1),
+                has_eval=True,
+            )
+        self.assertEqual(args.kwargs["per_device_eval_batch_size"], 1)
+
+    def test_per_device_eval_batch_size_absent_when_none(self):
+        """When per_device_eval_batch_size is None, kwarg is not forwarded."""
+        import sys
+        from unittest import mock
+        from llm_hawaii.config import TrainConfig
+
+        fake_transformers = self._make_fake_transformers()
+        with mock.patch.dict(sys.modules, {"transformers": fake_transformers}):
+            from llm_hawaii.train import build_training_args
+            args = build_training_args(
+                TrainConfig(eval_steps=100, per_device_eval_batch_size=None),
+                has_eval=True,
+            )
+        self.assertNotIn("per_device_eval_batch_size", args.kwargs)
+
+    def test_eval_accumulation_steps_passed_when_set(self):
+        import sys
+        from unittest import mock
+        from llm_hawaii.config import TrainConfig
+
+        fake_transformers = self._make_fake_transformers()
+        with mock.patch.dict(sys.modules, {"transformers": fake_transformers}):
+            from llm_hawaii.train import build_training_args
+            args = build_training_args(
+                TrainConfig(eval_steps=100, eval_accumulation_steps=1),
+                has_eval=True,
+            )
+        self.assertEqual(args.kwargs["eval_accumulation_steps"], 1)
+
+    def test_eval_accumulation_steps_absent_when_none(self):
+        """When eval_accumulation_steps is None, kwarg is not forwarded."""
+        import sys
+        from unittest import mock
+        from llm_hawaii.config import TrainConfig
+
+        fake_transformers = self._make_fake_transformers()
+        with mock.patch.dict(sys.modules, {"transformers": fake_transformers}):
+            from llm_hawaii.train import build_training_args
+            args = build_training_args(
+                TrainConfig(eval_steps=100, eval_accumulation_steps=None),
+                has_eval=True,
+            )
+        self.assertNotIn("eval_accumulation_steps", args.kwargs)
+
+    def test_kaggle_config_has_eval_memory_controls(self):
+        """Kaggle T4x2 config must have per_device_eval_batch_size=1 and eval_accumulation_steps=1."""
+        from llm_hawaii.config import load_config
+
+        repo_root = Path(__file__).resolve().parents[2]
+        cfg_path = repo_root / "code" / "configs" / "stage1_fineweb2_haw_kaggle_t4x2.json"
+        self.assertTrue(cfg_path.exists(), f"Missing Kaggle config: {cfg_path}")
+        cfg = load_config(cfg_path)
+        self.assertEqual(
+            cfg.per_device_eval_batch_size, 1,
+            "Kaggle config must set per_device_eval_batch_size=1 to prevent eval OOM",
+        )
+        self.assertEqual(
+            cfg.eval_accumulation_steps, 1,
+            "Kaggle config must set eval_accumulation_steps=1 to release GPU logits between steps",
+        )
+
+    def test_kaggle_config_eval_steps_greater_than_save_steps(self):
+        """Kaggle eval_steps must exceed save_steps so a checkpoint exists before first eval."""
+        from llm_hawaii.config import load_config
+
+        repo_root = Path(__file__).resolve().parents[2]
+        cfg_path = repo_root / "code" / "configs" / "stage1_fineweb2_haw_kaggle_t4x2.json"
+        cfg = load_config(cfg_path)
+        self.assertIsNotNone(cfg.eval_steps, "eval_steps must be set in Kaggle config")
+        self.assertGreater(
+            cfg.eval_steps,
+            cfg.save_steps,
+            f"eval_steps ({cfg.eval_steps}) must exceed save_steps ({cfg.save_steps}) "
+            "so checkpoint-{save_steps} exists before first eval fires",
+        )
+
+
 class TestTrainerCompatibility(unittest.TestCase):
     """Trainer tokenizer arg changed across transformers versions."""
 

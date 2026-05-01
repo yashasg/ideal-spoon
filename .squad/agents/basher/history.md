@@ -10,6 +10,8 @@
 - **GPU-attached vs wrong-wheel:** `nvidia-smi` present + returning rows = GPU attached; `torch.cuda.is_available() == False` with `+cpu` wheel = wheel problem, not hardware. `nvidia-smi` absent = accelerator not attached — fix in notebook settings.
 - **Bash heredoc in Kaggle cells:** `<<TERM` heredocs passed as a one-shot string to bash (e.g. via `%%bash` magic) emit EOF-before-terminator warnings if the terminator has trailing whitespace or the cell is `cat`'d into bash. Use `%%python` cells or plain `!` lines instead.
 - **Fake inner collator pattern:** When testing a collator wrapper end-to-end (output correctness, not just call interception), replace the inner collator with a minimal fake that *implements* the real pad+label semantics (pad input_ids to max length, set -100 at pad positions in labels). A plain `MagicMock` returning hardcoded values only verifies the wrapper calls through; the semantic fake verifies the wrapper correctly strips pre-tokenized labels so the inner can produce valid output. See `test_collator_end_to_end_variable_length_padding` in `code/tests/test_data.py`.
+- **HF Trainer eval default batch=8 OOMs large-vocab models:** `per_device_eval_batch_size` defaults to 8 in Trainer. Llama-3.1-8B (vocab=128,256) with seq=2048 fp16 produces `8×2048×128256×2 ≈ 4.2 GiB` logits per eval step — enough to OOM a T4 with training state resident. Always set `per_device_eval_batch_size=1` and `eval_accumulation_steps=1` on memory-constrained hardware. These are now `TrainConfig` fields wired through `build_training_args()`.
+- **Trainer fires eval before save at same step:** When `eval_steps == save_steps`, HF Trainer's `_maybe_log_save_evaluate` evaluates before saving. An OOM during eval means no checkpoint is written. Fix: set `eval_steps > save_steps` (e.g., `eval_steps=500, save_steps=100`) so multiple checkpoints exist before the first eval fires.
 
 ---
 
@@ -794,4 +796,24 @@ QLoRA + bitsandbytes 4-bit cannot use DDP: bitsandbytes wraps parameters in cust
 **Status:** CROSS-AGENT UPDATE — No Action Required
 
 Rusty's manifest builder now handles all policy scoring. Basher's emitter needs NO changes. Existing `alignment_review_required` filter and split filter already honor the quarantine (review/reject rows → `review-pending` split). Trainer fields and SFT emission logic unchanged. Quarantine behavior is double-belted via both manifest split override and emitter filter.
+
+
+## 2026-05-01 — Kaggle Stage 1 eval OOM fix
+
+**Basher Diagnosis:** Stage 1 training on Kaggle T4x2 reached step 100/5070 then OOMed during eval in `_maybe_log_save_evaluate` before writing checkpoint-100.
+
+**Root Cause:**
+1. `per_device_eval_batch_size` defaults to 8 in HF Trainer; Llama-3.1-8B (vocab=128,256) × seq=2048 × fp16 × batch=8 = **~4.2 GiB** logits; GPU 1 had training state resident, allocation failed.
+2. When `eval_steps == save_steps == 100`, Trainer evaluates before saving; OOM during eval ⇒ no checkpoint written.
+
+**Fix Applied:**
+- Config: `stage1_fineweb2_haw_kaggle_t4x2.json` — `eval_steps=500` (defers first eval), `per_device_eval_batch_size=1` (500 MB logits), `eval_accumulation_steps=1` (release GPU tensors).
+- Code: `code/llm_hawaii/config.py` — added `per_device_eval_batch_size`, `eval_accumulation_steps` fields (Optional[int] = None).
+- Code: `code/llm_hawaii/train.py` — `build_training_args()` forwards new fields when not None.
+- Docs: `docs/kaggle-t4x2-setup.md` — added Eval OOM fix section with rationale.
+- Tests: `code/tests/test_train.py` — `TestEvalMemoryControls` (6 new tests); 38/38 pass.
+
+**Rationale for `eval_steps=500` over disable:** Eval perplexity on FineWeb-2-haw dev split is the only signal during Stage 1 CPT. Deferring keeps signal at low cost.
+
+**Status:** Implemented, validation passed, ready for coordinator commit.
 

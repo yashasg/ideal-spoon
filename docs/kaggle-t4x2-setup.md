@@ -84,9 +84,27 @@ Outputs land under:
 runs/llama31-8b-stage1-multisource-kaggle-t4x2/
 ```
 
-The Kaggle config saves/evals every 100 steps and keeps up to 300 checkpoints, disk permitting, so a separate checkpoint watcher is usually unnecessary.
+The Kaggle config saves every 100 steps and evals every 500 steps, keeping up to 300 checkpoints, disk permitting, so a separate checkpoint watcher is usually unnecessary. Eval is intentionally less frequent than saves so that checkpoints 100–400 always exist before the first eval fires.
 
 Current VRAM tuning uses `max_seq_len=2048`, `per_device_train_batch_size=1`, and `gradient_accumulation_steps=16`, giving 16 × 2048 = 32 768 tokens per gradient update. **`per_device_train_batch_size=2` was tested as an experimental optimisation but OOMed on the real backward pass** (tried to allocate ~1.96 GiB with only ~1.60 GiB free on GPU 1); batch=1 is the stable default.
+
+### Eval OOM fix (step-100 crash)
+
+Trainer's default `per_device_eval_batch_size` is **8**. For Llama-3.1-8B with vocab=128,256 and `max_seq_len=2048` in fp16:
+
+```
+8 × 2048 × 128256 × 2 bytes ≈ 4.2 GiB
+```
+
+GPU 1 already holds training state, so this OOMed with "trying to allocate 3.91 GiB". The crash also happened *before* checkpoint-100 was written because Trainer runs eval before save when both fire at the same step.
+
+**Fix applied to `stage1_fineweb2_haw_kaggle_t4x2.json`:**
+
+| Setting | Old | New | Why |
+|---|---|---|---|
+| `eval_steps` | 100 | 500 | checkpoint-100/200/300/400 exist before first eval |
+| `per_device_eval_batch_size` | *(unset, default 8)* | 1 | logits ~500 MB instead of ~4.2 GiB |
+| `eval_accumulation_steps` | *(unset)* | 1 | release GPU logit tensors after each eval step |
 
 > **`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`** may reduce allocator fragmentation and is worth trying if you see fragmentation-related OOMs. It is not sufficient to hold `batch=2` with this model — the observed allocation error is a capacity issue, not a fragmentation issue. The primary fix is `batch=1`.
 

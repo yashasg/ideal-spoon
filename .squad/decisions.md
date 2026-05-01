@@ -3880,3 +3880,47 @@ The committed haw→en paraphrase was orthographically/grammatically inverted (`
 
 No corpus payloads committed.
 
+
+---
+
+## Kaggle T4x2 Stage 1 Eval OOM Fix
+
+**Owner:** Basher  
+**Date:** 2026-05-01  
+**Status:** IMPLEMENTED — working tree only (not committed)
+
+### Problem
+
+Training reached step 100/5070 then OOMed in `_maybe_log_save_evaluate` before writing checkpoint-100.
+
+Root cause (two compounding issues):
+1. **Trainer default eval batch=8:** `per_device_eval_batch_size` defaults to 8 in HuggingFace Trainer. Llama-3.1-8B (vocab=128,256) × seq=2048 × fp16 × batch=8 = **~4.2 GiB** of logits per eval step. GPU 1 had training state resident; allocation of 3.91 GiB failed.
+2. **Eval fires before save at same step:** When `eval_steps == save_steps == 100`, Trainer's `_maybe_log_save_evaluate` evaluates before saving. OOM during eval ⇒ no checkpoint written.
+
+### Decision
+
+Config-only fix preferred (no training behaviour change). Two settings applied to `stage1_fineweb2_haw_kaggle_t4x2.json`:
+
+| Setting | Old | New | Effect |
+|---|---|---|---|
+| `eval_steps` | 100 | 500 | checkpoints 100-400 exist before first eval; eval still happens at 500/1000/… (10 eval points across 5070 steps) |
+| `per_device_eval_batch_size` | *(unset, default 8)* | 1 | logits ~500 MB instead of ~4.2 GiB |
+| `eval_accumulation_steps` | *(unset)* | 1 | GPU logit tensors released after each eval batch |
+
+Code change required to support config fields: `per_device_eval_batch_size` and `eval_accumulation_steps` added to `TrainConfig` (both `Optional[int] = None`) and wired through `build_training_args()`. Fields are only forwarded when explicitly set so configs that don't need them get Trainer defaults unchanged.
+
+### Why not disable eval entirely?
+
+Eval perplexity on the FineWeb-2-haw dev split is the only signal we have during Stage 1 CPT. Disabling it permanently would lose that. Deferring to step 500 with batch=1 keeps the signal at low cost.
+
+### Files changed
+
+- `code/llm_hawaii/config.py` — added `per_device_eval_batch_size`, `eval_accumulation_steps` fields
+- `code/llm_hawaii/train.py` — `build_training_args()` forwards new fields when not None
+- `code/configs/stage1_fineweb2_haw_kaggle_t4x2.json` — `eval_steps=500`, `per_device_eval_batch_size=1`, `eval_accumulation_steps=1`; updated notes
+- `docs/kaggle-t4x2-setup.md` — Eval OOM fix section added with table
+- `code/tests/test_train.py` — `TestEvalMemoryControls` class (6 new tests); 38/38 pass
+
+### Team impact
+
+Any config that sets `per_device_eval_batch_size` or `eval_accumulation_steps` will now have those respected. Configs that don't set them are unaffected (None → not forwarded → Trainer default).

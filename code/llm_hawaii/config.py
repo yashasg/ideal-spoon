@@ -68,6 +68,16 @@ class TrainConfig:
     eval_steps: Optional[int] = None
     save_total_limit: int = 2
 
+    # --- Eval memory controls ---
+    # Trainer default per_device_eval_batch_size=8 allocates ~4 GiB of logits
+    # on Llama-3.1-8B (vocab=128256, seq=2048) with fp16 — large enough to OOM
+    # a T4 that has training state resident.  Set to 1 on memory-constrained
+    # hardware (T4x2).  None -> Trainer default (8).
+    per_device_eval_batch_size: Optional[int] = None
+    # Accumulate eval outputs N steps before moving to CPU.  Set to 1 to avoid
+    # holding all eval logits on GPU simultaneously.  None -> Trainer default.
+    eval_accumulation_steps: Optional[int] = None
+
     # --- Stage tagging (see two-stage ADR) ---
     # "stage1-cpt" | "stage2-sft" | "smoke" — purely informational here.
     stage: str = "smoke"
