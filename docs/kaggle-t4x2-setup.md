@@ -105,6 +105,7 @@ GPU 1 already holds training state, so this OOMed with "trying to allocate 3.91 
 | `eval_steps` | 100 | 500 | checkpoint-100/200/300/400 exist before first eval |
 | `per_device_eval_batch_size` | *(unset, default 8)* | 1 | logits ~500 MB instead of ~4.2 GiB |
 | `eval_accumulation_steps` | *(unset)* | 1 | release GPU logit tensors after each eval step |
+| `prediction_loss_only` | *(unset)* | true | do not retain prediction logits after loss computation |
 
 > **`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`** may reduce allocator fragmentation and is worth trying if you see fragmentation-related OOMs. It is not sufficient to hold `batch=2` with this model — the observed allocation error is a capacity issue, not a fragmentation issue. The primary fix is `batch=1`.
 

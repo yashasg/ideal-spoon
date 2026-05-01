@@ -454,6 +454,8 @@ def build_training_args(cfg: TrainConfig, has_eval: bool = False):
         kwargs["per_device_eval_batch_size"] = cfg.per_device_eval_batch_size
     if cfg.eval_accumulation_steps is not None:
         kwargs["eval_accumulation_steps"] = cfg.eval_accumulation_steps
+    if cfg.prediction_loss_only is not None:
+        kwargs["prediction_loss_only"] = cfg.prediction_loss_only
     return transformers.TrainingArguments(**kwargs)
 
 

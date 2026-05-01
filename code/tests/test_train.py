@@ -653,8 +653,37 @@ class TestEvalMemoryControls(unittest.TestCase):
             )
         self.assertNotIn("eval_accumulation_steps", args.kwargs)
 
+    def test_prediction_loss_only_passed_when_set(self):
+        import sys
+        from unittest import mock
+        from llm_hawaii.config import TrainConfig
+
+        fake_transformers = self._make_fake_transformers()
+        with mock.patch.dict(sys.modules, {"transformers": fake_transformers}):
+            from llm_hawaii.train import build_training_args
+            args = build_training_args(
+                TrainConfig(eval_steps=100, prediction_loss_only=True),
+                has_eval=True,
+            )
+        self.assertIs(args.kwargs["prediction_loss_only"], True)
+
+    def test_prediction_loss_only_absent_when_none(self):
+        """When prediction_loss_only is None, kwarg is not forwarded."""
+        import sys
+        from unittest import mock
+        from llm_hawaii.config import TrainConfig
+
+        fake_transformers = self._make_fake_transformers()
+        with mock.patch.dict(sys.modules, {"transformers": fake_transformers}):
+            from llm_hawaii.train import build_training_args
+            args = build_training_args(
+                TrainConfig(eval_steps=100, prediction_loss_only=None),
+                has_eval=True,
+            )
+        self.assertNotIn("prediction_loss_only", args.kwargs)
+
     def test_kaggle_config_has_eval_memory_controls(self):
-        """Kaggle T4x2 config must have per_device_eval_batch_size=1 and eval_accumulation_steps=1."""
+        """Kaggle T4x2 config must use memory-constrained eval settings."""
         from llm_hawaii.config import load_config
 
         repo_root = Path(__file__).resolve().parents[2]
@@ -668,6 +697,10 @@ class TestEvalMemoryControls(unittest.TestCase):
         self.assertEqual(
             cfg.eval_accumulation_steps, 1,
             "Kaggle config must set eval_accumulation_steps=1 to release GPU logits between steps",
+        )
+        self.assertIs(
+            cfg.prediction_loss_only, True,
+            "Kaggle config must set prediction_loss_only=true to avoid retaining eval logits",
         )
 
     def test_kaggle_config_eval_steps_greater_than_save_steps(self):

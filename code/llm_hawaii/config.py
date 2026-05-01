@@ -77,6 +77,9 @@ class TrainConfig:
     # Accumulate eval outputs N steps before moving to CPU.  Set to 1 to avoid
     # holding all eval logits on GPU simultaneously.  None -> Trainer default.
     eval_accumulation_steps: Optional[int] = None
+    # Loss-only eval avoids retaining prediction logits after the forward pass.
+    # Keep None to preserve Trainer defaults for configs that need predictions.
+    prediction_loss_only: Optional[bool] = None
 
     # --- Stage tagging (see two-stage ADR) ---
     # "stage1-cpt" | "stage2-sft" | "smoke" — purely informational here.
