@@ -2435,3 +2435,143 @@ prototype-only ruling does not transfer.
 - `Anakuhi:` (and other Hawaiian-namespace prefixes) leak through any English-prefix-only mainspace filter. The probe currently lets these through; the API just returns empty `langlinks` for them, no harm. Future hardening: filter on `prop=info` `ns` field rather than title prefix.
 
 **Lane verdict:** `OK_RAW_PROBE_LANGLINKS_RECORDED`. Hand-off ready for whoever lands the LaBSE pass next.
+
+## Learnings — 2026-05-02 — OPUS haw subsets endpoint repair + ingest
+
+**Outcome: 487 review-pending candidates emitted, 0 train-ready added,
+manifest untouched.**
+
+Source plan ID `opus-haw-subsets` had five legacy URLs (Tatoeba, QED,
+Ubuntu, GNOME, KDE4) all returning 404. Repaired the discovery pipeline,
+pulled what really exists, and tagged it honestly.
+
+### Endpoint forensics
+
+- All `https://opus.nlpl.eu/<Corpus>/<version>/moses/en-haw.txt.zip`
+  URLs returned HTTP 404. The 2024 OPUS frontend rewrite moved the raw
+  archives to `https://object.pouta.csc.fi/OPUS-<Corpus>/...`.
+- The OPUS public API at
+  `https://opus.nlpl.eu/opusapi?source=en&target=haw&preprocessing=moses`
+  returns one entry per `(corpus, version)` with the live download URL,
+  `alignment_pairs`, and source/target token counts. **Pin those URLs;
+  never guess paths.**
+- API redirects 308 from `/opusapi/` → `/opusapi`; `urlopen` follows it.
+
+### haw-bearing OPUS corpora (current)
+
+| Corpus | Version | Adv. pairs | Verdict |
+|---|---|---:|---|
+| Tatoeba | v2023-04-12 | 95 | 90/93 identical-text duplicates of existing tatoeba lane |
+| QED | v2.0a | 16 | **unusable** — en column is Russian, haw column is Danish (OPUS langid bug) |
+| Ubuntu | v14.10 | sparse (4 lines) | **unusable** — row-misaligned, haw column = English/Italian software-strings |
+| wikimedia | v20230407 | 375 | 374 emitted, 370 langid-ok; only real contributor; needs CC BY-SA review + cluster dedup against CX/langlinks |
+
+GNOME and KDE4 are NOT in OPUS for haw — both legacy plan URLs 404 AND
+the API returns no haw rows for either corpus. Dropped from the live URL
+list.
+
+### Receipts (durable, gitignored)
+
+- `data/raw/opus-haw-subsets/20260502/opus_api_en-haw_moses.json`
+  — full API response, sha256 captured.
+- `data/raw/opus-haw-subsets/20260502/<Corpus>/en-haw.txt.zip` — raw
+  zip bytes per corpus, sha256 captured in the report.
+- `data/stage2/candidates/opus_haw_subsets.jsonl` — 487 rows, all
+  `split=review-pending`, `prototype_only=true`, `release_eligible=false`.
+- `data/stage2/reports/opus_haw_subsets_report.json` — per-corpus
+  HEAD/fetch verdict, langid-check totals, cross-source dedup overlap.
+
+### Reusable artifacts (committed)
+
+- `data-sources/opus-haw-subsets/fetch.py` — stdlib-only, polite
+  (≤1 req/sec), `--self-test` / `--dry-run` / `--execute`. Self-test
+  covers parse, EN/HAW normalize asymmetry, script-block detection,
+  row construction.
+- `data-sources/opus-haw-subsets/README.md` — endpoint table,
+  per-corpus license posture, honest data-quality findings, hand-off.
+- `data-sources/stage2-parallel-fetch-plan.json` — opus-haw-subsets
+  entry now has `verification_status=verified_endpoint`,
+  `adapter_status=candidates_emitted_review_pending`,
+  `expected_yield_rows_train_ready=0`, plus a
+  `legacy_url_regression` block + `corpora_with_haw_coverage` /
+  `corpora_without_haw_coverage` tables.
+
+### Patterns to remember
+
+1. **EN normalize ≠ HAW normalize.** The Stage-2 quality module's
+   ʻokina substitution (`'` → `ʻ`) must NEVER be applied to the
+   English column or English contractions break ("don't" → "doʻt").
+   Keep `_normalize_en` (NFC + whitespace only) separate from
+   `_normalize_haw` (NFC + ʻokina + whitespace).
+2. **Always run a script-block sanity check on low-resource OPUS
+   pairs.** OPUS QED en-haw is a textbook case of language
+   mislabeling: the `en` column is Cyrillic, the `haw` column is
+   Danish. A 30-line stdlib heuristic (Cyrillic / Arabic / CJK /
+   Hangul / Devanagari ranges + Hawaiian-alphabet ratio) catches it
+   with zero deps.
+3. **OPUS-Tatoeba is a re-export.** If the upstream Tatoeba lane is
+   already in Stage-2, OPUS-Tatoeba contributes near-zero net new
+   rows. The `sha256_pair` differs only because OPUS lines have
+   trailing whitespace; identical-text overlap on `(text_en,
+   text_haw)` is the right dedup signal.
+4. **Per-corpus license heterogeneity must NOT be collapsed.** Each
+   row carries `license_observed_*` from `CORPUS_POLICY[corpus]`. QED
+   is CC BY-NC-SA 3.0 (NC blocks commercial); wikimedia is CC BY-SA
+   4.0 + GFDL; Tatoeba is CC-BY 2.0 FR; Ubuntu is heterogeneous
+   per-string. A single source-level `license_observed` would be a
+   lie.
+5. **Wikimedia OPUS overlaps two other lanes.** OPUS-wikimedia
+   v20230407 (375 sentence-aligned pairs) shares the article-level
+   universe with `wikimedia-cx-en-haw` (14 review-pending) and
+   `wiki-haw-en-langlinks` (53 raw langlinks blocked on LaBSE).
+   Cluster-isolated dedup required before any of the three is
+   promoted; recorded as `dedup_risk_against` per row.
+
+### Stage 2 N
+
+Unchanged. Still **603 train-ready canonical / 1,206 directional SFT**.
+OPUS contributes 0 train-ready rows in this pass and is unlikely to
+contribute more than ~200–300 review-eligible rows even after a LaBSE
+pass — the bulk (Tatoeba) is duplicate, QED/Ubuntu are unusable, and
+wikimedia is review-pending pending rights + dedup.
+
+### Lane verdict
+
+`OK_OPUS_HAW_SUBSETS_487_CANDIDATES_0_TRAIN_READY`. Hand-off ready for
+Linus (cluster dedup + CC BY-SA carry-through) and Rusty (LaBSE-scored
+wikimedia subset later).
+
+## 2026-05-02T04:02:17Z — OPUS haw subsets endpoints repaired & candidates emitted
+
+**Status:** completed. 487 review-pending rows emitted; 0 train-ready rows added. Manifest unchanged.
+
+**Finding:** Five Stage-2 OPUS URLs all dead (HTTP 404). 2024 rewrite moved to `object.pouta.csc.fi/OPUS-<Corpus>/...` discoverable via OPUS API `opusapi?source=en&target=haw`.
+
+**Real outcome:**
+- **Tatoeba (v2023-04-12, 95 pairs):** 90/93 identical-text duplicates of existing Tatoeba lane (review-pending only)
+- **QED (v2.0a, 16 pairs):** OPUS langid bug — en=Russian, haw=Danish (unusable)
+- **Ubuntu (v14.10, 4 pairs):** Row-misaligned, haw=English/Italian software strings (unusable)
+- **wikimedia (v20230407, 375 pairs):** Only real contributor (374 emitted, 370 langid-ok); pending CC BY-SA posture & CX dedup
+- **GNOME, KDE4:** Not in OPUS for haw (confirmed API + HEAD checks; dropped)
+
+**Asks (cross-agent):**
+- Linus: CC BY-SA posture decision for OPUS-wikimedia + fold OPUS-Tatoeba dupes into existing Tatoeba cluster keys
+- Rusty: Script-block + Hawaiian-alphabet sanity check for LaBSE pre-filter (textbook OPUS bug prevention)
+- Coordinator: Three of four "Tier-A OPUS subsets" are empty; revise 80k Stage-2 assumption
+
+**Files changed:** `data-sources/opus-haw-subsets/{fetch.py,README.md}`, `data-sources/stage2-parallel-fetch-plan.json` (opus entry), agent history above.
+
+**Next:** Sanitary Instructions adapter launching.
+
+
+## 2026-05-02T04:02:53Z — Orchestration Update: Linus Weblate Completed
+
+**From:** Scribe (Session Orchestration)
+
+**Update:** Linus completed Weblate haw↔en priority lane — 107 review-pending candidates emitted across 5 permissive-license components (MIT, Apache-2.0 only; 3 copyleft projects blocked). PO download endpoint confirmed as correct fetch strategy (avoids REST API rate limits).
+
+**Team context:** This lane is now archived. HK Statute Laws 1847 just launched next. Sanitary Instructions (Frank) and OPUS (Scribe/other) remain in progress.
+
+**For your coordination:** No direct blocking action on Sanitary Instructions task. Weblate-po-ingest skill now documented for future priority lane sourcing.
+
+**Reference:** `.squad/orchestration-log/2026-05-02T040253Z-linus-weblate.md`

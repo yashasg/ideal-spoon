@@ -922,3 +922,13 @@ Expected yield: ~7.3–10k parallel pairs (~14.6–20k directional). NLLB + synt
 - Danny's policy *consumes* your review-pending definitions; it does not amend any Rusty review rules.
 - Your review gates (quality flags, alignment_review_required, source-level rights checks) are all honored in the verdict assignment.
 - **No action required.** Your work is integrated and locked into the final artifact.
+
+## 2026-05-02T04:02:17Z — Cross-agent recap: OPUS QED langid bug flagged for LaBSE pre-filter
+
+**From:** Scribe orchestration log
+
+**Frank OPUS finding:** QED (v2.0a, 16 pairs) is a textbook OPUS langid bug — entire en column is Russian, entire haw column is Danish. Confirmed by Frank's langid check.
+
+**Your ask (from frank-opus decision):**
+Add script-block + Hawaiian-alphabet sanity check to any future LaBSE pre-filter. Do not whitelist OPUS pairs by source-corpus alone. This prevents similar silent failures in Tier-B pipeline downstream.
+

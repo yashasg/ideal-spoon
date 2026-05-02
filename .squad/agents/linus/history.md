@@ -2674,3 +2674,154 @@ CX-pinned one) and re-aligning — a separate task.
 - Stage-2 N: 603 canonical / 1,206 directional (unchanged)
 - Honest ceiling without LaBSE: ~50–60k directional (down from 80–150k target)
 - Coordinator is making replacement mined-source decision (MADLAD-400, HPLT v2, OPUS-mined, or target renegotiation)
+
+---
+
+## 2026-05-03 — Weblate/software-l10n haw↔en candidates
+
+**Task:** Process Weblate hosted.weblate.org for haw↔en software localization pairs
+as the next independent priority lane.
+
+**Probe results:**
+- HAW language page: 7 projects with any haw coverage
+  (django-zxcvbn-password-validator, dpo-voyager, f-droid, geoweather, iso-codes,
+   prismlauncher, stellarium-mobile)
+- HAW language statistics: 277 translated / 4,075 total strings (6.7% overall completion)
+- 5 components across 4 projects pass the permissive-license gate (MIT / Apache-2.0)
+- 3 components blocked (LGPL, GPL-3.0, GPL-2.0)
+- geoweather: 0 haw-translated strings
+
+**License gate decision:**
+Only MIT and Apache-2.0 accepted as "clearly compatible." Copyleft (GPL/LGPL/AGPL)
+blocked even for private prototype: translation strings are derivative works of the
+licensed software, and "clearly compatible" is the threshold. This is documented in
+`.squad/decisions/inbox/linus-weblate.md`.
+
+**Implementation:**
+- **`scripts/329_build_weblate_en_haw_candidates.py`** (new) — PO download + parser + builder.
+  - Uses `/download/{project}/{component}/{language}/?format=po` NOT the REST API.
+  - REST API rate-limit: 100 req/window (hard); probing exhausted it. PO download is
+    unauthenticated and not subject to the same limit.
+  - Stdlib-only PO parser handles multi-line strings, msgctxt, plural msgstr[0].
+  - Quality gate: EN ≥2 words, HAW ≥1 word + ≥3 chars, ratio [0.05, 15.0].
+  - 19 assertions in --self-test, 0 network calls in self-test.
+
+**Commands run:**
+```bash
+python3 -m py_compile scripts/329_build_weblate_en_haw_candidates.py  # syntax OK
+python3 scripts/329_build_weblate_en_haw_candidates.py --self-test     # 19 assertions OK
+python3 scripts/329_build_weblate_en_haw_candidates.py --dry-run       # 107 rows, matches execute
+python3 scripts/329_build_weblate_en_haw_candidates.py --execute       # wrote candidates + report
+python3 scripts/320_build_stage2_manifest.py --dry-run                 # 35461 rows; weblate-en-haw: 107 accepted, 0 violations
+```
+
+**Counts:**
+
+| Component | License | Entries | Accepted | Rejected |
+|-----------|---------|---------|----------|----------|
+| django-zxcvbn-password-validator/translations | MIT | 49 | 46 | 3 |
+| dpo-voyager/dpo-voyager | Apache-2.0 | 61 | 22 | 39 |
+| f-droid/privileged-extension-metadata | Apache-2.0 | 11 | 11 | 0 |
+| f-droid/glossary-f-droid | Apache-2.0 | 26 | 9 | 17 |
+| prismlauncher/launcher | Apache-2.0 | 27 | 19 | 8 |
+| **TOTAL** | | **174** | **107** | **67** |
+
+**Blocked:**
+
+| Component | License | Reason |
+|-----------|---------|--------|
+| iso-codes/iso-3166-1 | LGPL-2.1-or-later | Weak copyleft; blocked |
+| prismlauncher/glossary | GPL-3.0-or-later | Copyleft; blocked |
+| stellarium-mobile/app | GPL-2.0-only | Copyleft; blocked |
+
+**Outputs created:**
+- `data/stage2/candidates/weblate_en_haw.jsonl` (107 rows)
+- `data/stage2/reports/weblate_en_haw_report.json`
+- `data/raw/weblate-en-haw/{YYYYMMDD}/` — 5 raw PO files
+- `scripts/329_build_weblate_en_haw_candidates.py`
+
+**Manifest:** NOT updated — all rows are `review-pending` / `prototype_only=True`.
+320 --dry-run confirms 0 schema violations for weblate-en-haw rows.
+
+**Schema/policy flags:**
+- `register = "software-l10n"`
+- `split = "review-pending"`, `prototype_only = True`, `release_eligible = False`
+- `direction_original = "en->haw"`
+- `alignment_type = "parallel-sentence"`, `alignment_method = "tmx-line"`
+- Per-row `license_observed` and `license_url` fields capture per-project license
+
+**Blockers for train promotion:**
+1. Software-l10n register not yet policy-approved for SFT training
+2. HAW UI string quality needs fluent-speaker review (terse UI strings can be
+   opaque without app context)
+3. dpo-voyager: 39 of 61 entries rejected — mostly single-word UI labels that
+   fail EN min-words gate (valid: too short for sentence-level SFT)
+
+## Learnings
+
+### Weblate REST API rate limit: 100 req/window
+
+`hosted.weblate.org` enforces a hard rate limit of 100 requests per window on
+`/api/` endpoints (`x-ratelimit-limit: 100`). Exhausting it produces HTTP 429
+with `retry-after` up to 85,000+ seconds (~24 hours). The correct strategy for
+any significant Weblate data pull is to use the **PO download endpoint**
+(`/download/{project}/{component}/{language}/?format=po`) which is unauthenticated
+and not subject to the same limit. One HTTP GET = one full PO file for that
+component+language pair.
+
+### Weblate haw discovery: scrape the language page, not the API
+
+The `/api/translations/?language=haw` filter does NOT filter by language code
+(it returns all 196k+ translations). The correct discovery flow is:
+1. GET `https://hosted.weblate.org/languages/haw/` (HTML)
+2. Extract `/projects/{slug}/-/haw/` patterns from the page
+3. GET `/api/projects/{slug}/components/` for each project to get per-component
+   license metadata
+4. Check `/api/translations/{project}/{component}/haw/` for translated counts
+5. Download PO via `/download/{project}/{component}/haw/?format=po`
+
+### Multiline PO string concatenation must happen before quality gate
+
+PO files use multi-line string continuation (`"part1 "` / `"part2"`). These must
+be concatenated BEFORE applying the word-count quality gate. A naive line-by-line
+parser that treats each quoted continuation as a separate string will incorrectly
+reject long-form entries that span multiple quoted lines.
+
+## 2026-05-02T04:02:17Z — Cross-agent recap: OPUS subsets emitted; Weblate still running
+
+**From:** Scribe orchestration log
+
+**Frank OPUS outcome:** 487 review-pending rows (Tatoeba 93, QED 16, Ubuntu 4, wikimedia 374). **Zero train-ready.** Three subsets effectively empty (QED/Ubuntu langid bugs, Tatoeba 90/93 dupes). Only wikimedia plausible pending your decisions.
+
+**Your asks (from frank-opus decision):**
+1. **CC BY-SA carry-through posture** for OPUS-wikimedia (374 rows) — same posture applies to `wikimedia-cx-en-haw` + future LaBSE-scored `wiki-haw-en-langlinks` rows
+2. **Fold OPUS-Tatoeba dupes** into existing Tatoeba cluster keys during dedup pass (90/93 identical-text overlap)
+
+**Status:** Weblate fetch still running. Monitor for completion; both decisions waiting.
+
+
+---
+
+## 2026-05-02 — Weblate haw↔en lane completion
+
+**Task:** Process Weblate/hosted.weblate.org as priority lane for Stage-2 haw↔en candidates; apply license gate and emit review-pending candidate rows.
+
+**Outcome:** ✅ 107 review-pending candidates emitted across 5 permissive-license components from 4 Weblate projects.
+
+**License gate:** MIT, Apache-2.0 only. Copyleft (GPL-2/3, LGPL, AGPL) blocked — translation strings are derivative works; incompatible with private ML training.
+
+**Blocked components:** 3 (iso-codes/iso-3166-1 LGPL-2.1; prismlauncher/glossary GPL-3.0; stellarium-mobile/app GPL-2.0).
+
+**Fetch strategy:** PO download endpoint (`/download/{project}/{component}/{language}/?format=po`) is correct approach. REST API has hard 100-request rate limit; download endpoint is unauthenticated and uncapped.
+
+**Train-ready rows:** 0. All rows `split=review-pending`, `prototype_only=True`, `release_eligible=False`. Promotability requires: (1) human-in-the-loop HAW UI string quality review; (2) policy go/no-go on software-l10n register in scope.
+
+**Outputs:**
+- `data/stage2/candidates/weblate_en_haw.jsonl` (107 rows)
+- `data/stage2/reports/weblate_en_haw_report.json`
+- `data/raw/weblate-en-haw/{YYYYMMDD}/` (per-component PO files)
+- `scripts/329_build_weblate_en_haw_candidates.py`
+
+**Decision locked:** `.squad/decisions.md` — "Linus — Weblate haw↔en lane decision" (merged from inbox 2026-05-02T04:02:53Z).
+
+**Next:** HK Statute Laws 1847 queued after completion.

@@ -7345,3 +7345,140 @@ Smoke set: 60 mainspace hawwiki titles → 53 langlink pairs with full revision 
 ## Reversal cost
 
 Cheap. The probe is additive — re-running with `--execute` produces a new dated subdir and never overwrites the manifest. Removing the lane is `rm -r data/raw/wiki-haw-en-langlinks/` + revert the fetch-plan diff.
+# Decision: Frank — OPUS haw subsets endpoints repaired; 487 review-pending candidates emitted (2026-05-02)
+
+**Owner:** Frank (Hawaiian Data Collector)
+**Date:** 2026-05-02
+**Status:** For-the-record — no train-ready rows added; manifest unchanged.
+
+## Finding
+
+The Stage-2 source plan's five `opus.nlpl.eu/<Corpus>/<version>/moses/en-haw.txt.zip` URLs are all dead (HTTP 404). The 2024 OPUS frontend rewrite moved raw archives to `https://object.pouta.csc.fi/OPUS-<Corpus>/...`. Authoritative discovery now goes through the OPUS API at `https://opus.nlpl.eu/opusapi?source=en&target=haw&preprocessing=moses`.
+
+Only **four** OPUS corpora actually carry haw bitext today:
+
+| Corpus    | Version       | Adv. pairs | Verdict |
+|-----------|---------------|-----------:|---------|
+| Tatoeba   | v2023-04-12   | 95         | 90/93 identical-text duplicates of existing Tatoeba lane |
+| QED       | v2.0a         | 16         | **unusable** — en column is Russian, haw column is Danish (OPUS langid bug) |
+| Ubuntu    | v14.10        | sparse (4) | **unusable** — row-misaligned + haw column = English/Italian software-strings |
+| wikimedia | v20230407     | 375        | 374 emitted, 370 langid-ok; only real contributor |
+
+GNOME and KDE4 are NOT in OPUS for haw — confirmed by both the API (no rows) and `object.pouta.csc.fi` HEAD checks (404). They are dropped from the live URL list.
+
+## Decision
+
+- **Endpoint status:** `verified_endpoint` (live via `object.pouta.csc.fi` discovered through OPUS API).
+- **Adapter status:** `candidates_emitted_review_pending`.
+- **Train-ready rows added:** 0.
+- **Review-pending rows emitted:** 487 (Tatoeba 93, QED 16, Ubuntu 4, wikimedia 374).
+- **Manifest mutation:** none. Final capped artifacts untouched.
+
+All rows are tagged `prototype_only=true`, `release_eligible=false`, `split=review-pending`, with per-corpus `license_observed_*`, `register`, `dedup_cluster_id_seed`, `opus_internal_dedup_risk_against`, and a `language_id_check_status` + `language_id_check_reasons` pair.
+
+## Stage 2 yield impact
+
+Stage 2 N is unchanged: **603 train-ready canonical / 1,206 directional SFT**. OPUS realistically contributes 0–~200 future review-eligible rows (the Wikimedia subset, gated on CC BY-SA carry-through review and cluster-isolated dedup against `wikimedia-cx-en-haw` and `wiki-haw-en-langlinks`). The other three OPUS subsets are functionally empty as gap-closers.
+
+## Asks
+
+- **Linus:**
+  1. Decide CC BY-SA carry-through posture for the OPUS-wikimedia subset (374 review-pending rows). Same posture should apply to `wikimedia-cx-en-haw` and any future LaBSE-scored `wiki-haw-en-langlinks` rows.
+  2. When the cluster-dedup pass runs, fold OPUS-Tatoeba (90/93 identical-text overlap) into the existing Tatoeba cluster keys.
+- **Rusty:** OPUS-QED is a textbook OPUS langid bug (en=Russian, haw=Danish). Add a script-block + Hawaiian-alphabet sanity check to any future LaBSE pre-filter; do not whitelist OPUS pairs by source-corpus alone.
+- **Coordinator:** Three of the four "Tier-A OPUS subsets" the source plan listed are functionally empty for haw. The 80k Stage-2 target should not assume any meaningful OPUS contribution beyond the Wikimedia subset.
+
+## Evidence
+
+- `data/raw/opus-haw-subsets/20260502/opus_api_en-haw_moses.json` — OPUS API response with sha256.
+- `data/raw/opus-haw-subsets/20260502/<Corpus>/en-haw.txt.zip` — raw zip bytes per corpus (gitignored), sha256 captured in the report.
+- `data/stage2/candidates/opus_haw_subsets.jsonl` — 487 rows.
+- `data/stage2/reports/opus_haw_subsets_report.json` — per-corpus verdicts, langid-check totals, cross-source overlap notes.
+- `data-sources/opus-haw-subsets/fetch.py` + `README.md` — adapter + endpoint table.
+- `data-sources/stage2-parallel-fetch-plan.json` — opus-haw-subsets entry now records the legacy-URL regression, the live URL list, and the per-corpus coverage tables.
+
+## Files changed
+
+- **Added:**
+  - `data-sources/opus-haw-subsets/fetch.py`
+  - `data-sources/opus-haw-subsets/README.md`
+- **Modified:**
+  - `data-sources/stage2-parallel-fetch-plan.json` (opus-haw-subsets entry)
+  - `.squad/agents/frank/history.md` (Learnings section)
+- **Untouched (verified):**
+  - `data/stage2/stage2_manifest.jsonl`
+  - `data/stage2/reviewed_stage2_manifest_final_capped.jsonl`
+  - `data/stage2/stage2_sft_final_capped.jsonl`
+# Linus — Weblate haw↔en lane decision
+
+**Date:** 2026-05-03
+**Author:** Linus
+**Status:** DECISION
+
+---
+
+## Summary
+
+Processed Weblate/hosted.weblate.org as the next independent priority lane for haw↔en
+Stage-2 candidates.  Emitted **107 review-pending candidate rows** from 5 permissive-
+license components across 4 projects.  **0 train-ready rows added.**
+
+---
+
+## License gate applied
+
+**Gate:** Only clearly permissive SPDX IDs accepted: MIT, Apache-2.0 (and equivalents).
+Copyleft (GPL-2/3, LGPL, AGPL) blocked — translation strings are derivative works of the
+licensed software; using them in private prototype ML training is not "clearly compatible"
+even under private-use.
+
+| Status   | Project / Component                          | License             | Strings  | Accepted |
+|----------|----------------------------------------------|---------------------|----------|----------|
+| PASS     | django-zxcvbn-password-validator/translations| MIT                 | 49       | 46       |
+| PASS     | dpo-voyager/dpo-voyager                      | Apache-2.0          | 61       | 22       |
+| PASS     | f-droid/privileged-extension-metadata        | Apache-2.0          | 11       | 11       |
+| PASS     | f-droid/glossary-f-droid                     | Apache-2.0          | 26       | 9        |
+| PASS     | prismlauncher/launcher                       | Apache-2.0          | 27       | 19       |
+| BLOCKED  | iso-codes/iso-3166-1                         | LGPL-2.1-or-later   | 19       | 0        |
+| BLOCKED  | prismlauncher/glossary                       | GPL-3.0-or-later    | 22       | 0        |
+| BLOCKED  | stellarium-mobile/app                        | GPL-2.0-only        | 61       | 0        |
+
+---
+
+## Fetch method
+
+Used public PO download endpoint (`/download/{project}/{component}/{language}/?format=po`)
+**not** the Weblate REST API.  The REST API (`/api/translations/.../units/`) has a hard
+rate limit of 100 requests per window; probing exhausted it.  The download endpoint is
+unauthenticated and not subject to the same rate limit.  This is the correct fetch strategy
+for future Weblate ingests.
+
+---
+
+## Output files
+
+- `data/stage2/candidates/weblate_en_haw.jsonl` — 107 rows
+- `data/stage2/reports/weblate_en_haw_report.json`
+- `data/raw/weblate-en-haw/{YYYYMMDD}/` — per-component PO files
+- `scripts/329_build_weblate_en_haw_candidates.py` — fetch + build script
+
+---
+
+## Train-ready status
+
+**0 train-ready rows.**  All rows are `split=review-pending`, `prototype_only=True`,
+`release_eligible=False`.  Promotability requires:
+
+1. Human-in-the-loop review of HAW UI string quality (UI strings can be terse/opaque
+   without OS/app context; HAW equivalents need verification by a fluent speaker).
+2. Policy decision on whether software-l10n register is in scope for SFT training at
+   current N.
+
+---
+
+## haw project count (total Weblate hosted)
+
+HAW language page shows 7 projects with any haw coverage.  3 have copyleft licenses
+(blocked).  4 have permissive-license components with actual haw translation progress.
+Total haw-translated strings across permissive projects: ~174 in 5 components → 107
+pass quality gate.
