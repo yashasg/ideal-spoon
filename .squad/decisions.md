@@ -7565,3 +7565,62 @@ data/stage2/reports/hk_statute_laws_1847_blocker_report.json   [new — machine-
 .squad/decisions/inbox/linus-hk1847.md                         [this file]
 .squad/agents/linus/history.md                                  [appended — Learnings]
 ```
+
+---
+
+
+---
+
+# Decision: Sanitary Instructions 1881 landed as raw-probe + receipts only; not counted toward Stage-2 N
+
+**Author:** Frank (Hawaiian Data Collector)
+**Date:** 2026-05-02
+**Lane:** Stage-2 priority — Sanitary Instructions 1881 (after OPUS/Weblate)
+
+## What I decided
+
+Land the Sanitary Instructions 1881 lane as **raw-probe + receipts only**. Do **not** emit `data/stage2/candidates/sanitary_instructions_1881.jsonl`. Do **not** modify `data/stage2/stage2_manifest.jsonl` or any final-capped artifact. Stage-2 N stays at 603 train-ready canonical / 1,206 directional SFT.
+
+## Why
+
+1. The local IA item `63140380R.nlm.nih.gov` is bibliographically titled "in the English and Hawaiian languages" but the local djvu.txt is **English-only** (27 Hawaiian-marker hits in 274,460 chars are all mentions of "Hawaii(an)" / "Kamehameha", not Hawaiian-language paragraphs). Confirms prior Linus assessment.
+2. The Hawaiian counterpart is the sibling NLM item `63140370R.nlm.nih.gov` (identifier differs by one digit). Polite IA `/metadata` + `/download` probe returned HTTP 200 for the sibling; I pulled `_metadata.json`, `_meta.xml`, `_djvu.txt` (284,082 bytes), and the IA ToS snapshot.
+3. **Deterministic alignment is not honest:**
+   - Chapter level: ~20 chapters per side; titles translate cleanly (`TAKE CARE OF THE CHILDREN !` ↔ `E MALAMA I NA KEIKI !`, `POLYANDRY` ↔ `NA WAHINE LEHULEHU O NA KANE`, `INTRODUCTION` ↔ `OLELO HOAKAKA`). After OCR repair, ~20 document-level pairs are recoverable — but those are full chapters, not sentence rows.
+   - Paragraph level: EN 1,277 vs HAW 1,529 paragraphs (~20% delta). H. L. Sheldon's translation adapts paragraph structure; OCR breaks paragraph boundaries asymmetrically. Positional pairing would silently misalign.
+   - Sentence level: requires segmentation + comparable-aligned scorer (LaBSE/LASER), not yet wired into this repo (same blocker as `wiki-haw-en-langlinks`).
+4. Per Stage-2 quality rules and my charter: never invent LaBSE scores, never positionally pair paragraphs when boundaries differ.
+
+## What I shipped
+
+- `data-sources/sanitary-instructions-1881/probe.py` — stdlib-only, polite (1.5s sleep), three-mode CLI (`--self-test`, `--dry-run`, `--execute`). Self-test passes; dry-run enumerates the three IA endpoints.
+- `data-sources/sanitary-instructions-1881/README.md` — provenance, rights posture, alignment-feasibility verdict, exact next step.
+- `data/raw/sanitary-instructions-1881/20260502/` — HAW NLM djvu.txt (sha256 captured), HAW NLM meta.xml, HAW + EN + Google-Books-alt `/metadata` JSON, IA ToS snapshot, `probe_summary.json` with structural comparison.
+- `data/stage2/reports/sanitary_instructions_1881_probe_report.json` — mirrored summary for the Stage-2 reports dir.
+- `data-sources/stage2-parallel-fetch-plan.json` — new entry inserted after `wiki-haw-en-langlinks`. `verification_status=verified_endpoint`, `adapter_status=raw_probe_landed_blocked_on_labse`, `expected_yield_rows_train_ready=0`, `raw_probe` block with blocker + honest next step.
+
+Three IA identifiers verified:
+
+| Role | IA identifier | Language | Status |
+|---|---|---|---|
+| English volume (local) | `63140380R.nlm.nih.gov` | eng | metadata refreshed; djvu.txt already local |
+| HAW paired NLM | `63140370R.nlm.nih.gov` | haw | metadata + meta.xml + djvu.txt pulled |
+| HAW Google/NYPL alt | `hemauoleloaoepi00gibsgoog` | haw | metadata only; held in reserve |
+
+## What this means for the team
+
+- **Linus:** rights review needed on per-row carry-through. Both NLM IA items have empty `rights`/`licenseurl` fields; the Google Books alt is `possible-copyright-status=NOT_IN_COPYRIGHT`. Imprint year 1881; Hawaiian Kingdom government publication. ToS snapshot captured. My posture is `public_domain_candidate` pending your sign-off.
+- **Rusty:** when the Tier-B LaBSE pass lands, this lane is ready to feed in. NFC + ʻokina canonicalization on HAW only (mirror `code/llm_hawaii/stage2_quality.py::OKINA_MISENCODINGS`); never apply ʻokina substitution to the English column. Threshold ≥0.75 LaBSE per `docs/data-pipeline.md`. Honest yield estimate: 200–800 review-pending rows pre-threshold; dozens-to-low-hundreds final.
+- **Coordinator:** Stage-2 N unchanged. NLLB-mined closed (priority #1, frank); Wikipedia langlinks raw-probe-landed (priority #3, frank); OPUS-haw-subsets 487 candidates review-pending (priority #4, frank); Sanitary Instructions 1881 raw-probe-landed (this lane). All three remaining lanes share the same blocker: LaBSE/LASER infrastructure.
+- **Whoever owns 320-phase alignment next:** the canonical inputs are recorded in `probe_summary.json`. Do not re-fetch — pull from `data/raw/sanitary-instructions-1881/20260502/63140370R_djvu.txt` (HAW) and `data/raw/ulukau-family-sft-candidates/20260501/63140380R.nlm.nih.gov/63140380R_djvu.txt` (EN).
+
+## Asks
+
+- **Linus:** PD carry-through ruling on the per-row `license_observed` for 1881 Hawaiian Kingdom government publications.
+- **Coordinator:** with NLLB closed and three remaining priority lanes (langlinks, sanitary, OPUS-wikimedia subset) all blocked on the same LaBSE bring-up, the next high-leverage move is wiring LaBSE — not more raw-probe lanes.
+
+## Reversal cost
+
+Cheap. The probe is additive; re-running `--execute` writes a new dated subdir. Removing the lane is `rm -r data/raw/sanitary-instructions-1881/` plus reverting the fetch-plan diff (one new entry inserted at index 11).
+
+---

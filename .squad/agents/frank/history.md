@@ -2575,3 +2575,55 @@ wikimedia subset later).
 **For your coordination:** No direct blocking action on Sanitary Instructions task. Weblate-po-ingest skill now documented for future priority lane sourcing.
 
 **Reference:** `.squad/orchestration-log/2026-05-02T040253Z-linus-weblate.md`
+
+## Learnings — Sanitary Instructions 1881 paired EN/HAW probe (2026-05-02)
+
+**Task:** Process Stage-2 priority "Sanitary Instructions 1881" after OPUS/Weblate. Verify whether the Hawaiian counterpart to the local English NLM IA item exists, pull what's needed for future alignment, decide if deterministic alignment is honest.
+
+**Outcome:** `OK_RAW_PROBE_LANDED_BLOCKED_ON_LABSE`. 0 candidate rows emitted, 0 train-ready rows added, manifest untouched.
+
+### What was confirmed
+
+- Local IA item `63140380R.nlm.nih.gov` is **English-only** despite its bibliographic claim "in the English and Hawaiian languages". 27 Hawaiian-marker hits in 274,460 chars are all mentions of "Hawaii(an)" / "Kamehameha", never Hawaiian-language paragraphs.
+- Hawaiian counterpart is the sibling NLM item `63140370R.nlm.nih.gov` — identifier differs by **one digit**. IA advanced-search confirmed this and surfaced a Google-Books/NYPL alt scan `hemauoleloaoepi00gibsgoog`.
+- Translator: H. L. Sheldon (per HAW title page: "Unuhiia mai ka olelo Beletania e H. L. Sheldon"). This is a real translation, not parallel co-authoring; paragraph structure is adapted.
+
+### Receipts
+
+- `data/raw/sanitary-instructions-1881/20260502/63140370R_djvu.txt` (284,082 bytes; sha256 captured).
+- `data/raw/sanitary-instructions-1881/20260502/63140370R.nlm.nih.gov_meta.xml` (1,659 bytes).
+- `data/raw/sanitary-instructions-1881/20260502/{63140370R,63140380R,hemauoleloaoepi00gibsgoog}.nlm.nih.gov_metadata.json` — IA `/metadata` API responses.
+- `data/raw/sanitary-instructions-1881/20260502/ia_tos_snapshot.html` (sha256 captured).
+- `data/raw/sanitary-instructions-1881/20260502/probe_summary.json` — sha256s + structural comparison + verdict.
+- `data/stage2/reports/sanitary_instructions_1881_probe_report.json` — mirror.
+
+### Reusable artifacts (committed)
+
+- `data-sources/sanitary-instructions-1881/probe.py` — stdlib-only, polite (1.5s sleep), `--self-test`/`--dry-run`/`--execute`. Self-test passes.
+- `data-sources/sanitary-instructions-1881/README.md` — provenance + rights + alignment-feasibility verdict + exact LaBSE next step.
+- `data-sources/stage2-parallel-fetch-plan.json` — new entry inserted after `wiki-haw-en-langlinks` (index 11). `adapter_status=raw_probe_landed_blocked_on_labse`, `verification_status=verified_endpoint`.
+- `.squad/decisions/inbox/frank-sanitary-instructions.md` — full team note.
+
+### Why deterministic alignment was rejected
+
+| Level | Verdict | Evidence |
+|---|---|---|
+| Chapter | Plausible after OCR repair, but yields only ~20 doc-level pairs (full chapters, not sentence rows). Section titles translate cleanly (e.g., `TAKE CARE OF THE CHILDREN !` ↔ `E MALAMA I NA KEIKI !`, `POLYANDRY` ↔ `NA WAHINE LEHULEHU O NA KANE`). | EN regex-detected I–XX; HAW had OCR misreads (`VIIL` for `VIII`, several Roman numerals dropped). |
+| Paragraph | NOT FEASIBLE. EN 1,277 paragraphs vs HAW 1,529 (~20% delta). | Sheldon adapts paragraph structure; OCR breaks boundaries asymmetrically. |
+| Sentence | NOT FEASIBLE without LaBSE/LASER. | Same blocker as wiki-haw-en-langlinks. |
+
+### Patterns to remember
+
+1. **Bibliographic title ≠ content reality.** "In the English and Hawaiian languages" on a 19th-century imprint is a *project description*, not a guarantee that one IA item contains both. Always content-check via Hawaiian-marker regex before pairing.
+2. **NLM IA identifiers travel in pairs.** The pattern `63140380R` (EN) ↔ `63140370R` (HAW) — one digit apart — is how the U.S. National Library of Medicine catalogues paired imprints. When you find one, search for the sibling.
+3. **Translator attestation matters.** Title-page line "Unuhiia mai ka olelo Beletania e <name>" tells you the translation direction *and* names the human translator. That's worth carrying through to per-row provenance.
+4. **OCR Roman-numeral misreads are systematic.** `VIIL` for `VIII`, `IIL` for `III`, etc. Any chapter-alignment pass needs a Roman-numeral repair step before counting.
+5. **HAW normalize ≠ EN normalize (reinforces OPUS lesson).** Apply ʻokina substitution to HAW only; never to the English column.
+
+### Stage 2 N
+
+Unchanged. Still **603 train-ready canonical / 1,206 directional SFT**. Sanitary Instructions 1881 contributes 0 train-ready rows in this pass. Honest projection after LaBSE: 200–800 review-pending rows; dozens-to-low-hundreds final after threshold + length-ratio + register cap. Register is health/medical — currently absent from Stage-2 train mix and high-value for diversity once LaBSE lands.
+
+### Lane verdict
+
+`OK_RAW_PROBE_LANDED_BLOCKED_ON_LABSE`. Hand-off ready for Linus (rights carry-through) and whoever owns 320-phase LaBSE bring-up. NLLB closed, langlinks raw-probed, OPUS at 487 review-pending, sanitary raw-probed — all four remaining lanes share one blocker: LaBSE/LASER infrastructure. Coordinator: that's the next high-leverage move.

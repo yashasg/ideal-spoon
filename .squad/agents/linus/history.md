@@ -2825,3 +2825,93 @@ reject long-form entries that span multiple quoted lines.
 **Decision locked:** `.squad/decisions.md` — "Linus — Weblate haw↔en lane decision" (merged from inbox 2026-05-02T04:02:53Z).
 
 **Next:** HK Statute Laws 1847 queued after completion.
+
+---
+
+## 2026-05-01 — HK Statute Laws 1847 — Corrected Blocker Assessment
+
+**Task:** Revisit EN (`statutelawshism00ricogoog`) × HAW (`kanawaiikauiaek00ricogoog`)
+to determine whether a hierarchical adapter (normalize EN double-space OCR, parse Act
+headers + Roman sections, parse HAW Pauku structure, align by act title + section number)
+is feasible.
+
+**Prior assessment** (linus-source-backlog-resolution.md §3): cited EN double-space OCR +
+Roman/Arabic section mismatch + per-act section reset as the blockers. Recommended
+hierarchical adapter as the theoretical resolution path.
+
+**Finding: Prior assessment was wrong about the primary blockers.**
+
+The real, fatal blocker is a **complete volume/content mismatch**:
+
+| Side | IA item | Title | Laws covered |
+|---|---|---|---|
+| EN | `statutelawshism00ricogoog` | Statute Laws, Vol. I (1845–46) | Executive Ministry + Executive Departments (Interior, Foreign Relations, Finance…) |
+| HAW | `kanawaiikauiaek00ricogoog` | Kanawai, Buke II (1847) | Judiciary Act + Land Claims Act + Anti-Desertion Act + Treaties |
+
+**Zero act overlap** — verified programmatically. EN file has no Judiciary Act, no Land
+Claims Act, no Treaties. HAW file has no Executive Ministry or Executive Departments Act.
+
+Key evidence: EN Section V (L11070) says *"Until the passage of the act to organize the
+judiciary…"* — confirming the Judiciary Act had not been passed when EN Vol. I was printed.
+HAW Book II IS that Judiciary Act, issued as a companion volume ~1847.
+
+**Hierarchical adapter cannot help:** Without any shared Act titles between files, there
+are no alignment anchors. A hierarchical adapter only helps when Act-level titles match
+across files. Here they do not.
+
+**Outcome:** 0 candidates emitted. 0 train rows added. Hard block: inventory-only.
+
+**Files changed:**
+- `data/stage2/reports/hk_statute_laws_1847_blocker_report.json` (new — machine-readable report)
+- `.squad/decisions/inbox/linus-hk1847.md` (new — corrected decision)
+- `.squad/agents/linus/history.md` (this file — Learnings below)
+
+## Learnings
+
+### HK Statute Laws 1847: EN Vol. I ≠ HAW Book II (different laws entirely)
+
+The IA "paired imprint" label for `statutelawshism00ricogoog` (EN Vol. I) and
+`kanawaiikauiaek00ricogoog` (HAW Buke II) is misleading. These are NOT mirror translations:
+- EN Vol. I = Executive Ministry + Executive Departments
+- HAW Buke II = Judiciary Act + Land Claims + Anti-Desertion + Treaties
+
+The companion volumes — HAW Buke I (Executive Departments in Hawaiian) and/or EN Vol. II
+(Judiciary in English) — are NOT in the project's `data/raw/` directory. These would be
+needed to produce any parallel section pairs.
+
+### Structural signal to distinguish "paired imprint" vs "different-volume" pairing
+
+When examining bilingual law compilations, check for Act title overlap BEFORE testing OCR
+normalization or section numbering:
+1. Extract all "AN ACT..." (EN) and "HE KANAWAI..." (HAW) lines
+2. Normalize and compare — zero overlap means different volumes, not just different formatting
+3. Also check for cross-references: "Until the passage of [Act X]..." in the EN side means
+   Act X is in a different volume
+
+### EN double-space OCR normalization is safe but moot here
+
+`re.sub(r'  +', ' ', line)` normalizes the double-space artifact in Google Books OCR for
+this EN djvu.txt file. This is automatable with no risk of corrupting legal references
+(section references like "Section V" have only one space). The normalization is safe to
+apply but irrelevant for 1847 given the volume mismatch blocker.
+
+---
+
+## 2026-05-02T04:10:53Z — PD Ruling Request: Sanitary Instructions 1881 (cross-agent ask from Frank)
+
+**Context:** Frank completed Sanitary Instructions 1881 raw probe. Both NLM Internet Archive items (`63140370R` HAW, `63140380R` EN) have **empty `rights`/`licenseurl` fields**. The Google Books alternative (`hemauoleloaoepi00gibsgoog`) is marked `possible-copyright-status=NOT_IN_COPYRIGHT`.
+
+**Bibliographic details:**
+- Imprint year: **1881**
+- Publisher: Hawaiian Kingdom government
+- Form: Government health pamphlet (bilingual, translated by H.L. Sheldon)
+
+**Frank's posture:** `public_domain_candidate` pending my sign-off.
+
+**Ask:** Public domain carry-through ruling on the per-row `license_observed` field for 1881 Hawaiian Kingdom government publications.
+
+**Related:** ToS snapshot captured at `data/raw/sanitary-instructions-1881/20260502/internet_archive_terms_of_service_{timestamp}.html`
+
+**Status:** Awaiting ruling. Frank's probe is complete; this lane will remain blocked on LaBSE/LASER until I confirm the license posture.
+
+---

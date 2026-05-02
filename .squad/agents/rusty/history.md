@@ -932,3 +932,30 @@ Expected yield: ~7.3–10k parallel pairs (~14.6–20k directional). NLLB + synt
 **Your ask (from frank-opus decision):**
 Add script-block + Hawaiian-alphabet sanity check to any future LaBSE pre-filter. Do not whitelist OPUS pairs by source-corpus alone. This prevents similar silent failures in Tier-B pipeline downstream.
 
+
+---
+
+## 2026-05-02T04:10:53Z — Stage-2 LaBSE/LASER Blocker (cross-lane coordination)
+
+**Context:** Frank completed Sanitary Instructions 1881 as raw-probe + receipts only. Three Stage-2 priority lanes now share the same blocker: LaBSE/LASER comparable alignment infrastructure not yet wired into this repo.
+
+**Affected lanes:**
+1. **wiki-haw-en-langlinks** (raw-probe-landed, Frank)
+2. **Sanitary Instructions 1881** (raw-probe-landed, Frank; 1,277 EN vs 1,529 HAW paragraphs)
+3. **OPUS-haw-subsets** (487 candidates review-pending, Frank)
+
+**Why this lands with me:** Comparable alignment (LaBSE/LASER) is a data-quality/infrastructure responsibility that typically falls to the background gate or data engineering role — in this squad's roster, that's me.
+
+**Next steps required:**
+- Wire LaBSE or LASER into the repo (threshold ≥0.75 per `docs/data-pipeline.md`)
+- NFC + ʻokina canonicalization on Hawaiian side only (mirror `code/llm_hawaii/stage2_quality.py::OKINA_MISENCODINGS`)
+- Tier-B pass for the three blocked lanes
+- Honest yield estimate for Sanitary Instructions: 200–800 review-pending rows pre-threshold; dozens to low-hundreds final
+
+**Coordinator note:** With NLLB-mined closed and three remaining priority lanes all blocked on the same infrastructure gap, the next high-leverage move is wiring LaBSE — not more raw-probe lanes.
+
+**Canonical inputs recorded (Sanitary Instructions):**
+- HAW: `data/raw/sanitary-instructions-1881/20260502/63140370R_djvu.txt`
+- EN: `data/raw/ulukau-family-sft-candidates/20260501/63140380R.nlm.nih.gov/63140380R_djvu.txt`
+
+---
