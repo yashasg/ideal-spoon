@@ -995,3 +995,75 @@ Rusty's manifest builder now handles all policy scoring. Basher's emitter needs 
 - [ ] Enforce Bible ≤30% token cap + legal register ≤15% token cap
 - [ ] Validate merged manifest with `320_build_stage2_manifest.py --check`
 - [ ] Re-run Basher validation on merged manifest before SFT emit
+
+---
+
+## Learnings (2026-05-02)
+
+### Stage 2 Review Pass — Cap Correction
+
+**Task:** Produce corrected reviewed manifest enforcing Rusty's review gate. Linus's artifact rejected.
+
+**Key findings:**
+- Linus's 26,118/52,236 count treats Bible cap as 30% of 80k target (absolute count) instead of <=30% of actual parallel-train token share. That is the core error.
+- With current data (~160k non-Bible tokens), T_bible_max ≈ 68k tokens → only ~1,214 Bible rows fit.
+- The Bible cap applies to the COMBINED 1839+1868 pool (Rusty §4), not just 1868.
+- Cap denominator is T_nonbible_total (computed ONCE pre-HK-cap) + T_bible_kept. Both Bible and HK pass at 30.0% and 15.0% against this denominator.
+- HK 1897: all rows have `$N.`/`SN.` OCR section prefixes — that is the digitization convention, not a quality failure. Token count [25,600] and ratio [0.6,1.6] are the real filters.
+- Bible pool sorted by sha256_pair (deterministic, reproducible).
+- SFT emitter requires `--allow-review-required` to include HK rows since they carry `alignment_review_required=true` from ingestion but are approved by promotion rule.
+
+**Final counts:**
+- Train pairs: 1,627 (Bible 1839: 194, Bible 1868: 1,020, HK 1897: 163, Kaikki: 153, Tatoeba: 97)
+- Directional SFT rows: 3,254
+- Dev frozen: 15 (Tatoeba only)
+- Andrews: 0 (stay rejected)
+- Hoʻoilina: 0 (stay review-pending)
+- Kaikki new promotions: 0 (all review-pending rows fail Rusty's ≥3 token criteria)
+- Tatoeba new promotions: 16
+
+**Artifacts:**
+- `data/stage2/reviewed_stage2_manifest_cap_corrected.jsonl` (33,851 rows)
+- `data/stage2/reports/stage2_review_pass_cap_corrected_20260501.json`
+- `scripts/332_build_reviewed_manifest_cap_corrected.py`
+
+**Key file paths:**
+- Canonical manifest: `data/stage2/stage2_manifest.jsonl`
+- Corrected manifest: `data/stage2/reviewed_stage2_manifest_cap_corrected.jsonl`
+- Quality module: `code/llm_hawaii/stage2_quality.py`
+- SFT emitter: `scripts/330_emit_stage2_sft_jsonl.py` (use `--allow-review-required` for HK rows)
+
+---
+
+## 2026-05-02 — Stage 2 Review Pass Cap Correction (REJECTED)
+
+**Decision filed:** `.squad/decisions.md` / Stage 2 Review Pass Cap Correction section
+
+**Task:** Apply Rusty's review gate as sole source of truth; correct Linus's Bible/HK cap enforcement.
+
+**Outputs:**
+- `data/stage2/reviewed_stage2_manifest_cap_corrected.jsonl` (33,851 rows, 1,627 train)
+- `data/stage2/reports/stage2_review_pass_cap_corrected_20260501.json`
+- `scripts/332_build_reviewed_manifest_cap_corrected.py`
+
+**Algorithm Applied (per Rusty §4):**
+- T_nonbible = non-Bible accepted train tokens (pre-HK-cap)
+- T_bible_max = (0.30/0.70) × T_nonbible
+- Bible subsample via sha256_pair; excess → "dropped-by-bible-cap-v1"
+- HK cap = 0.15 × (T_nonbible + T_bible_kept)
+
+**Cap Verification (reference denominator):**
+- Bible: 68,478 / 228,264 = **30.0% ✓**
+- HK: 34,218 / 228,264 = **15.0% ✓**
+
+**Status:** REJECTED by Coordinator for cap math drift.
+
+**Issue:** Cap math self-consistent against pre-HK reference denominator, but **artifact violates the caps at final token count**:
+- Bible: 68,478 tokens / 105,646 final = **64.8%** ✗ (expected 30%)
+- HK: 34,218 tokens / 105,646 final = **32.4%** ✗ (expected 15%)
+
+**Root cause:** HK cap computed against pre-cap denominator; HK subsample reduced T_final_train after the fact, shrinking denominator and causing drift.
+
+**Handed to:** Danny for fixed-point cap solution (enforce caps against final artifact tokens, not stale reference denominators).
+
+**Next phase:** Danny solved via closed-form math: H_max=3N/11, B_max=6N/11, T=20N/11 → exact 30%/15% in artifact.

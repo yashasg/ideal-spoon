@@ -817,3 +817,98 @@ Rusty completed the alignment-quality policy integration into the manifest build
 **Implementation by Linus:** Completed as commit 50b89c0; POLICY_VERSION → v0.2; 1,071 historical-orthography rows accepted + 3,791 deterministically dropped by sub-cap.
 
 **Status:** Policy merged; ready for eval-gate re-validation + diacritic retention tripwire check.
+
+## 2026-05-03 — Stage 2 review-pending promotion gate
+
+**Task:** Independently validate what can honestly be promoted from `split=review-pending` to `train` for the Stage 2 prototype SFT blend, without claiming a human Hawaiian line-by-line review.
+
+**Decision artifact:** `.squad/decisions/inbox/rusty-review-pending-policy.md`
+
+**Manifest state read (not modified):**
+- 11,828 rows total; 7,148 review-pending across 4 sources.
+- Andrews 1865 (1,194, all reject), Bible 1839 (5,790 rp), Kaikki (139 rp), Tatoeba (25 rp).
+- Not-yet-merged candidates on disk: bible_haw1868_kjv (31,101), hk_statutes_1897 (1,103), hooilina (68).
+
+**Per-source dispositions (durable):**
+- **Andrews 1865:** stay rejected. 1–4 token headword fragments are SFT poison — collapses model into glossary mode. If we want the data, repackage as a dictionary-lookup instruction adapter, separate from the parallel pair blend.
+- **Kaikki:** narrow promotion (≥3 tokens both sides, ratio in band, no `haw_nonhaw_letters_high`, no `haw_no_diacritics`). Wiktionary diacritic-stripping is *not* covered by the 1839 Baibala carve-out — different provenance, different risk.
+- **Tatoeba:** promote conversational-short rows (≥2 tokens both sides, ratio in band, no other flag). The 3-token floor is too aggressive for conversational register. The 15 dev rows are frozen — eval gate's leakage check depends on it.
+- **Hoʻoilina:** stay review-pending. Filename-pair alignment at paragraph level (600–3,400 HAW tokens) is too coarse for SFT supervision; KS editorial layer is `prototype_only=True / release_eligible=False`. Need a sentence-level re-segmentation adapter before training.
+- **HK statutes 1897:** filtered promotion under legal sub-cap. Tighter ratio `[0.6, 1.6]`, HAW length `[25, 600]`, regex blacklist for OCR section markers (`$`, `§`, `S<digit>`). 1850/1869 pair stays inventory-only (Linus's year-mismatch).
+- **Bible 1839:** no change — v0.2 historical-orthography carve-out already handled the easy promotions.
+- **Bible 1868 × KJV:** merge with verse-key dedup against 1839, then subsample under the 30 % token cap.
+
+**Acceptance criteria (reusable for future review-pending passes):**
+- tier=accept OR matches a named source-pinned promotion rule.
+- both sides ≥2 tokens (≥3 for dictionary sources).
+- length_ratio in `[0.5, 2.5]` (legal `[0.6, 1.6]`).
+- `haw_nonhaw_letters_high` clear — single best signal that HAW side is OCR garbage or English leakage.
+- `haw_no_diacritics` clear, except for the source-pinned 1839 Baibala carve-out.
+- prototype_only sources train under sub-caps with `release_eligible=False`, never dev/test.
+
+**Bible cap method (the durable bit):**
+1. Compute non-Bible accepted-train tokens `T_nb`.
+2. `T_bible_max = (0.30 / 0.70) * T_nb` — enforces ≤30 % exactly.
+3. Pool 1839-accept ∪ 1868-accept-after-dedup; sort by `sha256_pair`; take in order until budget filled.
+4. Dropped rows stay in manifest with `manual_review_reasons += "dropped-by-bible-cap-v1"` so a future cap relaxation is a config change, not a re-pull.
+
+This pattern — deterministic-hash-ordered subsample with reasoned drops kept in-manifest — generalizes to any future cap (legal, synthetic, dictionary).
+
+**Risks I refuse to ship under:**
+1. OCR section markers leaking into HK statute rows (`$2`, `S3 … feloni ame haraima` visible in row [0]–[2] of the candidate file).
+2. Dictionary fragments collapsing the model to headword mode — the dominant Hawaiian-LLM regression in earlier prototypes.
+3. HK 1850/1869 unresolved year-mismatch — different legislative sessions, section-id pairing would manufacture false alignments.
+4. Bible cap dominance — naive 1868 merge would push Bible to ~80 % of train tokens; mitigated by step 4 above.
+
+**Honest yield projection:** ~7,300–10,000 parallel-train pairs after this gate. Directional ≈ 2×. Does not reach 80k; NLLB mined + synthetic BT still required (matches Linus's read).
+
+**What I did NOT claim:**
+- No native-speaker line-by-line review.
+- Hoʻoilina sentence-level alignment unverified.
+- HK statutes not re-OCR'd; filter is triage, not a fix.
+- Stratified ~50-row-per-source native-speaker sample still owed before any release-tier checkpoint.
+
+**Hand-off:**
+- Linus: owns manifest builder change + `score_summary.json` emission. I did not modify the data artifact.
+- Basher: re-run Stage 2 eval gate post-promotion; confirm leakage check + ʻokina/kahakō retention green on dev.
+- Frank: unblocked; nothing here depends on new acquisitions.
+
+**Reusable pattern for future review-pending passes:** named `promotion_rule_id` per row, source-pinned promotion rules, deterministic-hash subsample for caps, drops kept in-manifest with reasons. Same shape will work for NLLB mined LaBSE thresholds and synthetic BT caps.
+
+---
+
+## 2026-05-02 — Stage 2 Review-Pending Promotion Policy (ACCEPTED)
+
+**Decision filed:** `.squad/decisions.md` / Stage 2 Review-Pending Promotion Policy section
+
+**Task:** Define deterministic source-pinned gate for Stage 2 review-pending promotion without claiming human Hawaiian line-by-line review.
+
+**Output:** `rusty-review-pending-policy.md` (comprehensive policy doc) — filed to decisions.md as **ACCEPTED**.
+
+### Key Policy Decisions
+
+1. **Andrews 1865:** Stay rejected (dictionary fragments → glossary-mode failure)
+2. **Kaikki:** Promote narrow subset (≥3 tokens, 0.5 ≤ ratio ≤ 2.5)
+3. **Tatoeba:** Promote ~20 of 25 review rows; **dev frozen** (hard rule)
+4. **Hoʻoilina:** Stay review-pending (need sentence-level re-segmentation)
+5. **HK 1897:** Promote ~500–700 after OCR/legal-register filter
+6. **Bible 1839/1868:** Merge 1868, subsample both under 30% cap
+
+### Counting Algorithm (§4)
+
+- T_nonbible = non-Bible accepted tokens
+- T_bible_max = (0.30/0.70) × T_nonbible
+- Bible subsample via sha256_pair order; drop excess → "dropped-by-bible-cap-v1"
+- HK legal ≤ 15% of (T_nonbible + T_bible_kept)
+- Dictionary ≤ 5k rows combined
+- Synthetic ≤ 15% directional
+
+Expected yield: ~7.3–10k parallel pairs (~14.6–20k directional). NLLB + synthetic BT required for 80k target.
+
+### Handed to
+
+- **Linus:** manifest builder implementation
+- **Basher:** eval gate re-run post-promotion
+- **Coordinator:** policy→implementation divergence check
+
+**Status:** Policy ACCEPTED; implementation pending.

@@ -5854,3 +5854,220 @@ The existing `stage2_manifest_deduped_safe_preview_20260501.jsonl` (32,817 rows)
 - [ ] Validate new manifest with `320_build_stage2_manifest.py --check`
 - [ ] Re-run Basher validation script on merged manifest before SFT emit
 
+---
+
+## Decision: Rusty — Stage 2 Review-Pending Promotion Policy (2026-05-02T00:25:04Z)
+
+**Owner:** Rusty (NLP Researcher)  
+**Date:** 2026-05-01  
+**Status:** ACCEPTED — defines deterministic source-pinned promotion gate
+
+### TL;DR
+
+Deterministic, source-pinned promotion gate using existing `stage2_quality` flags plus orthography/OCR-aware filters. NOT claiming human Hawaiian line-by-line review.
+
+### Source-by-source recommendations
+
+1. **Andrews 1865 (1,194 rows):** **Stay rejected** — dictionary fragments (1–4 token pairs) teach glossary-style failure mode.
+2. **Kaikki (292 rows; 153 accept, 139 review):** Promote narrow subset (both sides ≥3 tokens, 0.5 ≤ length_ratio ≤ 2.5, no nonhaw_letters/no_diacritics). Expected yield: ~30–50 of 139 review rows.
+3. **Tatoeba (121 rows; 96 accept, 15 dev, 25 review):** Promote almost all review-pending (both sides ≥2 tokens). Expected yield: ~20 of 25. **Hard rule: dev frozen.**
+4. **Hoʻoilina (68 candidates):** **Stay review-pending** pending sentence-level re-segmentation. If forced: ≤250 directional rows, prototype_only=True, never dev/test/release.
+5. **HK Statutes 1897 (1,103 candidates):** Promote filtered subset (HAW tokens ∈ [25,600], 0.6 ≤ length_ratio ≤ 1.6, no nonhaw/$ markers). Expected yield: ~500–700.
+6. **Bible 1839 (10,221 rows; 9,830 accept):** No change — 360 review rows have additional flags (real quality issues), stay quarantined.
+7. **Bible 1868 × KJV (31,101 candidates):** Merge, then subsample under Bible token cap. Net new ≈20,765 after dedup.
+
+### Acceptance/rejection criteria (all must pass)
+
+1. `alignment_confidence_tier ∈ {accept}` OR matches documented source-pinned rule.
+2. `alignment_review_required = false` UNLESS source-pinned exception with sub-cap.
+3. Both sides ≥2 tokens (dict: ≥3), length_ratio in [0.5,2.5] (legal: [0.6,1.6]).
+4. `haw_nonhaw_letters_high` NOT set.
+5. `haw_no_diacritics` NOT set, EXCEPT existing 1839 Baibala carve-out.
+6. Source not BLOCKED/INVENTORY-ONLY.
+7. If `prototype_only=True`: release_eligible=False + sub-cap.
+
+### Final recommended counting method (§4)
+
+**Step 1:** Apply per-source promotion rules.  
+**Step 2:** Compute non-Bible accepted-train tokens `T_nonbible`.  
+**Step 3:** Bible token budget `T_bible_max = (0.30 / 0.70) × T_nonbible`.  
+**Step 4:** Bible deterministic subsample (sha256_pair order, drop excess as "dropped-by-bible-cap-v1").  
+**Step 5:** Legal sub-cap HK-1897 ≤ 0.15 × (T_nonbible + T_bible_kept).  
+**Step 6:** Dictionary sub-cap Andrews+Kaikki ≤ 5,000 rows.  
+**Step 7:** Synthetic sub-cap ≤ 15% directional.  
+**Step 8:** Hoʻoilina sub-cap ≤ 250 directional (default 0).  
+**Step 9:** Emit score_summary.json.  
+**Step 10:** Re-run eval gate leakage check.
+
+Expected order-of-magnitude: ~7,300–10,000 parallel pairs (~14,600–20,000 directional). NLLB mined + synthetic BT still required to hit 80k.
+
+### Risks mitigated
+
+1. **OCR noise:** nonhaw_letter_share ≤10% + section-marker regex.
+2. **Dictionary fragments:** ≥3-token floor for dict + ≤5k combined cap.
+3. **Unaligned legal:** section-id alignment + tight ratio + nonhaw filter.
+4. **Bible dominance:** deterministic subsample ≤30% of train tokens.
+5. **Dev/test leakage:** Tatoeba dev frozen (15 rows), eval-gate fixtures locked.
+
+### Hand-off
+
+- **Linus:** manifest builder (steps 1,4,5) + score_summary.json
+- **Basher:** eval gate re-run post-promotion
+- **Frank:** unblocked for next raw pulls
+- **Coordinator:** compare gate to Linus's implementation
+
+---
+
+## Decision: Linus — Stage 2 Review-Pending Completion Pass (2026-05-02T00:25:04Z)
+
+**Owner:** Linus (Data Engineer)  
+**Date:** 2026-05-01  
+**Status:** REJECTED — policy violations + cap misapplication
+
+### What Was Done
+
+Full automated machine/data review pass over every Stage 2 review-pending row.
+
+- **Manifest:** `data/stage2/reviewed_stage2_manifest.jsonl` (33,425 rows)
+- **Report:** `data/stage2/reports/stage2_review_pass_20260501.json`
+- **Script:** `scripts/331_stage2_review_pass.py`
+- **Train rows:** 26,118 (Bible 91.9% of train)
+- **Directional SFT:** 52,236 rows
+
+### Policy Decisions
+
+1. **Dictionary-example relaxed:** min_tokens=1, length_ratio_max=5.0 → promoted 969 Andrews rows.
+2. **Tatoeba short-sentence:** min_tokens=2 for manual alignment → promoted 16 rows.
+3. **HK 1897 historical-orthography override:** rows with ONLY haw_no_diacritics promoted → 757 rows.
+4. **Bible 1868 source_url_missing waiver:** source documented, waive flag for hist_orth override.
+5. **Bible 30% cap hardened:** 24,000 rows cap (=30% of 80k target), currently 91.9% of 26,118 train.
+
+### Issues Raised
+
+1. **Bible cap misapplied:** treated as 30% of 80k target, not 30% of actual parallel-train token share.
+2. **Bible left at 91.9% of train rows** — hard cap violation per Rusty §4.
+3. **Andrews 1865 promoted (969 rows)** — violates Rusty §1.1; should stay rejected.
+4. **Hoʻoilina promoted and placed in dev** — violates Rusty §1.4; no promoted review rows in dev/test.
+
+### Status
+
+**REJECTED by Coordinator.** Superseded by Basher's corrected artifact.
+
+---
+
+## Decision: Basher — Stage 2 Review Pass Cap Correction (2026-05-02T00:25:04Z)
+
+**Owner:** Basher (Training Engineer)  
+**Date:** 2026-05-02  
+**Status:** REJECTED — cap math drift
+
+### What Was Done
+
+Applied Rusty's review gate as sole source of truth; corrected Bible/HK cap enforcement.
+
+### Algorithm Applied (per Rusty §4)
+
+- T_nonbible = all non-Bible accepted train tokens (pre-HK-cap)
+- T_bible_max = (0.30/0.70) × T_nonbible
+- Bible pool = 1839-train ∪ 1868-net-new-after-dedup; sorted by sha256_pair
+- Bible subsampled until T_bible_max; excess → "dropped-by-bible-cap-v1"
+- HK cap = 0.15 × (T_nonbible + T_bible_kept)
+
+### Corrected Artifact
+
+- **Manifest:** `data/stage2/reviewed_stage2_manifest_cap_corrected.jsonl` (33,851 rows)
+- **Report:** `data/stage2/reports/stage2_review_pass_cap_corrected_20260501.json`
+- **Script:** `scripts/332_build_reviewed_manifest_cap_corrected.py`
+- **Train rows:** 1,627
+- **Directional SFT:** 3,254 rows
+
+### Cap Verification
+
+Against reference denominator `T_nonbible_total + T_bible_kept = 228,264`:
+- Bible: 68,478 / 228,264 = **30.0% ✓**
+- HK: 34,218 / 228,264 = **15.0% ✓**
+
+### Issues Raised
+
+Cap math self-consistent against reference denominator, but **artifact violates the cap**:
+- Bible: 68,478 tokens / 105,646 final = **64.8%** ✗
+- HK: 34,218 tokens / 105,646 final = **32.4%** ✗
+
+**Root cause:** HK cap computed against pre-cap denominator; HK reduction shrunk the denominator after the fact, causing drift.
+
+### Status
+
+**REJECTED by Coordinator.** Superseded by Danny's fixed-point solution.
+
+---
+
+## Decision: Danny — Stage 2 Review Pass Final Cap Solution (2026-05-02T00:25:04Z)
+
+**Owner:** Danny (Lead/Architect)  
+**Date:** 2026-05-02  
+**Status:** ACCEPTED — final corrected artifact (canonical source of truth)
+
+### The Fix
+
+Caps enforced against **final artifact tokens**, not stale pre-cap reference denominators.
+
+### Closed-Form Math
+
+Let N = non-Bible non-HK train tokens, H = HK train tokens, B = Bible train tokens, T = N + H + B.
+
+Constraints:
+- B/T ≤ 0.30 ⇔ B ≤ (3/7)(N + H)
+- H/T ≤ 0.15 ⇔ H ≤ (3/17)(N + B)
+
+Solving simultaneous binding case:
+- **H_max = 3N/11**
+- **B_max = 6N/11**
+- **T = 20N/11**
+- **B/T = 30% (exact)**
+- **H/T = 15% (exact)**
+
+Pools sorted by sha256_pair ascending, selected greedily up to target. After selection, shares recomputed from artifact; tail dropped one row at a time until both caps hold.
+
+### Final Canonical Counts
+
+| Source | Train | Dev | Review-Pending | Total |
+|---|---:|---:|---:|---:|
+| baibala-hemolele-1839 | 5 | 0 | 10,216 | 10,221 |
+| baibala-hemolele-1868 | 25 | 0 | 20,827 | 20,852 |
+| hk_statutes_1897 | 5 | 0 | 1,098 | 1,103 |
+| kaikki-haw-en-wiktionary | 153 | 0 | 139 | 292 |
+| tatoeba | 97 | 15 | 9 | 121 |
+| andrews-1865-en-haw-vocab-appendix | 0 | 0 | 1,194 | 1,194 |
+| hooilina | 0 | 0 | 68 | 68 |
+| **TOTAL** | **285** | **15** | **33,551** | **33,851** |
+
+- **Directional SFT rows (2× train, emitter-verified):** **570**
+- **Bible token share:** **29.92%** ✓ ≤30%
+- **HK token share:** **14.59%** ✓ ≤15%
+- **Total train tokens:** 5,317 (Bible 1,591 / HK 776 / Kaikki+Tatoeba 2,950)
+- **Canonical stage2_manifest.jsonl:** unchanged
+
+### Rejected Predecessors
+
+- **Linus (26,118 train / 52,236 directional):** Bible 91.9% of train. Promoted Andrews + Hoʻoilina; placed promoted rows in dev. Hard violations of Rusty §1.1, §1.4, dev-freeze rule.
+- **Basher (1,627 train / 3,254 directional):** Cap math self-consistent against `(T_nonbible_total + T_bible_kept)`, but artifact shows Bible 64.8% / HK 32.4% of actual tokens. Computed Bible cap before applying HK cap; HK reduction shrank denominator post-fact.
+
+### Artifacts
+
+- **Manifest (canonical):** `data/stage2/reviewed_stage2_manifest_final_capped.jsonl` (33,851 rows)
+- **Report:** `data/stage2/reports/stage2_review_pass_final_capped_20260501.json`
+- **Builder:** `scripts/333_build_reviewed_manifest_final_capped.py`
+- **SFT JSONL (verification):** `data/stage2/stage2_sft_final_capped.jsonl` (570 rows)
+
+### Hand-off
+
+- **Linus:** New source-of-truth manifest for all downstream work. Drop prior reviewed artifacts.
+- **Basher:** Re-run Stage 2 eval gate. Confirm leakage check passes + ʻokina/kahakō tripwire green on frozen Tatoeba dev.
+- **Frank:** Unblocked for NLLB-mined + synthetic BT. 285-pair set honestly small; 80k target requires additional non-Bible sources (per Rusty §4).
+- **SFT emitter:** Use `--allow-review-required` for HK rows whose `alignment_review_required=true` is overridden by `hk1897-legal-clean-v1` promotion rule.
+
+### Cost vs. Benefit
+
+**Cost:** With current data, 285 pairs / 570 directional SFT rows is small.
+
+**Benefit:** Honest. Linus's 26,118 is fiction; Basher's 1,627 satisfies a cap that the artifact violates. This number holds.

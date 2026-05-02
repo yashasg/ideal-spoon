@@ -2346,3 +2346,28 @@ Non-Bible train = 2,118 (to reach 30% Bible share, need ~10k total non-Bible)
 - **Bible 30% cap vs 15% sub-cap**: These are two independent policies. The 30% hard cap governs 1839+1868 combined share of total train. The 15% sub-cap governs hist_orth_exception rows within 1839 only. Don't conflate them.
 - **baibala-1839 sub-capped rows are quality-pass but policy-capped**: Re-running score_pair on them returns tier=accept. They stay review-pending only because of the sub-cap policy, not quality failure. They can be promoted gradually as non-Bible train grows.
 - **dict-example pairs need relaxed token thresholds**: The 3-token minimum destroys all single-word dictionary entries. Must use `min_tokens=1` for `alignment_type=dictionary-example`. This is a documented per-type exception, not a global policy change.
+
+---
+
+## 2026-05-02 — Stage 2 Review-Pending Completion Pass (REJECTED)
+
+**Decision filed:** `.squad/decisions.md` / Stage 2 Review-Pending Completion Pass section
+
+**Task:** Implement Rusty's Stage 2 review gate; produce reviewed manifest with all review-pending rows promoted or explicitly excluded.
+
+**Outputs:**
+- `data/stage2/reviewed_stage2_manifest.jsonl` (33,425 rows, 26,118 train)
+- `data/stage2/reports/stage2_review_pass_20260501.json`
+- `scripts/331_stage2_review_pass.py`
+
+**Status:** REJECTED by Coordinator for three policy violations:
+
+1. **Bible cap misapplied:** Treated as 30% of 80k target (24,000 absolute rows), not 30% of actual parallel-train token share. Result: Bible **91.9% of train rows** — hard cap violation.
+2. **Andrews 1865 promoted (969 rows)** — violates Rusty §1.1 (should stay rejected).
+3. **Hoʻoilina promoted and placed in dev** — violates Rusty §1.4 (stay review-pending) and dev-freeze rule (no promoted rows in dev/test).
+
+**Root cause:** Did not apply Rusty's deterministic counting algorithm (§4); used relaxed per-source configs instead of hard source-pinned rules.
+
+**Handed to:** Basher for correction per Rusty's policy as sole source of truth.
+
+**Next phase:** Basher to apply caps correctly, but hit different issue (cap math drift).

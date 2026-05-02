@@ -231,3 +231,102 @@ Close issue #16 and #15. Merge into Stage 2 readiness queue. Parser is productio
 
 - Verdict: APPROVED (no changes required)
 - Date: 2026-05-01T01:11:50Z
+
+
+## 2026-05-02 — Stage 2 Review Pass: Fixed-Point Cap Solution
+
+**Status:** SHIPPED — `data/stage2/reviewed_stage2_manifest_final_capped.jsonl`
+
+### Learnings
+
+- **Cap math must close on the artifact, not a reference denominator.**
+  Basher's `reviewed_stage2_manifest_cap_corrected.jsonl` enforced
+  `bible_tokens / (T_nonbible_total + T_bible_kept) <= 0.30` and
+  `hk_tokens / same_denom <= 0.15`. Self-consistent, but after the HK
+  cap dropped tokens, the actual artifact showed Bible=64.8% and
+  HK=32.4% of `T_final_train`. A cap that doesn't hold against the
+  thing you ship isn't a cap.
+
+- **Closed-form fixed-point for two simultaneous fractional caps.**
+  For `B/T <= b_max`, `H/T <= h_max`, `T = N + H + B`:
+  `H_max = h_max·N / (1 - h_max - b_max)`,
+  `B_max = b_max·N / (1 - h_max - b_max)`.
+  At b_max=0.30, h_max=0.15: H=3N/11, B=6N/11, T=20N/11. Exact.
+
+- **Bootstrap reality.** With N=2,950 tokens (Kaikki+Tatoeba only), the
+  cap gives at most ~1,609 Bible tokens and ~805 HK tokens. Final
+  artifact: 285 train pairs / 570 directional SFT rows. The 80k target
+  remains gated on NLLB-mined + synthetic BT, exactly as Rusty §4
+  predicted. Anyone claiming review-pending promotion alone reaches 80k
+  is producing fiction.
+
+- **Deterministic subsampling by sha256_pair is the right primitive.**
+  Reproducible across runs, no randomness, no row-order dependency in
+  the manifest. After greedy selection, an artifact-verified
+  drop-the-tail loop guards against rounding edge cases.
+
+- **Two prior owners locked out for the same class of bug** (cap denominator
+  drift). The pattern: pick a denominator that's stable during your
+  computation, but the final artifact is computed against a different
+  one. Always verify caps by re-reading the emitted file.
+
+
+---
+
+## 2026-05-02 — Stage 2 Review Pass Final Cap Solution (ACCEPTED)
+
+**Decision filed:** `.squad/decisions.md` / Stage 2 Review Pass Final Cap Solution section
+
+**Task:** Solve cap drift problem; enforce Bible ≤30% and HK ≤15% against final artifact tokens, not stale reference denominators.
+
+**Outputs (canonical):**
+- `data/stage2/reviewed_stage2_manifest_final_capped.jsonl` (33,851 rows, **285 canonical train**)
+- `data/stage2/reports/stage2_review_pass_final_capped_20260501.json`
+- `scripts/333_build_reviewed_manifest_final_capped.py`
+- `data/stage2/stage2_sft_final_capped.jsonl` (570 directional rows, verification)
+
+**Solution: Closed-Form Fixed-Point Math**
+
+Let N = non-Bible non-HK train tokens, H = HK, B = Bible, T = N + H + B.
+
+Constraints:
+- B/T ≤ 0.30 ⇔ B ≤ (3/7)(N + H)
+- H/T ≤ 0.15 ⇔ H ≤ (3/17)(N + B)
+
+Solving simultaneous binding case:
+- **H_max = 3N/11**
+- **B_max = 6N/11**
+- **T = 20N/11** (exact 30%/15% in artifact)
+
+Pools sorted by sha256_pair ascending, selected greedily. After selection, recompute shares from artifact; drop tail one row at a time until both caps hold.
+
+**Final Verified Counts**
+
+| Source | Train | Dev | Total |
+|---|---:|---:|---:|
+| Bible 1839 | 5 | 0 | 10,221 |
+| Bible 1868 | 25 | 0 | 20,852 |
+| HK 1897 | 5 | 0 | 1,103 |
+| Kaikki | 153 | 0 | 292 |
+| Tatoeba | 97 | 15 | 121 |
+| Andrews | 0 | 0 | 1,194 |
+| Hoʻoilina | 0 | 0 | 68 |
+| **TOTAL** | **285** | **15** | **33,851** |
+
+- **Directional SFT:** **570 rows** (emitter-verified)
+- **Bible share:** **29.92%** ✓
+- **HK share:** **14.59%** ✓
+- **Canonical stage2_manifest.jsonl:** unchanged
+
+**Rejected Predecessors**
+
+- **Linus (26,118 train):** Bible 91.9%, policy violations (Andrews+Hoʻoilina promotion, dev placement)
+- **Basher (1,627 train):** Cap math drift (Bible 64.8%, HK 32.4% of actual tokens)
+
+**Hand-off**
+
+- **Linus:** Use final manifest as new source-of-truth for downstream (SFT emitter, builder)
+- **Basher:** Re-run eval gate; confirm leakage + ʻokina tripwire
+- **Frank:** Unblocked for NLLB-mined + synthetic BT (285 honest pairs; 80k requires non-Bible growth)
+
+**Status:** ACCEPTED. Canonical reviewed manifest locked.
