@@ -7482,3 +7482,86 @@ HAW language page shows 7 projects with any haw coverage.  3 have copyleft licen
 (blocked).  4 have permissive-license components with actual haw translation progress.
 Total haw-translated strings across permissive projects: ~174 in 5 components → 107
 pass quality gate.
+# HK Statute Laws 1847 — Corrected Blocker Assessment
+
+**Author:** Linus (Data Engineer)
+**Date:** 2026-05-01
+**Status:** Hard block — inventory-only. Corrects prior assessment.
+
+---
+
+## Decision
+
+HK Statute Laws 1847 (`statutelawshism00ricogoog` × `kanawaiikauiaek00ricogoog`) is
+**inventory-only**. Zero candidates emitted. No adapter is feasible.
+
+**This corrects** `.squad/decisions/inbox/linus-source-backlog-resolution.md §3**,
+which cited EN double-space OCR and Roman/Arabic section mismatch as the primary blockers.
+Those are secondary. The **primary blocker is a complete volume/content mismatch.**
+
+---
+
+## Root Cause: Different Laws Entirely
+
+| Side | IA item | Title | Coverage |
+|---|---|---|---|
+| EN | `statutelawshism00ricogoog` | Statute Laws Vol. I (1845–46) | An Act to Organize the Executive Ministry + An Act to Organize the Executive Departments (Interior, Foreign Relations, Finance, etc.) |
+| HAW | `kanawaiikauiaek00ricogoog` | Kanawai, Buke II (1847) | An Act to Organize the Judiciary + Land Claims Act + Anti-Desertion Act + Treaties |
+
+**Zero act overlap.** Verified programmatically:
+- EN file: no Judiciary Act, no Land Claims Act, no Anti-Desertion Act, no Treaties
+- HAW file: no Executive Ministry Act, no Executive Departments Act
+
+**Smoking gun:** EN Section V (L11070): *"Until the passage of the act to organize the
+judiciary…"* — the Judiciary Act had NOT YET BEEN PASSED when EN Vol. I was published.
+HAW Book II IS that Judiciary Act, published ~1847 as the companion judiciary volume.
+
+---
+
+## Why a Hierarchical Adapter Cannot Help
+
+A hierarchical adapter that normalizes EN double-spaces, parses Act headers, and aligns
+Roman (EN) to Arabic (HAW) section numbers cannot produce a single aligned pair because:
+
+1. Every EN act (Executive Departments) is absent from the HAW file.
+2. Every HAW act (Judiciary, Land Claims, Desertion, Treaties) is absent from the EN file.
+3. There are no shared act titles to use as alignment anchors.
+
+---
+
+## Secondary Blockers (Moot, Documented for Completeness)
+
+- EN double-space OCR (automatable with `re.sub(r'  +', ' ', line)`, but irrelevant)
+- EN Roman vs HAW Arabic section numbering with per-act reset (solvable but irrelevant)
+- HAW OCR worse than EN (manageable but irrelevant)
+
+---
+
+## What Would Unblock
+
+1. **Find HAW Book I** (`Buke I` of the Kanawai) — should cover Executive
+   Ministry/Departments equivalent to EN Vol. I. Not currently in `data/raw/`.
+2. **OR find EN Vol. II** — should cover Judiciary/Land/Treaties equivalent to HAW
+   Book II. Not currently in `data/raw/`.
+
+Neither companion volume has been found in the project raw data. An IA catalog search
+(`kanawai 1847 buke I` or `statute laws hawaiian kingdom vol II`) is needed before any
+adapter work.
+
+---
+
+## Cap Implications
+
+- No new rows enter `HK_LEGAL_SOURCES` cap pool.
+- `333_build_reviewed_manifest_final_capped.py` unchanged.
+- Existing pool (`hk_statutes_1897` + `hk_constitution_1852`) unaffected.
+
+---
+
+## Files Changed
+
+```
+data/stage2/reports/hk_statute_laws_1847_blocker_report.json   [new — machine-readable report]
+.squad/decisions/inbox/linus-hk1847.md                         [this file]
+.squad/agents/linus/history.md                                  [appended — Learnings]
+```
