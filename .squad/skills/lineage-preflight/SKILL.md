@@ -173,3 +173,49 @@ For any HF-or-MediaWiki source whose plan-stated alignment is `labse`/`laser`:
 2026-05-02. Smoke set 60 hawwiki titles → 53 langlink pairs with full
 revision IDs both sides. Verdict `OK_RAW_PROBE_LANGLINKS_RECORDED`,
 adapter_status `raw_probe_landed_blocked_on_labse`. Stage-2 N unchanged.
+
+---
+
+## Reference instance: Diglot NT 1859 hOCR range-fetch pattern (2026-05-03)
+
+### hocr_pageindex → minimal-fetch bounding boxes
+
+For any IA item with a two-column layout, the `_hocr_pageindex.json.gz` file provides
+the path to column-aware extraction without downloading the full hOCR asset.
+
+**Format:** JSON array of 725 entries: `[[txt_char_start, txt_char_end, hocr_byte_start, hocr_byte_end], ...]`
+
+**Usage:**
+```python
+# Fetch page N's hOCR bounding boxes only:
+import gzip, json, urllib.request
+
+with open("hocr_pageindex.json.gz", "rb") as f:
+    pageindex = json.loads(gzip.decompress(f.read()))
+
+_, _, hocr_start, hocr_end = pageindex[page_n]
+url = f"https://archive.org/download/{item_id}/{item_id}_hocr.html"
+req = urllib.request.Request(url, headers={
+    "Range": f"bytes={hocr_start}-{hocr_end-1}",
+    "User-Agent": "..."
+})
+with urllib.request.urlopen(req) as resp:
+    page_hocr = resp.read().decode('utf-8', errors='replace')
+# Parse hOCR for bbox data: x-coordinate < page_midpoint → left column
+```
+
+**Column assignment heuristic (two-column Diglot):**
+```python
+# From hOCR bbox "bbox x1 y1 x2 y2", center x = (x1+x2)/2
+# if center_x < page_width * 0.5: left_column (HAW in 1859 Diglot)
+# else: right_column (EN in 1859 Diglot)
+```
+
+**Cost:** `_hocr_pageindex.json.gz` is always < 15KB. Per-page hOCR range is ~100-200KB.
+Do NOT download the full hOCR file (84MB for this item) unless all pages are needed.
+
+### DjVu column reading order may be reversed
+
+DjVu/Tesseract column detection for two-column pages may read the RIGHT column before
+the LEFT column. Always verify empirically by comparing OCR output order against known
+verse sequences. Do not assume left-then-right reading order.

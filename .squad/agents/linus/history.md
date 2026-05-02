@@ -2948,3 +2948,59 @@ and `.squad/decisions.md` → Rusty decision.
 **Manifest unchanged:** 603 canonical / 1,206 directional (scored files held as review
 artefacts, not merged).
 
+
+---
+
+## 2026-05-03 — Diglot NT 1859 Assessment (Corrected Blocker)
+
+**Task:** Process Diglot NT 1859 (`HAWPDF_DBS_HS`) as far as it can honestly go.
+
+**Outcome:** 0 candidates emitted. 0 train-ready rows added. Prior OCR assessment **corrected** — OCR quality is good, but structural blocker is real (different from prior description).
+
+**Corrected prior finding:** Prior assessment said "OCR severely garbled." That was wrong. OCR has only **0.1% garbled lines** (52/84,271 non-empty lines). The Hawaiian text IS readable because pre-1859 Hawaiian is plain Latin script — the English OCR model (`-l eng+Latin`) reads it fine.
+
+**Actual blocker (new finding):** Column inversion in DjVu OCR reading order. Each physical page scan (per `hocr_pageindex`) contains EN column content **before** HAW column content. Without x-coordinate bounding boxes from the hOCR file, the two streams cannot be reliably separated from the djvu.txt alone.
+
+**Evidence:**
+- Page 5 of djvu.txt: EN Matt 1:10-13 → HAW running header → HAW Matt 1:14+
+- Page 6: EN Matt 1:21-24 → HAW running header → HAW Matt 1:24b-25
+- Simple MOKUNA/CHAPTER boundary extraction fails: HAW/EN verse ranges drift per page
+- Running-header-based scan unit pairing fails: same header appears on both HAW and EN columns
+
+**Path forward:** HTTP range requests against hOCR (84MB) using per-page byte offsets from `hocr_pageindex.json.gz` (9KB, now saved locally). Each page's hOCR (~116KB) gives word bounding boxes — x < midpoint = HAW column, x ≥ midpoint = EN column. Deterministic, minimal-fetch approach.
+
+**Bible cap constraint:** Saturated at 29.9%. Zero train-ready from any Bible source regardless.
+
+**Assets fetched:**
+- `data/raw/diglot-nt-1859/20260501/Hawaiian-English-(1859)-Diglot-New-Testament_djvu.txt` (2.4MB)
+- `data/raw/diglot-nt-1859/20260501/Hawaiian-English-(1859)-Diglot-New-Testament_hocr_pageindex.json.gz` (9KB)
+- `data/stage2/reports/diglot_nt_1859_blocker_report.json`
+- `.squad/decisions/inbox/linus-diglot-nt-1859.md`
+
+## Learnings
+
+### Diglot NT 1859: DjVu OCR reads RIGHT column (EN) before LEFT column (HAW) per physical page
+
+For the 1859 Diglot NT, the DjVu OCR processes each physical page in column order: **right column (EN) first, then left column (HAW)**. This is the opposite of normal reading order. It means the djvu.txt stream has EN and HAW content interleaved at the page level, with EN appearing before HAW within each page chunk.
+
+This is a general pattern to watch for in any two-column DjVu OCR: column reading order may be reversed, and cannot be determined without checking actual sample pages.
+
+### hocr_pageindex gives minimal-fetch path for per-page bounding boxes
+
+The `_hocr_pageindex.json.gz` file (always < 15KB for IA items) maps each physical page to `[djvu_txt_char_start, djvu_txt_char_end, hocr_byte_start, hocr_byte_end]`. Using HTTP range requests (`Range: bytes=hocr_byte_start-hocr_byte_end`) against the hOCR file, you can fetch ONE PAGE'S worth of bounding box data (~100-200KB per page) without downloading the full multi-MB hOCR file. This is the correct minimal-fetch strategy for any IA source needing column-aware OCR separation.
+
+### Pre-1859 Hawaiian OCR quality is actually good with English language model
+
+Tesseract run with `-l eng+Latin` on 1859 Hawaiian text produces good results (0.1% garble rate) because pre-modern Hawaiian uses plain Latin ASCII characters — no ʻokina (U+02BB) or kahakō (macrons). The Tesseract flag `ocr_invalid_language: haw` does NOT indicate unreadable output; it just means Tesseract didn't have a Hawaiian-specific language model for post-processing corrections. The raw OCR character accuracy is high.
+
+## 2026-05-02 — Diglot NT 1859 Assessment Complete
+
+**Task:** Finalize Diglot NT 1859 source assessment and determine extraction feasibility.
+
+**Finding:** OCR quality is good (only 0.1% garbled). Actual blocker is column inversion in DjVu OCR reading order, not OCR. EN column appears before HAW column within page chunks.
+
+**Path forward:** hOCR HTTP range requests using saved hocr_pageindex.json.gz (~116KB/page) enable x-coordinate-based column split. Estimated yield: 5,500–6,400 verse pairs.
+
+**Decision:** Defer hOCR column extractor implementation until Bible cap headroom opens. Currently saturated at 29.9%. Artifacts: `data/raw/diglot-nt-1859/20260501/`, report: `data/stage2/reports/diglot_nt_1859_blocker_report.json`.
+
+**Status:** Complete. No background agents remain. Final train-ready count: 603 canonical / 1,206 directional (unchanged).

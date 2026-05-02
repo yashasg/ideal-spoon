@@ -7819,3 +7819,56 @@ do not run the embedding pre-pass. Scored review artefacts remain but do not mer
 to manifest. Tatoeba (75 rows, deterministic) is independently safe to promote.
 
 ---
+
+---
+
+# Diglot NT 1859 Assessment (Corrected) — hOCR Column Extraction Deferred
+
+**Owner:** Linus (Data Engineer)
+**Date:** 2026-05-03
+**Status:** DECISION — source assessment complete; extraction deferred pending Bible cap relief
+**Source:** Diglot NT 1859 (`HAWPDF_DBS_HS`)
+**Applies to:** Source priority queue; hOCR extraction pipeline planning
+
+## 1. Summary
+
+The Diglot NT 1859 assessment is **revised from "OCR-blocked" to "feasible-pending-hOCR-column-extraction"**.
+
+## 2. Prior Assessment — Corrected
+
+**Prior status:** `inventory_only` with blocker "OCR severely garbled from two-column layout."
+
+**Corrected finding:** OCR text quality is **GOOD**. Only 0.1% of content lines are garbled (52/84,271 lines). Hawaiian text IS readable despite the OCR model being English-only (`-l eng+Latin`), because pre-1859 Hawaiian uses plain Latin script without ʻokina or kahakō diacritics.
+
+## 3. Actual Blocker (Evidence-Based)
+
+The blocker is **column inversion in the DjVu OCR reading order**, not OCR quality.
+
+Each physical page scan in the pageindex produces a text chunk where **EN column content appears BEFORE HAW column content**:
+
+- Page 5: EN Matt 1:10-13 → `"6 MATAIO, I."` running header → HAW Matt 1:14+
+- Page 6: EN Matt 1:21-24 → `"MATAIO, II."` running header → HAW Matt 1:24b-25
+
+Without page-break markers in djvu.txt and without x-coordinate bounding boxes, HAW and EN streams cannot be separated reliably from djvu.txt alone.
+
+## 4. Path Forward (Deferred)
+
+The **hocr_pageindex.json.gz** (9KB, already saved locally) gives exact byte offsets for each of 725 physical pages in the 84MB hOCR file. HTTP range requests against the hOCR file can fetch per-page bounding box data (~116KB/page) without downloading the full 84MB asset. Algorithm: x-coordinate < page_midpoint → HAW column; x ≥ page_midpoint → EN column.
+
+**Prototype cost:** ~2–4 hours for Matthew (60 pages, ~7MB range data).  
+**Full NT:** ~84MB total if all pages fetched, but cacheable and resumable.
+
+**Decision:** Do not build the hOCR column extractor until Bible cap headroom opens. When N_nonbible grows (e.g., after Sanitary Instructions + additional non-Bible sources), revisit. The path is clear and low-risk.
+
+## 5. Bible Cap Constraint (Why Defer)
+
+Bible cap is saturated at 29.9% (≤30% target). **Zero train-ready rows** from any Bible source until N_nonbible increases. Any extracted verse pairs would be `review-pending / prototype_only / release_eligible=False` in the Bible pool until cap math allows promotion.
+
+## 6. Artifacts
+
+- **Location:** `data/raw/diglot-nt-1859/20260501/` — djvu.txt (2.4MB) + hocr_pageindex.json.gz (9KB) + provenance files
+- **Report:** `data/stage2/reports/diglot_nt_1859_blocker_report.json`
+
+## 7. Estimated Yield (When Extraction Built)
+
+**5,500–6,400 review-pending candidate verse pairs** (all capped until N_nonbible headroom).
