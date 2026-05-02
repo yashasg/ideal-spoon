@@ -7624,3 +7624,198 @@ Three IA identifiers verified:
 Cheap. The probe is additive; re-running `--execute` writes a new dated subdir. Removing the lane is `rm -r data/raw/sanitary-instructions-1881/` plus reverting the fetch-plan diff (one new entry inserted at index 11).
 
 ---
+
+# Decision: Rusty — Stage 2 comparable-alignment gate (2026-05-02T04:16:26Z)
+
+## TL;DR
+
+- The shared **comparable-alignment gate** (Sanitary Instructions 1881,
+  Wikipedia langlinks, future Wikisource-haw-en) is **not unblockable
+  without adding torch + an embedding model**. The current env has
+  `numpy/scipy/sklearn` but **no `torch`, `transformers`,
+  `sentence-transformers`, or `laser-encoders`**. Adding them is a
+  ~3 GB dependency footprint and a model download — not justified
+  inside this single task.
+- The existing `scripts/321_score_stage2_alignment.py` +
+  `code/llm_hawaii/stage2_quality.py` policy module is **the right
+  surface** for both deterministic and embedding-aligned sources.
+  It is stdlib-only by design and accepts a precomputed
+  `alignment_score` on input. No code change to the policy is
+  needed; what is missing is the **embedding pre-pass** that
+  produces those scores for `comparable-aligned` rows.
+- I **did** run the existing scorer end-to-end on the two
+  pre-existing review-pending candidate files. Real annotations
+  (no fake scores) are now at
+  `data/stage2/_scored/wikimedia_cx_en_haw.{jsonl,summary.json}`
+  and `data/stage2/_scored/opus_haw_subsets.{jsonl,summary.json}`.
+  No write to `data/stage2/stage2_manifest.jsonl`.
+
+## What Rusty changed in the worktree
+
+- `data/stage2/_scored/wikimedia_cx_en_haw.jsonl` — 14 rows annotated
+  with `alignment_confidence_tier`, `quality_flags`, `policy_version`.
+- `data/stage2/_scored/wikimedia_cx_en_haw.summary.json` —
+  tiers `{review: 9, accept: 5}`. Top flags: `haw_nonhaw_letters_high` (7),
+  `length_ratio_extreme` (4).
+- `data/stage2/_scored/opus_haw_subsets.jsonl` — 487 rows annotated.
+- `data/stage2/_scored/opus_haw_subsets.summary.json` —
+  tiers `{accept: 350, review: 87, reject: 50}`. Per OPUS sub-corpus:
+  - `Tatoeba`: 75 accept / 18 reject (curated parallel — fine).
+  - `wikimedia`: 275 accept / 73 review / 26 reject — **see policy gap below**.
+  - `QED`: 0 accept / 12 review / 4 reject (Russian / Cyrillic contamination).
+  - `Ubuntu`: 0 accept / 2 review / 2 reject (l10n boilerplate).
+
+These outputs are not added to the canonical manifest. They are review
+artefacts for Linus' rights gate and for the next alignment pass.
+
+## Policy gap I am flagging (not unilaterally fixing)
+
+`code/llm_hawaii/stage2_quality.py::DETERMINISTIC_METHODS` contains
+`tmx-line`. The OPUS adapter (`data-sources/opus-haw-subsets/...`)
+sets `alignment_method=tmx-line` for **all** OPUS sub-corpora,
+including `OPUS-wikimedia` which is **mined comparable bitext, not
+deterministic line-aligned** parallel. Result: 275 mined rows
+currently land in `accept` purely because of line index.
+
+Per the team policy in `.squad/decisions.md` ("Mined/NLLB: LaBSE ≥0.75;
+never dev/test"), mined OPUS-Wikimedia rows should require an
+upstream alignment score before they reach `accept`. Two options
+for Linus to choose:
+
+1. **Adapter fix (preferred):** OPUS adapter sets
+   `alignment_method="labse"` and `alignment_model="LaBSE@opus-upstream"`
+   for sub-corpora known to be embedding-mined (`wikimedia`, `CCAligned`,
+   `MultiCCAligned`, `NLLB`). With no `alignment_score`, the existing
+   policy correctly degrades them to `review` and they stop
+   accidentally accepting.
+2. **Policy fix:** add `mined_subcorpus_set` to `PolicyConfig` and
+   force review when `(alignment_method=tmx-line) AND (opus_corpus in
+   mined_set)`. Slightly less clean but no adapter rebuild required.
+
+Either way: **do not promote OPUS-Wikimedia rows to the manifest in
+this state**. Tatoeba (75 accept) is fine to promote.
+
+## Threshold policy — confirmed for low-resource Hawaiian
+
+`PolicyConfig` defaults are appropriate and match the docs. No change.
+
+| Source class                   | accept_min | review_min | dev/test eligible |
+| ------------------------------ | ---------- | ---------- | ----------------- |
+| Curated parallel (Bible, Hoʻoilina, HK statutes, Tatoeba, dictionaries) | n/a (deterministic) | n/a | yes for non-mined |
+| Comparable-aligned (Sanitary, langlinks, Wikisource-haw-en) | **0.75** (LaBSE cosine) | **0.55** | **train only** |
+| Mined (NLLB, OPUS-Wikimedia, OPUS-CCAligned)               | **0.80** (LaBSE cosine) | **0.65** | **never dev/test** |
+
+Recommended supplemental gates (already enforced by `score_pair()`):
+`min_tokens_per_side=3`, `max_tokens_per_side=256`,
+`length_ratio ∈ [0.5, 2.5]`, `haw_no_diacritics` flag for Hawaiian
+side ≥60 letters, `nonhaw_letter_share ≤ 0.10`. These are the right
+deterministic gates regardless of whether LaBSE runs.
+
+## Precise blocker spec for the embedding pre-pass
+
+To unblock Sanitary Instructions and wiki-haw-en-langlinks:
+
+### Required deps (any one of these stacks, in order of preference)
+
+1. **`sentence-transformers` + LaBSE** (preferred — stable, model is
+   per-language-pair-agnostic, multilingual coverage includes Hawaiian
+   *implicitly* via Latin-script transfer):
+   ```
+   pip install "torch>=2.2" "transformers>=4.40" "sentence-transformers>=2.7"
+   # then download model once:
+   python -c "from sentence_transformers import SentenceTransformer; \
+              SentenceTransformer('sentence-transformers/LaBSE')"
+   ```
+   Footprint: ~2.7 GB (torch CPU wheel + LaBSE 1.8 GB).
+2. **`laser-encoders` (Meta LASER3)** — alternative; ships ~200 MB
+   per-script encoder; CPU-friendly. No native Hawaiian model;
+   would have to use English encoder both sides as a Latin-script
+   fallback. Less honest than LaBSE for Hawaiian; use only if torch
+   is a non-starter.
+
+These belong in `requirements-compute.txt` (already has `transformers`
+and `accelerate`). Adding `sentence-transformers` there is consistent
+with project practice. Do **not** add to root `requirements.txt`
+(data-collection only).
+
+### Input shape per source
+
+- **`wiki-haw-en-langlinks`**: 53 page pairs in
+  `data/raw/wiki-haw-en-langlinks/20260502/langlinks_manifest.jsonl`.
+  Stage 1 hawwiki extract is at
+  `data/extracted/hawwiki/20260429/extracted.jsonl.gz`. EN side must
+  be fetched fresh via `prop=extracts&exintro=&explaintext=` against
+  the resolved `en_pageid`; persist alongside the existing
+  `batches/` raw artefacts. Sentence-split with a stdlib regex
+  (`re.split(r"(?<=[.!?])\s+", text)`); cross-product cosine; emit
+  the **mutual-best** pairs only.
+- **`sanitary-instructions-1881`**: HAW djvu has 1529 paragraphs,
+  EN has 1277. Chapter markers are `I…XX` on both sides. Two-phase:
+  (a) align by chapter (deterministic regex); (b) within each
+  chapter, paragraph-level LaBSE cosine + monotone DP (Gale–Church
+  shape) for `1-1`, `1-2`, `2-1` joins.
+
+### Candidate output contract (both sources)
+
+Identical row shape to existing CX/OPUS candidates, with:
+```
+alignment_type   = "comparable-aligned"
+alignment_method = "labse"
+alignment_model  = "sentence-transformers/LaBSE@<pinned-rev>"
+alignment_score  = <float cosine similarity in [0,1]>
+alignment_review_required = (score < 0.75)
+split            = "review-pending"   # split assignment in 320
+```
+
+Honor the SKILL: NFC + ʻokina canonicalization on HAW side **before**
+any sha256 (`compute_pair_hash` in `320_build_stage2_manifest.py`).
+
+### Recommended ordering once installed
+
+1. **wiki-haw-en-langlinks first.** 53 pairs, structured, small
+   embedding budget (~2k sentences total). Smoke validates the whole
+   pipeline end-to-end in <5 min on CPU.
+2. **sanitary-instructions-1881 second.** ~3k paragraphs total,
+   chapter-scoped DP keeps the cosine matrix small. ~15 min CPU.
+3. Then revisit OPUS-Wikimedia 275 mined rows under the same
+   pre-pass once the script exists.
+
+## Self-test
+
+`python3 scripts/321_score_stage2_alignment.py --self-test` → passes
+under current head. The test file covers
+`{accept, review, reject, reject, review}` across deterministic and
+embedding methods including missing-score → review.
+
+## Anti-patterns Rusty refused
+
+- Did **not** emit `data/stage2/candidates/sanitary_instructions_1881.jsonl`
+  or `data/stage2/candidates/wiki_haw_en_langlinks.jsonl` with
+  `alignment_score=null` and `alignment_review_required=true`.
+  Per the lineage-preflight skill that's review-queue spam.
+- Did **not** invent a heuristic "alignment_score" from
+  TF-IDF / character n-gram / length ratio. No fake scores.
+- Did **not** rewrite `data/stage2/stage2_manifest.jsonl` or
+  `data/stage2/reviewed_stage2_manifest_finalized_reviews.jsonl` —
+  finalized 603 canonical / 1206 directional remain the head of train.
+
+## What this means for the team
+
+- **Linus:** Decide on OPUS adapter fix vs policy fix for the 275 mined Wikimedia rows.
+  Either way, do not promote them to manifest in current state. Tatoeba (75 accept)
+  is clean to promote separately.
+- **Frank:** None of the three blocked lanes (langlinks, sanitary, OPUS-wikimedia)
+  proceed without LaBSE. Recommend deprioritizing further raw-probe work and coordinating
+  on embedding infrastructure with the team.
+- **Coordinator:** Three remaining Stage-2 priority lanes (langlinks, sanitary,
+  OPUS-wikimedia subset) all blocked on the same LaBSE/LASER bring-up. Next move:
+  wire sentence-transformers + LaBSE into requirements-compute.txt and run the
+  embedding pre-pass in order (langlinks smoke → sanitary → OPUS-wikimedia).
+
+## Reversal cost
+
+Low. If team decides embedding-aligned sources are too risky for Stage 2, simply
+do not run the embedding pre-pass. Scored review artefacts remain but do not merge
+to manifest. Tatoeba (75 rows, deterministic) is independently safe to promote.
+
+---

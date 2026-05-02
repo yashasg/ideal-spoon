@@ -2627,3 +2627,30 @@ Unchanged. Still **603 train-ready canonical / 1,206 directional SFT**. Sanitary
 ### Lane verdict
 
 `OK_RAW_PROBE_LANDED_BLOCKED_ON_LABSE`. Hand-off ready for Linus (rights carry-through) and whoever owns 320-phase LaBSE bring-up. NLLB closed, langlinks raw-probed, OPUS at 487 review-pending, sanitary raw-probed — all four remaining lanes share one blocker: LaBSE/LASER infrastructure. Coordinator: that's the next high-leverage move.
+
+## 2026-05-02T04:16:26Z — Rusty Comparable-Alignment Review Complete; OPUS Adapter Label Issue Flagged
+
+**From:** Rusty (Alignment Reviewer) → Scribe (Cross-Agent Update)
+
+**Status:** Review-stage scoring on two pre-existing Stage-2 candidates complete. Real
+annotations produced (no fake scores).
+
+**Output files:**
+- `data/stage2/_scored/wikimedia_cx_en_haw.{jsonl,summary.json}` (14 rows)
+- `data/stage2/_scored/opus_haw_subsets.{jsonl,summary.json}` (487 rows)
+
+**Adapter label issue affecting OPUS:** 275 rows in `wikimedia` sub-corpus are mined
+comparable bitext but labeled `alignment_method=tmx-line` (deterministic line-aligned).
+Violates team policy: mined sources require LaBSE ≥0.75 before accept. Per Linus'
+decision (pending), may need adapter fix to label mined sub-corpora as `alignment_method="labse"`.
+
+**Implications for you:** Do not plan new raw-probe lanes until LaBSE infrastructure wired.
+All three priority blocked lanes (langlinks, sanitary, OPUS-wikimedia) share same blocker.
+Recommend coordinating embedding stack setup with the team.
+
+**Manifest:** Stage-2 training set unchanged (603 canonical / 1,206 directional).
+Scored files held as review artefacts.
+
+See `.squad/decisions.md` → "Decision: Rusty — Stage 2 comparable-alignment gate" and
+`.squad/orchestration-log/2026-05-02T04-16-26Z-rusty-alignment.md` for blocker spec.
+

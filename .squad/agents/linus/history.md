@@ -2915,3 +2915,36 @@ apply but irrelevant for 1847 given the volume mismatch blocker.
 **Status:** Awaiting ruling. Frank's probe is complete; this lane will remain blocked on LaBSE/LASER until I confirm the license posture.
 
 ---
+
+## 2026-05-02T04:16:26Z — Rusty Comparable-Alignment Gate Complete; OPUS Policy Decision Needed
+
+**From:** Rusty (Alignment Reviewer)
+
+**Status:** Review-stage scoring complete on two pre-existing candidate files:
+- Wikimedia CX: 14 rows → 5 accept / 9 review
+- OPUS haw subsets: 487 rows → 350 accept / 87 review / 50 reject
+
+**Critical flag:** 275 OPUS-Wikimedia rows currently marked as `alignment_method=tmx-line`
+(deterministic) but are actually mined comparable bitext. Per team policy (Mined/NLLB:
+LaBSE ≥0.75), they should require upstream embedding score before accept. They currently
+accept on line index alone — violation.
+
+**Your choice (blocking manifest promotion of 275 rows):**
+1. **Adapter fix (preferred):** Mark mined sub-corpora (`wikimedia`, `CCAligned`,
+   `MultiCCAligned`, `NLLB`) as `alignment_method="labse"` in OPUS adapter. No score
+   → correctly degrades to review.
+2. **Policy fix:** Add `mined_subcorpus_set` to PolicyConfig; force review on
+   `(tmx-line) AND (mined_corpus)`. Slightly less clean; no adapter rebuild.
+
+**Safe to promote separately:** Tatoeba (75 accept / 18 reject) is deterministic,
+clean to promote.
+
+**Blocker spec finalized:** Embedding pre-pass requires torch + sentence-transformers
++ LaBSE (~2.7 GB). Three priority lanes (langlinks, sanitary, OPUS-wikimedia) all
+blocked on same infrastructure. Recommended order: langlinks (smoke) → sanitary
+→ OPUS-wikimedia. See `.squad/orchestration-log/2026-05-02T04-16-26Z-rusty-alignment.md`
+and `.squad/decisions.md` → Rusty decision.
+
+**Manifest unchanged:** 603 canonical / 1,206 directional (scored files held as review
+artefacts, not merged).
+

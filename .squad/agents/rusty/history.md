@@ -959,3 +959,39 @@ Add script-block + Hawaiian-alphabet sanity check to any future LaBSE pre-filter
 - EN: `data/raw/ulukau-family-sft-candidates/20260501/63140380R.nlm.nih.gov/63140380R_djvu.txt`
 
 ---
+
+## Learnings — 2026-05-02 — comparable-alignment gate
+
+- Confirmed the env reality: `numpy/scipy/sklearn` present;
+  **no torch / transformers / sentence-transformers / laser**.
+  Adding LaBSE is ~3 GB and not justified inside a single triage task.
+- The existing `321_score_stage2_alignment.py` + `stage2_quality.py`
+  is the right surface. Its self-test passes. It is intentionally
+  stdlib-only and accepts a precomputed `alignment_score` for
+  embedding methods. No code change needed in the policy module to
+  unblock the gate; what's needed is the **embedding pre-pass that
+  produces those scores**.
+- Ran the scorer on the two pre-existing review-pending candidate
+  files (CX 14, OPUS 487). Real, honest tier counts and quality
+  flags now live at `data/stage2/_scored/`. Never wrote the
+  canonical manifest.
+- **Policy gap discovered:** OPUS adapter sets
+  `alignment_method=tmx-line` for *all* sub-corpora, including
+  OPUS-Wikimedia which is mined comparable bitext. Result: 275 mined
+  rows currently auto-accept on line index alone, violating the
+  "Mined/NLLB ≥0.80 LaBSE; never dev/test" team policy. Flagged to
+  Linus in `.squad/decisions/inbox/rusty-comparable-alignment.md`.
+  Tatoeba (75 accept) is genuinely fine because it is curated parallel,
+  not mined — `tmx-line` is honest there.
+- For Hawaiian as a low-resource Latin-script language, LaBSE is the
+  right embedding choice (vs LASER3, which has no native Hawaiian
+  encoder and would force an English-encoder fallback). Confirmed
+  thresholds: comparable `accept_min=0.75 / review_min=0.55`,
+  mined `accept_min=0.80 / review_min=0.65`. `min_tokens_per_side=3`
+  and `length_ratio ∈ [0.5, 2.5]` remain right for Hawaiian.
+- When LaBSE lands, run wiki-haw-en-langlinks first (53 page pairs,
+  ~2k sentences, fits a CPU smoke run) before Sanitary
+  (~3k paragraphs, chapter-scoped Gale–Church DP). Do not re-crawl
+  what the raw probes already pinned; consume
+  `langlinks_manifest.jsonl` and the local djvu.txt files
+  byte-identical and key by their sha256 from the probe report.
