@@ -2535,3 +2535,124 @@ whichever language has the most OCR-stable structural markers.
 Originally `r.get("source") != "hk_statutes_1897"` was hardcoded. With two HK legal sources,
 N would be inflated if the new source was missed. Always use a frozenset exclusion:
 `r.get("source") not in HK_LEGAL_SOURCES`. Similarly for Bible sources.
+
+---
+
+## 2026-05-01 — Wikimedia Content Translation en→haw candidates
+
+**Task:** Process pre-fetched Wikimedia CX revision bodies (21 surviving translationIds out of 68) into Stage-2 candidates.
+
+**Pre-conditions:**
+- 21 articles pass the fetcher gate (`stats.mt < 0.5 AND stats.human > 0`)
+- 42 revision files present on disk; 8 HAW revisions return `nosuchrevid` (haw.wikipedia.org deleted/moved revisions)
+- 13 articles have both EN + HAW parse responses valid
+
+**Implementation:**
+- **`scripts/326_build_wikimedia_cx_candidates.py`** (new) — stdlib-only CX candidate builder.
+  - Pre-strips multi-line templates (infoboxes, flat-list, etc.) from full wikitext before paragraph extraction (key fix to prevent infobox content leaking into lead paragraph).
+  - Alignment: **positional** when n_en_paras == n_haw_paras exactly (1 article, 2 pairs); **lead-only** for all other articles (12 pairs).
+  - Quality gate: both sides ≥ 5 words, ratio in [0.08, 12.0].
+  - All rows: `prototype_only=True`, `release_eligible=False`, `split=review-pending`, `alignment_review_required=True`.
+
+**Commands run:**
+```bash
+python3 -m py_compile scripts/326_build_wikimedia_cx_candidates.py  # syntax OK
+python3 scripts/326_build_wikimedia_cx_candidates.py --self-test     # 7 assertions OK
+python3 scripts/326_build_wikimedia_cx_candidates.py --dry-run       # 14 rows, 0 violations
+python3 scripts/326_build_wikimedia_cx_candidates.py --execute       # wrote candidates + report
+python3 scripts/320_build_stage2_manifest.py --dry-run               # 34867 rows, wikimedia-cx-en-haw: 14 accepted
+```
+
+**Counts:**
+
+| Metric | Value |
+|---|---|
+| Translations in index (api.php) | 68 |
+| Survivors (gate) | 21 |
+| HAW revision nosuchrevid | 7 |
+| Both sides error | 1 |
+| Both revisions OK | 13 |
+| Articles (positional align, n_en==n_haw) | 1 (2851619: Mexico–Puerto Rico boxing) |
+| Articles (lead-only align) | 12 |
+| Pairs emitted | 14 |
+| Pairs skipped (quality gate) | 0 |
+| Train-ready rows added | 0 (all review-pending) |
+| Schema violations (320 dry-run) | 0 |
+
+**Outputs created:** `data/stage2/candidates/wikimedia_cx_en_haw.jsonl` (14 rows),
+`data/stage2/reports/wikimedia_cx_en_haw_report.json`,
+`scripts/326_build_wikimedia_cx_candidates.py`.
+
+**Manifest:** NOT updated — all CX rows are `review-pending` / `prototype_only=True`. The existing `stage2_manifest.jsonl` is preserved as instructed.
+
+**Schema/policy flags:**
+- `alignment_type = "parallel-sentence"` (paragraph-level parallel from CX)
+- `alignment_method = "filename-pair"` (paired by translationId)
+- `alignment_review_required = True` (CX partial translations, mixed human/MT content)
+- `split = "review-pending"`; `prototype_only = True`; `release_eligible = False`
+- `direction_original = "en->haw"`
+- `register = "encyclopedic"` (Wikipedia)
+- `license_observed = "Wikipedia content CC BY-SA 4.0"` — NOT PD; cannot be train-eligible without review/rights pass
+
+**Blockers for train promotion:**
+1. CC BY-SA 4.0 / GFDL license — not PD; prototype-only until rights policy explicitly clears encyclopedic register
+2. `alignment_review_required=True` — CX translations are partial stubs (HAW is typically just the lead); LaBSE not required for lead-only (positional), but human review of alignment quality needed before promotion
+3. 7 HAW revisions are `nosuchrevid` (deleted) — unrecoverable without fetching current haw.wikipedia.org content
+
+---
+
+## Learnings
+
+### CX stub pattern: HAW Wikipedia articles are partial translations
+
+Wikimedia Content Translation (CX) produces HAW articles that are typically
+stubs: the translator translates only the lead paragraph (intro) and possibly
+one or two more sections. In the 13 valid pairs in this dataset:
+- 1 article had equal paragraph counts (positional alignment safe)
+- 12 articles had EN with far more paragraphs than HAW (lead-only is the only safe strategy)
+
+The CX `stats.human` and `stats.mt` fractions measure how many characters were
+human-edited vs. machine-translated — but a high `stats.human` score does NOT
+mean the full EN article was translated; it means what WAS translated had high
+human involvement.
+
+### Multi-line wikitext template stripping must happen before line splitting
+
+The `{{flat list|...}}` and similar block templates in MediaWiki wikitext
+span multiple lines. If you split wikitext into lines first and then strip
+templates, the list items (`* [[Link|Text]]`) inside the template escape the
+stripper and pollute the paragraph output. The fix: apply `_strip_templates()`
+with `re.DOTALL` on the **full wikitext block** before splitting into lines.
+
+### `nosuchrevid` on haw.wikipedia.org
+
+7 out of 21 HAW revisions return `nosuchrevid` from the MediaWiki parse API.
+These revisions were deleted or the article was moved/merged. The
+`targetRevisionId` in the CX metadata is a snapshot of a past revision that
+no longer exists. This is an expected hazard for CX corpora on small wikis
+(like haw.wikipedia.org) where article churn is high relative to the number
+of total articles. Recovery requires fetching the current revision (not the
+CX-pinned one) and re-aligning — a separate task.
+
+
+## 2026-05-02T03:44:59Z — Wikimedia CX en→haw Candidate Processing Completed
+
+**Task:** Process 14 Wikimedia CX (Content Translation) en→haw article pairs; alignment analysis and rights classification.
+
+**Key findings:**
+- Only 1 of 13 valid articles had exact paragraph matching (n_en_paras == n_haw_paras).
+- CX-translated HAW articles are almost universally stubs (lead paragraph only).
+- 7 HAW revisions returned `nosuchrevid` (deleted on haw.wikipedia.org); skipped entirely rather than substituted.
+
+**Alignment rule:** Positional alignment **only when** n_en_paras == n_haw_paras exactly. Lead-only (first body paragraph pair) for all others. **Rationale:** Honest. Never fabricate alignment for untranslated content.
+
+**Rights decision:** All rows marked `prototype_only=True`, `release_eligible=False`, `split="review-pending"`, `alignment_review_required=True` due to CC BY-SA 4.0/GFDL licensing.
+
+**Output:** `data/stage2/candidates/wikimedia_cx_en_haw.jsonl` (14 review-pending rows). **Train-ready rows added: 0.** Not included in `stage2_manifest.jsonl`.
+
+**Blockers for future promotion:**
+1. CC BY-SA encyclopedic content requires explicit policy clearance for train promotion.
+2. Human alignment review required (`alignment_review_required=True`).
+3. 7 nosuchrevid articles recoverable only by fetching current HAW article + re-aligning (separate task).
+
+**Next:** Weblate crawl in progress (just launched).

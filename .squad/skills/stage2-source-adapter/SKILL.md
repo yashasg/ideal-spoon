@@ -329,3 +329,49 @@ Modern dictionaries served by the same `hdict` collection (Pukui-Elbert
 Names 1974 + 2002 / Hawaiian Legal Land-Terms 1995 / Combined 2020) are
 INVENTORY ONLY pending rights-reviewer sign-off — capture only the
 EBOOK landing page, do not pull the PDF.
+
+---
+
+## Reference instance: Wikimedia Content Translation CX (2026-05-01)
+
+Reusable sub-pattern for **any CX-style source where one side is a partial
+translation stub of the other**.
+
+### CX stub pattern
+
+Wikimedia CX produces target-language articles that are typically partial
+translations. The strategy:
+
+1. **Extract paragraphs** from both sides using robust wikitext cleaning.
+2. **Compare para counts**:
+   - If `n_en == n_haw` (exact match): positional alignment (n pairs).
+   - Otherwise: **lead-only** (1 pair = first body paragraph from each side).
+3. Never assume the full EN article corresponds to the full HAW article
+   when HAW is a stub.
+
+### Wikitext multi-line template stripping (critical)
+
+Apply `re.sub(r'\{\{[^{}]*\}\}', '', text, flags=re.DOTALL)` **before**
+splitting into lines. Without DOTALL, `{{flat list|\n* item\n}}` leaks
+its list items into paragraph output as content. Apply iteratively (≥6×)
+to catch nested templates.
+
+### nosuchrevid is an expected hazard for small wikis
+
+When a CX targetRevisionId returns `nosuchrevid` from the MediaWiki parse
+API, the article was deleted or moved. Skip these pairs entirely — do not
+substitute the current revision without re-verifying alignment. Log the
+skipped translationIds in the report for future recovery.
+
+### record_id shape for CX pairs
+
+```python
+record_id_en  = f"en-rev-{sourceRevisionId}-p{para_idx}"
+record_id_haw = f"haw-rev-{targetRevisionId}-p{para_idx}"
+```
+
+### License
+
+Wikipedia content is **CC BY-SA 4.0 / GFDL — not PD**. All CX rows must be
+`prototype_only=True`, `release_eligible=False` until a rights policy
+explicitly clears the encyclopedic register for training use.

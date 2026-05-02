@@ -2259,3 +2259,144 @@ Decision proposal: `.squad/decisions/inbox/frank-pull-ulukau-family-raw.md`
 - Conservative: skip paragraph pairs where EN sentence count ≠ HAW sentence count.
 - Cap per sentence: min 3 tokens/side, max 80 tokens/side, ratio 0.5–2.5.
 - All Hoʻoilina sentence rows must have `alignment_type="parallel-sentence"` to be eligible for promotion in script 333.
+
+## 2026-05-02 — Hawaiian Phrase Book (1881) Stage 2 Adapter (Frank)
+
+**Trigger:** Source `ia-hawaiian-phrase-book-1881` was marked "ready for adapter" but had been deferred. Implemented now.
+
+### What was added
+
+**`scripts/326_build_phrase_book_candidates.py` (new):**
+- Reads IA djvu OCR at `data/raw/ulukau-family-sft-candidates/20260501/hawaiianphrasebo00bishrich/hawaiianphrasebo00bishrich_djvu.txt`.
+- Two-column djvu block-pairing v1:
+  1. Strip page furniture (running heads `HAWAIIAN/HAWAUAN/HAWAHAN PHRASES`, `NA OLELO/OLBLO KIKEKE/KIKEHE`, page numbers).
+  2. Group consecutive non-blank lines into blank-separated blocks.
+  3. Expand "packed" blocks (>=2 lines, every line ends `.!?`) into one-line blocks (the column-stripped case e.g. "Of a Dwelling" page).
+  4. Drop multi-line wrap blocks (precision over recall — they are unalignable in dialogue).
+  5. Drop single-line blocks that don't end with sentence terminator (column-wrap fragments).
+  6. Hard-cut at the "A Conversation with a Native Woman." anchor — back-of-book correspondence and dialog are unalignable per-pair.
+  7. Classify each block EN/HAW using strict-vs-permissive Hawaiian morphology (open-syllable, no clusters, vowel-final). EN-only letters: cjqsvxyz. Loan letters in permissive: bdfgrt. Single-character tokens don't vote.
+  8. Coalesce same-language runs; pair adjacent (EN-run, HAW-run) of equal block count; emit one row per index.
+- Quality gates per row: 1..40 tokens/side, ratio 0.25..4.0, no prohibited chars, HAW side has no EN-only letters and no 3-consonant runs, dedup by sha256_pair.
+- Provenance preserved: `source=ia-hawaiian-phrase-book-1881`, source_url to IA, `record_id=phrase-book-1881:rowNNNN`, `pair_id=phrase-book-1881-NNNN-<hash12>`, `djvu_sha256` and `djvu_url` in notes, `license_observed=Public Domain (pre-1928, U.S.; IA NOT_IN_COPYRIGHT)`, `license_inferred=PD-pre-1928-US`.
+- Rights: `release_eligible=True`, `prototype_only=False` (PD source).
+- Result: **224 phrase pairs** emitted with zero downstream rejections.
+
+**`scripts/333_build_reviewed_manifest_final_capped.py` (modified):**
+- Added `phrase_book_1881` to CANDIDATES.
+- Added defense-in-depth promotion gate `phrase-book-1881-clean-v1` (alignment_type=phrase-pair, token band 1..40, ratio 0.25..4.0, nonhaw≤10%, dedup by sha256_pair).
+- Phrase book rows count toward N (uncapped non-Bible/non-HK contributor) before fixed-point cap math.
+- Added phrase-book entries to promotion_summary and notes.
+
+**`scripts/334_finalize_stage2_review_verdicts.py` (modified):**
+- New `_verdict_phrase_book` for excluded rows → `phrase-book-1881-quality-reject`.
+- New `train-ready` reason for phrase book in `_TRAIN_REASONS`.
+- New verdict legend entry.
+
+**`scripts/330_emit_stage2_sft_jsonl.py` (modified):**
+- Added `phrase-pair` to `DIRECTIONAL_ALIGNMENT_TYPES` so phrase book rows are not silently dropped.
+
+### Final results
+
+- Stage 2 train pairs: **603** (was 369; +63% from this adapter).
+- Dev: 15 (frozen Tatoeba — untouched).
+- Directional SFT JSONL: **1,206 rows** at `data/stage2/stage2_sft_final_capped.jsonl`.
+- Bible cap share: 29.91% (≤30% PASS). HK cap share: 14.83% (≤15% PASS). Phrase Book 1881 share: 8.20% (uncapped).
+- All 8 verification checks in script 334 pass.
+
+### Adapter design notes for future agents
+
+- Two-column djvu OCR is most reliable for *short single-line phrase pairs*. Wrap-blocks and dialogue/correspondence sections cannot be safely block-paired. Use a hard-cut sentinel + terminator-end requirement to keep precision high.
+- Hawaiian language detection: morphology beats character-set alone. Strict open-syllable check (CV, vowel-final, no clusters) classifies tokens like "rope" / "tree" / "fig" as English even though their letters are individually permissive.
+- Loan letters in 1881 Hawaiian texts: b (Bata), d (dala), f (fiku), g, r (roke), t (tabu, ti). Treat them as ambiguous (no vote) rather than English signal.
+- The Hawaiian Phrase Book is U.S. PD pre-1928 (IA `possible-copyright-status=NOT_IN_COPYRIGHT`); release_eligible=true, prototype_only=false. Distinct from Hoʻoilina / HK 1897 which are prototype-only.
+
+---
+
+## Learnings — 2026-05-02 — NLLB mined haw↔eng endpoint preflight
+
+**Outcome: blocker found, no rows emitted, no manifest mutation.**
+
+Source plan ID `nllb-mined-haw-eng` was Priority 1 of the parallel-fetch
+queue and Linus + Rusty had cited it as the single largest gap-closer
+(8–15k accepted pairs at LaBSE ≥0.80) for the 80k Stage-2 target. I ran
+a stdlib-only HF endpoint preflight before any adapter work and the
+premise collapsed:
+
+- `allenai/nllb` (the NLLB-200 mined release) advertises 188 lang-pair
+  codes via its loader's `nllb_lang_pairs.py`. **None of them is
+  `haw_Latn`.** The `h*_Latn` codes that exist are `hat_Latn` (Haitian
+  Creole) and `hau_Latn` (Hausa). Both are routinely confused with
+  Hawaiian; both are wrong.
+- `datasets-server /rows` returns 404 for `haw_Latn-eng_Latn` and
+  `eng_Latn-haw_Latn`. `/info` returns 501 because the dataset uses a
+  Python loader script (no parquet conversion done upstream).
+- The repo tree contains only loader scripts at root; per-pair shards
+  live under `dummy/` and per-config `<src>-<tgt>/` dirs that don't
+  exist for haw.
+
+### Receipts (durable, all gitignored under `data/raw/`)
+
+- `data/raw/nllb-mined-haw-eng/20260502/endpoint_proof.json` —
+  machine-readable proof with sha256 of every captured upstream file.
+- `data/raw/nllb-mined-haw-eng/20260502/{README.md, nllb.py,
+  nllb_lang_pairs.py}` — raw bytes of the upstream loader.
+
+### Reusable artifacts (committed)
+
+- `data-sources/nllb-mined-haw-eng/probe.py` — stdlib-only,
+  `--self-test`/`--dry-run`/`--execute`, 3.0s polite sleep, exit code 1
+  while haw absent / 0 the day Meta adds haw_Latn.
+- `data-sources/nllb-mined-haw-eng/README.md` — discovery audit trail.
+- `data-sources/stage2-parallel-fetch-plan.json` — the nllb entry now
+  has `verification_status=endpoint_invalid_no_haw_coverage`,
+  `adapter_status=blocked_endpoint_invalid`, yield reset to 0, and an
+  `endpoint_proof` block pointing at the proof artifact + probe script.
+- `.squad/decisions/inbox/frank-nllb-ingest.md` — full team note.
+
+### Patterns to remember
+
+1. **Lineage preflight before any mined-data adapter.** Read the
+   upstream loader script + its lang-pair table *before* projecting
+   pair yields. Saves the cost of building an adapter against a
+   nonexistent slice. This generalizes the lineage-preflight skill
+   from artifact-SHA gating to *coverage* gating.
+2. **`hau_Latn` ≠ `haw_Latn`. `hat_Latn` ≠ `haw_Latn`.** Build this
+   into every mined-source probe as an explicit assertion; do not let
+   substring fuzzy match anywhere near it.
+3. **Datasets-server 501 = script-loader dataset.** Means you cannot
+   smoke-probe via `/rows`; fall back to fetching the loader script
+   directly and parsing its lang-code list. Cheaper than a full pull
+   and gives definitive coverage proof.
+4. **Polite probe template:** UA string identifying the project, 3.0s
+   sleep, urlopen with timeout=30, capture sha256 of every byte
+   pulled, write proof JSON with the captured-file hashes alongside
+   the verdict.
+
+### Blocker for downstream
+
+Without NLLB-mined, the 80k Stage-2 target's honest ceiling drops to
+~50–60k directional rows (per existing `decisions.md` honest-prognosis
+text). Coordinator needs to renegotiate the target or authorize
+discovery on a replacement mined source (MADLAD-400 sentence-pivot,
+HPLT v2 bilingual, OPUS-mined haw). Each replacement needs its own
+Linus rights review and Rusty quality-floor sizing — the prior NLLB
+prototype-only ruling does not transfer.
+
+## 2026-05-02T03:44:59Z — NLLB-Mined haw↔eng Probe Completed: endpoint_invalid_no_haw_coverage
+
+**Task:** Verify allenai/nllb-200 mined release for Hawaiian language pairs (haw_Latn).
+
+**Result:** No Hawaiian coverage found. The dataset's lang-pair table enumerates 188 language codes; none is `haw_Latn`. Two `h*_Latn` codes exist (`hat_Latn` for Haitian Creole, `hau_Latn` for Hausa) but must never be substituted.
+
+**Evidence:**
+- `data/raw/nllb-mined-haw-eng/20260502/endpoint_proof.json` — probe artifact with sha256 hashes
+- `data-sources/nllb-mined-haw-eng/probe.py` — rerunnable, stdlib-only, polite probe
+- `data-sources/nllb-mined-haw-eng/README.md` — audit trail
+- `datasets-server /rows` returns HTTP 404 for both `haw_Latn-eng_Latn` and `eng_Latn-haw_Latn`
+
+**Artifact update:** `data-sources/stage2-parallel-fetch-plan.json` now has `verification_status=endpoint_invalid_no_haw_coverage`, `adapter_status=blocked_endpoint_invalid`, yield=0.
+
+**Stage 2 impact:** The 8–15k expected pairs from NLLB-mined was the single largest gap-closer in the 80k plan. Without it, honest ceiling is ~50–60k directional rows. Target must be renegotiated or Coordinator must authorize replacement mined-source discovery (MADLAD-400, HPLT v2, OPUS-mined).
+
+**Next:** Unblocked for Wikipedia langlinks discovery. NLLB-mined is closed.

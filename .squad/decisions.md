@@ -7212,3 +7212,93 @@ Pools sorted by sha256_pair ascending, selected greedily up to target. After sel
 **Cost:** With current data, 285 pairs / 570 directional SFT rows is small.
 
 **Benefit:** Honest. Linus's 26,118 is fiction; Basher's 1,627 satisfies a cap that the artifact violates. This number holds.
+
+---
+
+## Decision: Frank — NLLB-Mined haw↔eng is endpoint-invalid (2026-05-02)
+
+**Owner:** Frank (Hawaiian Data Collector)  
+**Date:** 2026-05-02  
+**Status:** Verified — closes Stage 2 gap-closer bucket
+
+### Finding
+
+The allenai/nllb-200 mined release contains **no Hawaiian language pairs**. Its lang-pair table enumerates 188 codes; none is `haw_Latn`. Two `h*_Latn` codes exist (`hat_Latn` / Haitian Creole, `hau_Latn` / Hausa) but must **never be substituted** for Hawaiian.
+
+### Decision
+
+- **Endpoint status:** `endpoint_invalid_no_haw_coverage`
+- **Expected yield:** 0 (was 8–15k in Stage 2 plan)
+- **Artifact update:** `data-sources/stage2-parallel-fetch-plan.json` marked `verification_status=endpoint_invalid_no_haw_coverage`, `adapter_status=blocked_endpoint_invalid`
+
+### Impact on Stage 2 Yield Math
+
+The 8–15k pairs from NLLB-mined was the single largest gap-closer in the 80k Stage 2 target. **That bucket is now empty.**
+
+- **Honest ceiling without NLLB:** ~50–60k directional rows per existing honest-prognosis text (Linus + Rusty, both prior).
+- **80k target status:** No longer justified without replacement mined source authorization.
+
+### Evidence
+
+- `data/raw/nllb-mined-haw-eng/20260502/endpoint_proof.json` — probe artifact with sha256 of every captured file
+- `data/raw/nllb-mined-haw-eng/20260502/{README.md, nllb.py, nllb_lang_pairs.py}` — upstream loader bytes
+- `data-sources/nllb-mined-haw-eng/probe.py` — rerunnable, polite, stdlib-only probe
+- `datasets-server /rows` returns HTTP 404 for `haw_Latn-eng_Latn` and `eng_Latn-haw_Latn`
+
+### Next Steps (awaiting Coordinator direction)
+
+1. **Stage 2 yield renegotiation:** ~50–60k target vs. relaxed thresholds (not recommended).
+2. **Replacement mined sources** (require discovery + fresh rights review):
+   - MADLAD-400 sentence-pivot subsets
+   - HPLT v2 bilingual pivots
+   - OPUS mined collections with explicit `haw_Latn` support
+3. **Rights rule reminder:** Never alias `hau_Latn`/`hat_Latn` to Hawaiian.
+
+### Asks
+
+- **Linus:** if pivoting to MADLAD-400 / HPLT v2 / OPUS-mined, fresh rights review needed (per-row origin posture differs from NLLB).
+- **Rusty:** LaBSE 0.80 floor remains valid for remaining sources; `321_score_stage2_alignment.py` unblocked (no NLLB rows to score).
+
+---
+
+## Decision: Linus — Wikimedia CX en→haw Candidates Processed (2026-05-02)
+
+**Owner:** Linus (Stage 2 Rights and Alignment)  
+**Date:** 2026-05-01  
+**Status:** For-the-record — no train-ready rows; all blocked by rights + alignment gates
+
+### Output
+
+- **File:** `data/stage2/candidates/wikimedia_cx_en_haw.jsonl`
+- **Row count:** 14 (all review-pending)
+- **Train-ready added:** 0
+- **Manifest update:** NOT included in `stage2_manifest.jsonl`
+
+### Key Decisions
+
+**1. Alignment strategy: lead-only for CX stubs**
+- Only 1 of 13 valid articles had exact paragraph matching (n_en_paras == n_haw_paras).
+- CX-translated HAW articles are almost universally stubs (lead paragraph only).
+- **Rule:** Positional alignment only when n_en_paras == n_haw_paras exactly. Lead-only for all others.
+- **Rationale:** Honest. Never fabricate alignment for untranslated content.
+
+**2. All CX rows are review-pending, prototype-only**
+- Wikipedia content is CC BY-SA 4.0 / GFDL — not public domain.
+- **Set on all 14 rows:** `prototype_only=True`, `release_eligible=False`, `split="review-pending"`, `alignment_review_required=True`
+- **Train-ready rows added:** 0
+
+**3. nosuchrevid HAW revisions are skipped, not faked**
+- 7 HAW revisions return `nosuchrevid` (pinned targetRevisionId deleted on haw.wikipedia.org).
+- **Skipped translationIds:** 2064967, 2088758, 2100548, 2128336, 2142723, 3259133, 542994 (also 654538: both sides error)
+- Never substitute current revision without re-checking CX alignment.
+
+### Blockers for Future Promotion
+
+1. **Rights gate:** CC BY-SA encyclopedic content requires explicit policy clearance for train promotion.
+2. **Alignment review:** `alignment_review_required=True`; needs human spot-check.
+3. **nosuchrevid** (7 articles): recoverable only by fetching current HAW article + re-aligning.
+
+### Artifacts
+
+- `data/stage2/candidates/wikimedia_cx_en_haw.jsonl` — ready for future review pass when policy settled.
+- No impact on `stage2_manifest.jsonl` or existing train-ready counts.
