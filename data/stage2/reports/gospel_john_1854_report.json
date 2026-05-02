@@ -1,0 +1,26 @@
+{
+  "source": "gospel_john_1854",
+  "generated_at": "2026-05-02T02:59:18.769607+00:00",
+  "item_id": "gospelaccordingt00hawarich",
+  "en_verses_parsed": 665,
+  "haw_verses_parsed": 665,
+  "aligned_pairs": 665,
+  "rejected_too_short": 1,
+  "rejected_ratio": 53,
+  "rejected_nonhaw": 0,
+  "emitted": 611,
+  "quality_flags_applied": [
+    "haw_no_diacritics",
+    "bible_cross_edition_dedup_required"
+  ],
+  "alignment_review_required": true,
+  "notes": [
+    "Counts toward Bible ≤30% cap (register=religious, verse-level).",
+    "record_id_en stores 'JHN.{ch}.{v}' for cross-edition dedup vs 1839/1868.",
+    "Verse 1 of many chapters is unnumbered in OCR; those pairs not captured.",
+    "OCR double-space artifacts normalized; hyphen line-breaks joined.",
+    "Language detection is heuristic (closed-class word scoring); review required.",
+    "1854 text predates Pukui-Elbert; no diacritics expected (haw_no_diacritics flag).",
+    "Manifest builder must dedup verse keys against baibala-hemolele-1839/1868 pools."
+  ]
+}

@@ -1,0 +1,162 @@
+{
+  "report_type": "stage2_finalized_review_verdicts",
+  "generated_at": "2026-05-02T03:02:17.724525+00:00",
+  "pass_id": "stage2-finalized-reviews-20260501",
+  "manifest_in": "data/stage2/reviewed_stage2_manifest_final_capped.jsonl",
+  "manifest_out": "data/stage2/reviewed_stage2_manifest_finalized_reviews.jsonl",
+  "total_rows": 34811,
+  "split_counts": {
+    "review-pending": 34193,
+    "train": 603,
+    "dev": 15
+  },
+  "verdict_counts": {
+    "andrews-dictionary-fragment-rejected": 1194,
+    "bible-cap-overflow": 31583,
+    "bible-quality-reject": 31,
+    "kaikki-quality-reject": 139,
+    "train-ready": 603,
+    "frozen-dev": 15,
+    "tatoeba-quality-reject": 9,
+    "hk-quality-reject": 359,
+    "hooilina-para-deferred": 68,
+    "hk-legal-cap-overflow": 810
+  },
+  "source_breakdown": {
+    "andrews-1865-en-haw-vocab-appendix": {
+      "total": 1194,
+      "by_split": {
+        "review-pending": 1194
+      },
+      "by_verdict": {
+        "andrews-dictionary-fragment-rejected": 1194
+      }
+    },
+    "baibala-hemolele-1839": {
+      "total": 10221,
+      "by_split": {
+        "review-pending": 10210,
+        "train": 11
+      },
+      "by_verdict": {
+        "bible-cap-overflow": 10179,
+        "bible-quality-reject": 31,
+        "train-ready": 11
+      }
+    },
+    "baibala-hemolele-1868": {
+      "total": 20852,
+      "by_split": {
+        "train": 50,
+        "review-pending": 20802
+      },
+      "by_verdict": {
+        "train-ready": 50,
+        "bible-cap-overflow": 20802
+      }
+    },
+    "gospel_john_1854": {
+      "total": 602,
+      "by_split": {
+        "review-pending": 602
+      },
+      "by_verdict": {
+        "bible-cap-overflow": 602
+      }
+    },
+    "hk_constitution_1852": {
+      "total": 74,
+      "by_split": {
+        "review-pending": 74
+      },
+      "by_verdict": {
+        "hk-quality-reject": 3,
+        "hk-legal-cap-overflow": 71
+      }
+    },
+    "hk_statutes_1897": {
+      "total": 1103,
+      "by_split": {
+        "review-pending": 1095,
+        "train": 8
+      },
+      "by_verdict": {
+        "hk-quality-reject": 356,
+        "train-ready": 8,
+        "hk-legal-cap-overflow": 739
+      }
+    },
+    "hooilina": {
+      "total": 128,
+      "by_split": {
+        "review-pending": 68,
+        "train": 60
+      },
+      "by_verdict": {
+        "hooilina-para-deferred": 68,
+        "train-ready": 60
+      }
+    },
+    "ia-hawaiian-phrase-book-1881": {
+      "total": 224,
+      "by_split": {
+        "train": 224
+      },
+      "by_verdict": {
+        "train-ready": 224
+      }
+    },
+    "kaikki-haw-en-wiktionary": {
+      "total": 292,
+      "by_split": {
+        "review-pending": 139,
+        "train": 153
+      },
+      "by_verdict": {
+        "kaikki-quality-reject": 139,
+        "train-ready": 153
+      }
+    },
+    "tatoeba": {
+      "total": 121,
+      "by_split": {
+        "train": 97,
+        "dev": 15,
+        "review-pending": 9
+      },
+      "by_verdict": {
+        "train-ready": 97,
+        "frozen-dev": 15,
+        "tatoeba-quality-reject": 9
+      }
+    }
+  },
+  "validation": {
+    "total_rows": 34811,
+    "train_count": 603,
+    "dev_count": 15,
+    "review_pending_count": 34193,
+    "sft_eligible_rows": 618,
+    "no_missing_fields": true,
+    "no_pending_verdicts": true,
+    "no_hooilina_dev_rows": true,
+    "hooilina_train_count": 60,
+    "bible_actual_share": 0.299131,
+    "hk_actual_share": 0.148252,
+    "caps_pass": true
+  },
+  "verdict_legend": {
+    "train-ready": "Accepted; included in SFT training set.",
+    "frozen-dev": "Accepted; frozen in dev set (Rusty §1.4).",
+    "bible-cap-overflow": "Excluded: passed quality but exceeded fixed-point Bible cap (≤30% of final train tokens).",
+    "bible-quality-reject": "Excluded: failed quality gate (alignment_confidence_tier=reject) independent of cap.",
+    "hk-legal-cap-overflow": "Excluded: passed hk1897-legal-clean-v1 filter but exceeded fixed-point HK legal-register cap (≤15%).",
+    "hk-quality-reject": "Excluded: failed hk1897 quality filters (ratio / length bounds).",
+    "andrews-dictionary-fragment-rejected": "Rejected under Rusty §1.1: dictionary-fragment SFT unsuitable; all 1,194 rows fail minimum token count.",
+    "hooilina-para-deferred": "Deferred: Hoʻoilina paragraph/section-level row superseded by sentence-level pipeline; W1 native review required (Rusty §1.4).",
+    "hooilina-sentence-quality-reject": "Excluded: Hoʻoilina sentence-level paragraph pair failed promotion gate (tokens/ratio/dedup).",
+    "kaikki-quality-reject": "Excluded: Kaikki/Wiktionary entry failed stage2 quality gate.",
+    "tatoeba-quality-reject": "Excluded: Tatoeba pair failed stage2 quality gate.",
+    "phrase-book-1881-quality-reject": "Excluded: Bishop 1881 Hawaiian Phrase Book row failed phrase-book-1881-clean-v1 promotion gate (alignment type / token band / ratio / nonhaw / dedup)."
+  }
+}

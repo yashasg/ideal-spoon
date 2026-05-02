@@ -2460,3 +2460,78 @@ Hardcoded count assertions in validate() break every time new rows are added. Re
 ### `--allow-review-required` needed for Hoʻoilina SFT emission
 
 Hoʻoilina sentence rows carry `alignment_review_required=True` (conservative policy). The SFT emitter skips these by default. Must pass `--allow-review-required` to include them. This is consistent with HK 1897 handling.
+
+---
+
+## Session: 2025-05-01 — Stage 2 Source Backlog Resolution
+
+### Task
+Resolve all 5 Stage 2 "do later" candidate sources: HK Constitution 1852, HK Statute Laws 1847,
+Gospel of John 1854, Sanitary Instructions 1881, Diglot NT 1859.
+
+### Outcomes
+
+**HK Constitution 1852 (hekumukanawaiam / constitutionand) — IMPLEMENTED**
+- Script: `scripts/326_build_hk_constitution_1852_candidates.py`
+- 74 section-level pairs. HAW Pauku regex: `^[. ]{0,3}Pauk.?\s+(\d+)` (must stay loose — OCR
+  variants: Paukū, Paukc, Pauk€, leading ". "; ~23 of 105 sections absent from OCR).
+- Wired into shared HK legal cap pool via `HK_LEGAL_SOURCES` frozenset in script 333.
+
+**Gospel of John 1854 (gospelaccordingt00hawarich) — IMPLEMENTED**
+- Script: `scripts/327_build_gospel_john_1854_candidates.py`
+- 611 verse-level pairs (602 entered Bible pool after cross-edition dedup — 0 collisions).
+- Two-column djvu.txt OCR requires MOKUNA-primary chapter tracking. Critical quirk: `CHAP. I.`
+  OCR'd as `CHAP.  L` (I→L); fixed by expanded `_ROMAN` dict.
+- `quality_flags: ["haw_no_diacritics", "bible_cross_edition_dedup_required"]`
+- Wired into Bible pool in script 333; verse-key dedup against `verse_keys_1839` set.
+
+**HK Statute Laws 1847 — HARD BLOCK (inventory_only)**
+- EN double-space OCR throughout every word; requires normalization pass.
+- Roman section IDs (Section I, II...) reset per Act vs HAW Arabic Pauku numbers —
+  hierarchical `(Act, Section)` alignment adapter required. Not built this session.
+
+**Sanitary Instructions 1881 — HARD BLOCK (wrong volume downloaded)**
+- `63140380R` IA item is English-only (`language: eng`). HAW volume is a separate IA item
+  (`"He mau olelo ao e pili ana i ke ola kino..."`) — never fetched. No adapter possible.
+  Additionally: comparable-aligned (LaBSE) method required even if both present.
+
+**Diglot NT 1859 — HARD BLOCK (no OCR + Bible cap exhausted)**
+- Only `ia_metadata.json` (6.9 KB) downloaded; no djvu.txt locally. IA has all assets
+  (djvu.txt 2.4 MB, hOCR 84 MB) but not fetched.
+- Bible cap B_max≈3,328 tokens already consumed at N=6,102. Revisit when N≥15,000.
+
+### Scripts 333/334 updated
+- `BIBLE_SOURCES` += `gospel_john_1854`
+- `HK_LEGAL_SOURCES = frozenset({"hk_statutes_1897", "hk_constitution_1852"})`
+- Constitution 1852 filtering block in 333 hk_pool: `haw_tok[8,500]`, `ratio[0.4,2.5]`
+- Gospel of John verse-key dedup in 333 bible_pool against `verse_keys_1839` + John-in-1868 set
+- Verdict handlers in 334: `_verdict_hk_constitution_1852()`, `_verdict_gospel_john_1854()`
+- Manifest regenerated: **34,811 rows** (was 33,886); 603 train-ready pairs
+- Bible 29.91%, HK 14.83% — both caps pass
+
+### Cap state
+- 74 constitution rows: cap-overflowed (HK full at N=6,102; enter train as N grows)
+- 602 John rows: cap-overflowed (Bible full; enter train as N grows)
+- Both pools correctly compete within fixed-point formula — no script changes needed when N grows
+
+### Decisions doc
+`.squad/decisions/inbox/linus-source-backlog-resolution.md` — full evidence for all 5 sources.
+
+### Key lessons
+
+#### HAW OCR regex must be maximally permissive on section markers
+The initial HAW Pauku regex `^Pauku\.?\s*(\d+)` missed 27/105 sections. Final working regex:
+`^[. ]{0,3}Pauk.?\s+(\d+)` — no period required after number, handles leading dot-space noise,
+single wildcard on 'k' character to cover character substitution variants. Always sample 20+
+section markers before writing the regex.
+
+#### Two-column djvu.txt: use language-agnostic structural markers as primary chapter tracker
+For Gospel of John, EN-only `CHAP.` markers were unreliable (I→L OCR). HAW `MOKUNA` markers
+appeared reliably. Using HAW structural markers as primary chapter state for BOTH languages
+resolved all 21 chapters correctly. General principle: in interleaved two-column scans, use
+whichever language has the most OCR-stable structural markers.
+
+#### N-computation must exclude all capped sources, not just individual source names
+Originally `r.get("source") != "hk_statutes_1897"` was hardcoded. With two HK legal sources,
+N would be inflated if the new source was missed. Always use a frozenset exclusion:
+`r.get("source") not in HK_LEGAL_SOURCES`. Similarly for Bible sources.

@@ -1,0 +1,24 @@
+{
+  "source": "hk_constitution_1852",
+  "generated_at": "2026-05-02T02:56:02.697744+00:00",
+  "en_item_id": "constitutionand00hawagoog",
+  "haw_item_id": "hekumukanawaiam00hawagoog",
+  "constitution_articles_parsed_en": 102,
+  "constitution_sections_parsed_haw": 82,
+  "aligned_pairs": 80,
+  "rejected_too_short": 0,
+  "rejected_ratio": 6,
+  "rejected_nonhaw": 0,
+  "emitted": 74,
+  "quality_flags_applied": [
+    "haw_no_diacritics"
+  ],
+  "alignment_review_required": true,
+  "notes": [
+    "Only constitution articles (Art. 1-105 / Pauku 1-105) processed.",
+    "Session Laws (post-Art.105) excluded: per-act numbering resets prevent deterministic alignment.",
+    "HAW OCR known issues: W→AV substitutions; section marker variants (Paukc, Pauk€ etc).",
+    "All rows flagged haw_no_diacritics (expected: 1852 text predates Pukui-Elbert convention).",
+    "Counts toward combined HK-legal cap (≤15% of final train tokens) alongside hk_statutes_1897."
+  ]
+}

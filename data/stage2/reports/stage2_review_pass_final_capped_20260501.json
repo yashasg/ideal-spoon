@@ -1,0 +1,152 @@
+{
+  "report_type": "stage2_review_pass_final_capped",
+  "generated_at": "2026-05-02T03:02:13.501007+00:00",
+  "policy_source": "rusty-review-pending-policy.md (2026-05-03)",
+  "owner": "Danny (Lead/Architect)",
+  "manifest_in": "/Users/yashasgujjar/dev/ideal-spoon/data/stage2/stage2_manifest.jsonl",
+  "manifest_out": "/Users/yashasgujjar/dev/ideal-spoon/data/stage2/reviewed_stage2_manifest_final_capped.jsonl",
+  "rejection_history": {
+    "linus_count_rejected": {
+      "artifact": "data/stage2/reviewed_stage2_manifest.jsonl",
+      "claimed_train": 26118,
+      "claimed_directional_sft": 52236,
+      "reasons": [
+        "Bible cap treated as 30% of 80k target (absolute), not 30% of actual final train tokens",
+        "Bible 91.9% of train rows — hard cap violation",
+        "Andrews 1865 promoted (969 rows) — Rusty §1.1 violation",
+        "Hoʻoilina promoted to dev — Rusty §1.4 violation; promoted rows must never enter dev/test"
+      ]
+    },
+    "basher_count_rejected": {
+      "artifact": "data/stage2/reviewed_stage2_manifest_cap_corrected.jsonl",
+      "claimed_train": 1627,
+      "claimed_directional_sft": 3254,
+      "actual_bible_share": 0.6482,
+      "actual_hk_share": 0.3239,
+      "reasons": [
+        "Bible cap computed pre-HK against (T_nonbible_total + T_bible_kept) reference, NOT against actual final train tokens",
+        "After HK was capped, T_final_train shrank; actual Bible share rose to 64.8% and HK to 32.4%",
+        "Cap math self-consistent against its own denominator but VIOLATES the stated <=30% / <=15% on the artifact itself"
+      ]
+    }
+  },
+  "fixed_point_solution": {
+    "derivation": "B/T<=0.30 and H/T<=0.15 with T=N+H+B yields H_max=3N/11, B_max=6N/11, T=20N/11",
+    "N_nonbible_nonhk_tokens": 6102,
+    "H_target_tokens": 1664.18,
+    "B_target_tokens": 3328.36,
+    "verification_iterations": 2
+  },
+  "bible_dedup_stats": {
+    "b1868_total_candidates": 31101,
+    "b1868_internal_dupes_removed": 115,
+    "b1868_after_internal_dedup": 30986,
+    "b1868_cross_dedup_against_1839": 10134,
+    "b1868_net_new": 20852,
+    "b1868_quality_dropped": 0,
+    "b1868_quality_pool_size": 20852,
+    "verse_keys_1839_count": 10221
+  },
+  "bible_cap": {
+    "algorithm": "Pool 1839-train + 1868-net-new-quality + john-1854-verse-dedup; sort sha256_pair asc; greedy <= B_target; verify against artifact and drop tail until <=30%",
+    "bible_pool_total": 25885,
+    "bible_train_kept": 61,
+    "bible_1839_kept": 11,
+    "bible_1868_kept": 50,
+    "bible_john_1854_kept": 0,
+    "bible_capped_to_review": 25824,
+    "bible_1839_capped": 4420,
+    "bible_1868_capped": 20802,
+    "bible_john_1854_capped": 602,
+    "bible_train_tokens": 3303,
+    "bible_actual_share": 0.299131,
+    "cap_satisfied": true
+  },
+  "hk_cap": {
+    "algorithm": "Filter by Rusty §1.5; sort sha256_pair asc; greedy <= H_target; verify against artifact",
+    "hk_eligible_pool": 818,
+    "hk_train_kept": 8,
+    "hk_capped_to_review": 810,
+    "hk_train_tokens": 1637,
+    "hk_actual_share": 0.148252,
+    "cap_satisfied": true
+  },
+  "promotion_summary": {
+    "tatoeba_promoted_to_train": 16,
+    "kaikki_promoted_to_train": 0,
+    "andrews_promoted": 0,
+    "hooilina_sentence_promoted": 60,
+    "hooilina_sentence_rejected": 0,
+    "hooilina_para_deferred": 68,
+    "phrase_book_1881_train": 224,
+    "phrase_book_1881_rejected": 0,
+    "hk1897_train": 8,
+    "bible1868_new_train": 50
+  },
+  "counts_by_source": {
+    "andrews-1865-en-haw-vocab-appendix": {
+      "review-pending": 1194
+    },
+    "baibala-hemolele-1839": {
+      "review-pending": 10210,
+      "train": 11
+    },
+    "baibala-hemolele-1868": {
+      "train": 50,
+      "review-pending": 20802
+    },
+    "gospel_john_1854": {
+      "review-pending": 602
+    },
+    "hk_constitution_1852": {
+      "review-pending": 74
+    },
+    "hk_statutes_1897": {
+      "review-pending": 1095,
+      "train": 8
+    },
+    "hooilina": {
+      "review-pending": 68,
+      "train": 60
+    },
+    "ia-hawaiian-phrase-book-1881": {
+      "train": 224
+    },
+    "kaikki-haw-en-wiktionary": {
+      "review-pending": 139,
+      "train": 153
+    },
+    "tatoeba": {
+      "train": 97,
+      "dev": 15,
+      "review-pending": 9
+    }
+  },
+  "totals": {
+    "train": 603,
+    "dev": 15,
+    "review_pending": 34193,
+    "grand_total": 34811,
+    "directional_sft_estimate": 1206
+  },
+  "token_totals": {
+    "total_train_tokens": 11042,
+    "bible_train_tokens": 3303,
+    "hk_train_tokens": 1637,
+    "nonbible_nonhk_train_tokens": 6102,
+    "bible_actual_share": 0.299131,
+    "hk_actual_share": 0.148252
+  },
+  "notes": [
+    "Caps verified directly against the emitted artifact, not a reference denominator.",
+    "Frozen Tatoeba dev (15 rows) untouched. No promoted review-pending row enters dev/test.",
+    "Andrews 1865 (1,194 rows) remains review-pending: 0 promoted.",
+    "Hoʻoilina: 60 sentence-level rows promoted to train (prototype-only); 68 paragraph-level rows remain deferred (future-work-native-review).",
+    "Phrase Book 1881 (Bishop 4th ed., U.S. PD): 224 phrase-pair rows promoted to train (release-eligible, NOT prototype-only); uncapped non-Bible/non-HK contributor to N. Adapter at scripts/326_build_phrase_book_candidates.py.",
+    "1850/1869 HK pair stays inventory-only per Linus year-mismatch flag.",
+    "Bible 1839 historical-orthography accepted rows that exceed cap are quarantined to review-pending with 'dropped-by-bible-cap-v2-fixedpoint'; the canonical manifest is unchanged.",
+    "SFT emitter requires --allow-review-required because HK 1897 and Hoʻoilina sentence rows carry alignment_review_required=true at ingestion despite passing their promotion rules.",
+    "N denominator now includes Hoʻoilina sentence + Phrase Book 1881 train tokens, slightly increasing Bible/HK cap budgets.",
+    "This is NOT a path to 80k by review-pending promotion alone; NLLB-mined and synthetic BT remain required (per Rusty §4 and Linus ulukau-sft-vetting)."
+  ]
+}
