@@ -1,5 +1,1146 @@
 # Decisions
 
+> Updated 2026-05-02T00:56:01Z: Merged 9 inbox files from Stage 2 final review verdicts session. Three primary decisions: (1) Danny final review verdict policy (closed enum, source-specific rules, 10 invariants), (2) Basher implementation complete (33,851 rows with verdict fields; Bible 29.92%, HK 14.59% caps verified; SFT 570 rows unchanged), (3) Basher Ulukau validation (hooilina.jsonl has HTML entity bugs; 6-check protocol established for all future candidates). Frank ready to plan NLLB/synthetic-BT yield using 32,756 re-promotion budget from stage2_final_review_verdicts_20260501.json. Linus HK statutes processing continues; Hoʻoilina adapter blocked on HTML decode fix.
+>
+---
+
+# Stage 2 Final Review Verdict Policy — Closing the `split=review-pending` Ambiguity
+
+**Owner:** Danny (Lead / Architect)
+**Date:** 2026-05-03
+**Status:** PROPOSAL — accepted policy; Basher owns implementation
+**Applies to:** `data/stage2/reviewed_stage2_manifest_final_capped.jsonl` (33,851 rows; 33,551 currently `split=review-pending`)
+**Related:** `.squad/decisions/inbox/rusty-review-pending-policy.md`, `.squad/skills/fixed-point-cap-enforcement/SKILL.md`, `data/stage2/reports/stage2_review_pass_final_capped_20260501.json`
+
+---
+
+## 1. Problem statement
+
+The final-capped artifact ships 285 train / 15 dev rows. The remaining
+**33,551 rows carry `split=review-pending`** with no further verdict
+field. That label is doing two incompatible jobs:
+
+1. **Schema-level signal** to the SFT emitter: "do not promote this row
+   to a directional training pair right now."
+2. **Editorial state**: "this row has not been adjudicated yet."
+
+The first is correct and must persist (the emitter relies on it). The
+second is **false** for almost every row in the file: each was already
+inspected by the cap-enforcement pass, by Rusty's review-pending policy,
+or by Linus's source-rights gate. Leaving them as undifferentiated
+`review-pending` lets a future reader (or a future us) believe these
+rows are still candidates for promotion to train, when in fact most are
+not.
+
+This policy gives every row a final verdict without changing the
+emitter contract or the accepted train/dev counts.
+
+---
+
+## 2. Decision (accepted policy)
+
+### 2.1 Schema invariant — DO NOT CHANGE
+
+- `split` field stays as-is on every row. `review-pending` remains the
+  emitter signal "not a training row."
+- Train (285) and dev (15) counts stay frozen. Caps stay verified
+  against the artifact (Bible 29.92%, HK 14.59%).
+- `stage2_manifest.jsonl` (canonical, pre-review) is **not touched**.
+
+### 2.2 New required fields on every row
+
+Three fields are added to **every row** in the artifact (train + dev +
+review-pending). No row may be missing them.
+
+| Field | Type | Allowed values | Meaning |
+|---|---|---|---|
+| `review_status` | string | `finalized` | All rows; this artifact closes the review pass. |
+| `review_verdict` | string | enum below (§2.3) | The categorical adjudication. |
+| `final_review_reason` | string | free-text, ≤ 240 chars | Human-readable rationale citing the rule that produced the verdict. |
+
+`review_status=finalized` is **uniform** — its purpose is to make it
+trivial to assert "no row in the shipped artifact is unreviewed."
+Future reviews would create a new artifact, not flip this field in
+place.
+
+### 2.3 Verdict taxonomy
+
+Closed enum. Anything not in this list requires a new ADR.
+
+| Verdict | Applies to | Promotable later? |
+|---|---|---|
+| `accepted-train` | The 285 train rows. | n/a (already train) |
+| `accepted-dev` | The 15 frozen Tatoeba dev rows. | n/a (already dev) |
+| `excluded-quality` | Row failed scorer / quality_flags / OCR / diacritic checks. | No — re-extract upstream first. |
+| `excluded-policy-cap` | Row was structurally fine but dropped by the §1.4/§1.5/Bible/HK cap. | **Yes** — eligible for re-promotion only if N (non-Bible non-HK tokens) grows; cap math is the gate. |
+| `excluded-source-not-trainable-now` | Source-level rights/year-mismatch/register block (Andrews, Hoʻoilina). | Conditional — see §3. |
+| `future-work-realign` | Row needs a different alignment strategy (e.g., section-level vs. verse-level) before it could re-enter. | Yes, after re-alignment. |
+| `future-work-native-review` | Row needs Hawaiian-literate human review (W1 reviewer) before any promotion. | Yes, gated on #7 reviewer. |
+| `inventory-only` | Row exists for provenance / dedup signal; never intended for SFT. | No. |
+
+`excluded-policy-cap` is the **only** verdict that means "would have
+been trainable if the budget allowed." This distinction is the entire
+point of the taxonomy: a future N-growth pass (NLLB-mined, synthetic
+BT) re-runs the fixed-point cap and pulls from the
+`excluded-policy-cap` pool only. It must never accidentally pull from
+`excluded-quality` or `future-work-native-review`.
+
+### 2.4 Optional companion field
+
+`final_review_repromotion_pool` (string, optional) — when
+`review_verdict=excluded-policy-cap`, this names the pool the row
+belongs to (`bible-1839-cap-overflow`, `bible-1868-cap-overflow`,
+`hk-1897-cap-overflow`). Used by future cap-rerun scripts to find
+candidates without re-deriving eligibility.
+
+---
+
+## 3. Source-specific verdict rules
+
+These rules are deterministic — Basher's implementation script must be
+able to assign verdicts from existing fields without judgment calls.
+
+### 3.1 Bible 1839 (`baibala-hemolele-1839`) — 10,216 review-pending
+
+Two sub-pools exist, distinguishable by existing fields:
+
+| Sub-pool | Selector | Verdict | `final_review_reason` |
+|---|---|---|---|
+| Cap overflow | row not in 5-row train selection AND `quality_flags` empty AND `alignment_review_required=false` | `excluded-policy-cap` (`pool=bible-1839-cap-overflow`) | `dropped-by-bible-cap-v2-fixedpoint; eligible for re-cap when N grows` |
+| Quality reject | `quality_flags` non-empty OR `alignment_review_required=true` | `excluded-quality` | `quality_flags=[…]; haw_no_diacritics dominant in 1839 imprint` |
+
+Note: the 1839 imprint is historical orthography (no kahakō/ʻokina);
+the `haw_no_diacritics` flag is **expected** for 1839 and is the
+correct quality signal to keep these out of train. Do not "rescue"
+these rows by relaxing the diacritic check — that is a separate
+re-extraction decision, not a review verdict flip.
+
+### 3.2 Bible 1868 (`baibala-hemolele-1868`) — 20,827 review-pending
+
+The dedup pass already removed 1839 overlaps (10,134 rows) and internal
+dupes (115). The 25 train rows are the cap allotment. Of the 20,827
+remaining:
+
+- All have `quality_flags=[]` and `alignment_review_required=false`
+  (per report `bible_quality_dropped=0` for 1868).
+- Verdict: **`excluded-policy-cap`** (`pool=bible-1868-cap-overflow`).
+- `final_review_reason`:
+  `dropped-by-bible-cap-v2-fixedpoint; passes quality; re-promotable if N grows`.
+
+This is the largest re-promotion pool in the artifact.
+
+### 3.3 HK Statutes 1897 (`hk_statutes_1897`) — 1,098 review-pending
+
+The 5 train rows came from the cap. Of the remaining 1,098:
+
+| Sub-pool | Selector | Verdict |
+|---|---|---|
+| Cap overflow, eligible per Rusty §1.5 | row in `hk_eligible_pool` (747 of 1,098) and not in 5-row train selection (= 742) | `excluded-policy-cap` (`pool=hk-1897-cap-overflow`) |
+| Failed §1.5 promotion rule | row not in `hk_eligible_pool` (= 351) | `excluded-quality` with reason `hk1897-legal-clean-v1 promotion rule failed` |
+
+Implementation note: Basher must re-derive `hk_eligible_pool`
+membership using the same predicate as
+`333_build_reviewed_manifest_final_capped.py` — do not trust an
+ad-hoc field; the pool is the source of truth.
+
+### 3.4 Andrews 1865 (`andrews-1865-en-haw-vocab-appendix`) — 1,194 review-pending, 0 train
+
+Frozen at zero by Rusty §1.1 (OCR noisy, no diacritics, dictionary
+register saturated by Kaikki). All 1,194:
+
+- Verdict: **`excluded-source-not-trainable-now`**
+- `final_review_reason`: `Rusty §1.1: Andrews 1865 IA-djvu OCR;
+  alignment_review_required=true on 100% of rows; not trainable
+  pending a clean re-extraction (e.g., Wehewehe-side parse) and W1
+  reviewer pass`
+- `final_review_repromotion_pool`: not set; re-promotion requires
+  upstream re-extraction, not a cap rerun.
+
+### 3.5 Kaikki Wiktionary (`kaikki-haw-en-wiktionary`) — 139 review-pending, 153 train
+
+Of the 139 leftovers, 94 are `side_too_short`, 41 `haw_nonhaw_letters_high`,
+25 `length_ratio_extreme`, 6 `haw_no_diacritics` (overlap possible).
+
+- Verdict: **`excluded-quality`**
+- `final_review_reason`: `quality_flags=[…]` (echo the actual flags)
+- These are **not** cap-overflow — Kaikki has no source cap; the 153
+  train rows are everything that passed the scorer. The leftovers
+  failed quality and stay out unless the source is re-cleaned.
+
+### 3.6 Tatoeba (`tatoeba`) — 9 review-pending, 97 train, 15 dev
+
+All 9 leftovers are `side_too_short`.
+
+- Verdict: **`excluded-quality`**
+- `final_review_reason`: `quality_flags=[side_too_short]`
+- Frozen Tatoeba dev (15 rows) is untouched and gets verdict
+  `accepted-dev`.
+
+### 3.7 Hoʻoilina (`hooilina`) — 68 review-pending, 0 train
+
+Per Rusty §1.4 (Hoʻoilina rights are prototype-only with citation;
+dev/test promotion is forbidden, train promotion deferred until
+section-level review).
+
+- Verdict: **`future-work-native-review`**
+- `final_review_reason`: `Rusty §1.4: KS editorial layer requires
+  section-level Hawaiian-literate review (W1 reviewer / #7) before
+  any train promotion; release_eligible=false`
+- `final_review_repromotion_pool`: not set.
+
+### 3.8 (Inventory-only sources)
+
+If Basher's verdict-assignment pass discovers any rows with
+`prototype_only=true` AND `release_eligible=false` AND no source-cap
+membership AND no quality flags AND no alignment_review_required (none
+expected, but defensive): assign `inventory-only` with reason
+`provenance-only; not a training candidate`.
+
+---
+
+## 4. Expected post-implementation invariants
+
+Basher's implementation must verify all of the following against the
+**emitted artifact** (the same discipline as the fixed-point cap pass —
+trust the file, not the script's print statements):
+
+1. **Field presence.** Every row has non-null `review_status`,
+   `review_verdict`, `final_review_reason`. Zero exceptions.
+2. **Schema split unchanged.** Counts of `split=train` (285),
+   `split=dev` (15), `split=review-pending` (33,551) are byte-identical
+   to the current artifact.
+3. **Verdict ↔ split consistency.** `review_verdict=accepted-train` ⟺
+   `split=train`. `review_verdict=accepted-dev` ⟺ `split=dev`. Any row
+   with `split=review-pending` has a verdict ∈ {`excluded-quality`,
+   `excluded-policy-cap`, `excluded-source-not-trainable-now`,
+   `future-work-realign`, `future-work-native-review`,
+   `inventory-only`}. No `accepted-*` verdict on a `review-pending`
+   row.
+4. **Closed enum.** No verdict outside §2.3.
+5. **Cap-pool membership coherent.** Sum of rows with
+   `final_review_repromotion_pool=bible-1839-cap-overflow` plus the 5
+   Bible-1839 train rows equals the Bible-1839 quality-pass pool size
+   (i.e., 10,221 verse keys minus quality-rejected 1839 rows). Same
+   shape for 1868 and HK 1897 against the report's
+   `bible_pool_total` / `hk_eligible_pool`.
+6. **Source-rule coverage.** For each of the 7 sources in §3, the
+   distribution of verdicts matches the rule table exactly. Counts
+   logged in a new report
+   `data/stage2/reports/stage2_final_review_verdicts_<date>.json`.
+7. **Caps still hold.** Bible share ≤ 30% and HK share ≤ 15% on the
+   re-emitted artifact (re-run the artifact-side verifier from
+   `333_build_reviewed_manifest_final_capped.py`).
+8. **SFT emitter unchanged behavior.** `data/stage2/stage2_sft_final_capped.jsonl`
+   regenerates to the same 570 directional rows. The new fields are
+   ignored by the emitter — confirm via byte-diff or row-count check.
+9. **No row claims to be both quality-rejected and cap-overflow.**
+   `excluded-quality` and `excluded-policy-cap` are mutually exclusive.
+10. **Honesty check.** Sum of `excluded-policy-cap` rows is the
+    upper-bound budget for any future N-growth re-promotion. This
+    number must appear in the new report so Frank's NLLB / synthetic-BT
+    plan can quote it without re-deriving.
+
+---
+
+## 5. What this policy does **not** do
+
+- It does not change which rows are in train. The 285/15 are locked.
+- It does not relax any cap, scorer threshold, or rights gate.
+- It does not promote any Andrews or Hoʻoilina row.
+- It does not modify the canonical `stage2_manifest.jsonl`.
+- It does not add a "review-completed" boolean. `review_status=finalized`
+  is the single signal; future reviews produce a new artifact with a
+  new datestamp.
+- It does not commit to a re-promotion pass. It only *budgets* one
+  honestly: when (and if) N grows enough that
+  `B_max = 6N/11` and `H_max = 3N/11` exceed the current 285-row
+  selection, the `excluded-policy-cap` pool is the **only** legal
+  source.
+
+---
+
+## 6. Trade-offs (named, per charter)
+
+- **Verdict granularity vs. cognitive load.** Six exclusion verdicts
+  is more than two ("dropped" / "deferred") but less than per-source
+  freeform reasons. Six was chosen because it maps 1:1 onto the
+  *operational* question "what would unblock this row?" — cap rerun,
+  re-extraction, re-alignment, native review, never. A reader who only
+  wants the binary answer can collapse `excluded-*` vs `future-*`.
+- **Schema-split kept noisy on purpose.** Reusing `split=review-pending`
+  as the emitter signal preserves the existing `333_*` and emitter
+  contracts at the cost of overloading the field. The alternative
+  (introduce `split=excluded` and update the emitter) is a wider blast
+  radius; the verdict fields give us the editorial signal without that
+  churn.
+- **Closed-form pools instead of per-row provenance.** We tag the cap
+  pool name, not the position in the cap selection. Cheaper to compute,
+  reproducible from `sha256_pair` ordering. Cost: a future re-cap pass
+  must re-sort and re-select; it cannot resume from a half-emitted
+  state. Acceptable — the cap pass is sub-second.
+- **No backfill of `manual_review_reasons`.** That field stays as the
+  upstream Rusty/Linus annotations. `final_review_reason` is the
+  *adjudication* layer on top. Two fields, two purposes; do not merge.
+
+---
+
+## 7. Hand-off
+
+- **Basher (implementation owner):** Write
+  `scripts/334_finalize_review_verdicts.py` that takes
+  `reviewed_stage2_manifest_final_capped.jsonl` as input, applies §3,
+  emits `reviewed_stage2_manifest_final_capped.jsonl` (in-place
+  rewrite is OK; keep a `.bak` of the prior file once) plus
+  `data/stage2/reports/stage2_final_review_verdicts_<date>.json`.
+  Verify all ten invariants in §4. Re-run the SFT emitter and confirm
+  570 rows.
+- **Linus:** Confirm verdict assignment for HK 1897 sub-pool
+  (`hk_eligible_pool` predicate). Update SFT-side documentation to
+  point at `review_verdict` instead of "split=review-pending" when
+  describing exclusion semantics.
+- **Frank:** Read the new report's `excluded-policy-cap` totals before
+  finalizing the NLLB-mined / synthetic-BT yield plan. Those numbers
+  are the honest re-promotion ceiling; do not exceed them with mined
+  pairs that re-trip the cap.
+- **Rusty:** No action required. This policy *consumes* Rusty's
+  review-pending policy; it does not amend it.
+
+---
+
+## 8. Status
+
+ACCEPTED for implementation. Pending Basher pickup.
+
+---
+
+# Decision: Basher — Stage 2 Finalized Review Verdicts (2026-05-02)
+
+**Owner:** Basher (Training Engineer)  
+**Date:** 2026-05-02  
+**Status:** COMPLETE — no team decision required; informational
+
+## Summary
+
+All 33,551 review-pending rows in `reviewed_stage2_manifest_final_capped.jsonl` now carry explicit final verdicts. No rows remain in an ambiguous pending state.
+
+## Verdict Distribution
+
+| Verdict | Count | Interpretation |
+|---------|------:|----------------|
+| bible-cap-overflow | 31,012 | Passed quality; excluded by fixed-point Bible cap (≤30%) |
+| andrews-dictionary-fragment-rejected | 1,194 | Rusty §1.1 rejection; dictionary fragments unsuitable for SFT |
+| hk-legal-cap-overflow | 742 | Passed hk1897-legal-clean-v1 filter; excluded by HK cap (≤15%) |
+| hk-quality-reject | 356 | Failed hk1897 ratio/length quality filters |
+| kaikki-quality-reject | 139 | Failed stage2 quality gate |
+| hooilina-alignment-pending | 68 | **Deferred** — requires adapter re-emit before promotion review |
+| bible-quality-reject | 31 | Failed quality gate (independent of cap) |
+| tatoeba-quality-reject | 9 | Failed stage2 quality gate |
+| train-ready | 285 | Accepted train pairs |
+| frozen-dev | 15 | Frozen dev pairs (Rusty §1.4) |
+
+## Action Items for Team
+
+- **Frank / Linus:** Hoʻoilina (68 rows) is **deferred**, not rejected. If sentence-level re-emit is completed, these rows can re-enter review. Needs `html.unescape()` + boilerplate filter + hash recompute.
+- **No cap changes:** Bible 29.92% / HK 14.59% unchanged. Caps hold.
+- **SFT:** 570 directional rows unaffected. Use `--allow-review-required` for HK train rows.
+
+## Artifacts
+
+- `data/stage2/reviewed_stage2_manifest_finalized_reviews.jsonl` (33,851 rows)
+- `data/stage2/reports/stage2_finalized_review_verdicts_20260501.json`
+- `scripts/334_finalize_stage2_review_verdicts.py`
+
+---
+
+# Stage 2 Ulukau-Family Candidate Validation — Proposal
+
+**Author:** Basher (Tester / Validation Engineer)
+**Date:** 2026-05-03
+**Status:** PROPOSAL — for Scribe merge
+
+---
+
+## Context
+
+Linus and Frank are building adapters for HK statutes and Wehewehe PD respectively.
+`hooilina.jsonl` is the only Ulukau-family candidate currently on disk.
+This document codifies (a) findings from validating `hooilina.jsonl` and
+(b) the mandatory validation checklist that all future Ulukau-family candidate
+JSONL files must pass before manifest merge.
+
+---
+
+## 1. Findings: `data/stage2/candidates/hooilina.jsonl`
+
+| Check | Result |
+|---|---|
+| JSONL parse (0 errors) | ✅ |
+| Required fields present in all rows | ✅ |
+| `sha256_pair` hash invariant | ✅ |
+| Duplicate `pair_id` | ✅ none |
+| Duplicate `sha256_pair` (dedup collision) | ❌ **1 hash cluster shared by 41 rows** |
+| Split distribution | `review-pending`: 109/109 (correct for KS editorial layer) |
+| `prototype_only=True` / `release_eligible=False` | ✅ all rows |
+| `alignment_review_required=True` | ✅ all rows |
+| SFT emittable now | **0 rows** (all gated) |
+| SFT potential after review + fix | **≤136 directional rows** (68 clean × 2 directions) |
+
+### Bug 1 — UI Boilerplate Artifact (41 / 109 rows)
+
+OID root `HASHe7d7c93d84511b86ea5ca7.*` produced rows where both
+`text_en` and `text_haw` contain only the Greenstone JavaScript tooltip
+`"Look up any word by double-clicking on it. Kuleana kope © 2002–2004 na N…"`.
+
+These are not translation pairs. The dedup cluster is harmless here (manifest
+dedup would collapse them to 1 representative row) but only 68 rows are real
+content. The adapter must filter these at emit time.
+
+**Fix:** In the hooilina adapter, skip any section where `text_en.strip() == text_haw.strip()` or where `text_en` matches the known Greenstone UI tooltip boilerplate string.
+
+### Bug 2 — HTML Entity Leakage (68 / 68 content rows)
+
+All 68 content rows have unescaped HTML numeric entities in the Hawaiian text:
+- `&#699;` → ʻ (ʻokina)
+- `&#256;` → Ā
+- `&#332;` → Ō
+- `&#298;` → Ī
+
+The adapter did not call `html.unescape()` before NFC normalization and hash
+computation. This means:
+1. Text stored in candidates is incorrect (raw HTML, not Unicode).
+2. `sha256_haw_clean` and `sha256_pair` will change once the fix lands —
+   current `hooilina.jsonl` is stale and must be re-emitted.
+3. The ʻokina canonicalization pass (`OKINA_MISENCODINGS`) does not fire
+   before HTML decode, so diacritics from entity form are missed.
+
+**Fix order (mandatory):**
+```python
+text = html.unescape(raw_html_body)       # decode HTML entities first
+text = unicodedata.normalize("NFC", text) # then NFC
+for c in OKINA_MISENCODINGS:              # then okina canonicalization
+    text = text.replace(c, "\u02bb")
+```
+
+Re-emit `hooilina.jsonl` after fix. All hashes will change.
+
+---
+
+## 2. Mandatory Validation Checklist — Ulukau-Family Candidates
+
+Run these checks on ANY new Ulukau-family candidate JSONL before proposing manifest merge.
+
+### Check 1 — JSONL Parse
+
+```bash
+python3 -c "
+import json, sys
+errs = []
+rows = []
+with open(sys.argv[1]) as f:
+    for i, line in enumerate(f, 1):
+        try: rows.append(json.loads(line.strip()))
+        except Exception as e: errs.append(f'Line {i}: {e}')
+print(f'{len(rows)} rows, {len(errs)} parse errors')
+for e in errs[:5]: print(e)
+" data/stage2/candidates/<source>.jsonl
+```
+
+Expected: `N rows, 0 parse errors`
+
+### Check 2 — Required Field Coverage
+
+```bash
+python3 -c "
+import json, sys
+REQUIRED = ['pair_id','source','text_en','text_haw','sha256_en_raw',
+            'sha256_haw_raw','sha256_en_clean','sha256_haw_clean',
+            'sha256_pair','manifest_schema_version','split',
+            'prototype_only','release_eligible','synthetic',
+            'register','alignment_type','alignment_method']
+rows = [json.loads(l) for l in open(sys.argv[1])]
+missing = {}
+for r in rows:
+    for f in REQUIRED:
+        if f not in r: missing[f] = missing.get(f,0)+1
+print('Missing:', missing or 'none')
+" data/stage2/candidates/<source>.jsonl
+```
+
+Expected: `Missing: none`
+
+### Check 3 — sha256_pair Hash Invariant
+
+```bash
+python3 -c "
+import json, hashlib, sys
+def ph(e,h): return hashlib.sha256((e+'\u2016'+h).encode()).hexdigest()
+rows = [json.loads(l) for l in open(sys.argv[1])]
+bad = [r['pair_id'] for r in rows if ph(r['sha256_en_clean'],r['sha256_haw_clean']) != r['sha256_pair']]
+print(f'Hash mismatches: {len(bad)}')
+for b in bad[:5]: print(b)
+" data/stage2/candidates/<source>.jsonl
+```
+
+Expected: `Hash mismatches: 0`
+
+### Check 4 — Dedup Collision Scan
+
+```bash
+python3 -c "
+import json, sys
+from collections import Counter
+rows = [json.loads(l) for l in open(sys.argv[1])]
+ids = Counter(r['pair_id'] for r in rows)
+hashes = Counter(r['sha256_pair'] for r in rows)
+dup_ids = {k:v for k,v in ids.items() if v>1}
+dup_hashes = {k:v for k,v in hashes.items() if v>1}
+print(f'Duplicate pair_ids: {len(dup_ids)}')
+print(f'Duplicate sha256_pair clusters: {len(dup_hashes)} ({sum(v-1 for v in dup_hashes.values())} extra rows)')
+# Flag same-text rows (potential boilerplate)
+same_text = [r['pair_id'] for r in rows if r.get('text_en','').strip() == r.get('text_haw','').strip()]
+print(f'Same text_en == text_haw (boilerplate risk): {len(same_text)}')
+" data/stage2/candidates/<source>.jsonl
+```
+
+Expected: duplicate pair_ids = 0; warn if sha256_pair clusters > 0 or same-text rows > 0.
+
+### Check 5 — SFT Dry-Run Potential
+
+```bash
+python3 -c "
+import json, sys
+rows = [json.loads(l) for l in open(sys.argv[1])]
+gated_review = sum(1 for r in rows if r.get('alignment_review_required'))
+gated_split = sum(1 for r in rows if r.get('split') not in ('train','dev','test'))
+empty = sum(1 for r in rows if not r.get('text_en','').strip() or not r.get('text_haw','').strip())
+emittable = len(rows) - empty
+print(f'Total rows: {len(rows)}')
+print(f'Gated (alignment_review_required): {gated_review}')
+print(f'Gated (split not train/dev/test): {gated_split}')
+print(f'Empty text: {empty}')
+print(f'Emittable if review cleared: {emittable} canonical / {emittable*2} directional')
+" data/stage2/candidates/<source>.jsonl
+```
+
+Expected: 0 empty-text rows; gated counts documented.
+
+### Check 6 — Manifest Builder Dry-Run (after any new source added)
+
+```bash
+python3 scripts/320_build_stage2_manifest.py --dry-run \
+  --candidates data/stage2/candidates/<source>.jsonl
+python3 scripts/320_build_stage2_manifest.py --check
+```
+
+Expected: exit 0, 0 schema violations, 0 split-isolation violations.
+
+---
+
+## 3. Hooilina Adapter Fix Requirements
+
+Before `hooilina.jsonl` can be merged into the manifest:
+
+1. **HTML decode:** Apply `html.unescape()` before NFC normalization (see fix order above).
+2. **Boilerplate filter:** Skip sections where `text_en.strip() == text_haw.strip()`.
+3. **Re-emit:** Run adapter with `--execute` to regenerate the file; all hashes will change.
+4. **Re-validate:** Run the 6-check sequence above on the re-emitted file.
+5. **Alignment review:** `alignment_review_required=True` must remain; Linus/Rusty must clear it before SFT emission.
+
+**Current effective SFT yield:** 0 rows (all gated).
+**Post-fix + review potential:** ≤136 directional rows (68 clean content rows × 2 directions).
+
+---
+
+## 4. HK Statutes / Wehewehe PD — No Candidates Yet
+
+As of validation run (2026-05-03), no `wehewehe*.jsonl` or `hk_statutes*.jsonl`
+files exist in `data/stage2/candidates/`. Linus (HK) and Frank (Wehewehe PD)
+are in-progress.
+
+When these files appear, apply the 6-check sequence above. Additional source-specific gates:
+- **HK statutes:** verify `register="legal"` on all rows; confirm 1897 Cornell pair only (not 1850/1869 until year-mismatch resolved); legal register ≤15% token cap enforcement at manifest build time.
+- **Wehewehe PD:** verify source dict name in `source_url_haw` is on the PD whitelist (Andrews 1836/1865, Emerson 1845, Hitchcock 1887, Parker 1922, Dict. Biblical Words 1872); `register="dictionary-example"` on all rows; combined dict cap ≤3,806 rows remaining (1,194 consumed by andrews_1865_vocab).
+
+---
+
+# Frank — More Ulukau SFT Data Discovery
+
+**By:** Frank (Hawaiian Data Collector)
+**Date:** 2026-05-01T22:33:20Z
+**Status:** DISCOVERY COMPLETE — no raw bytes pulled, candidates ranked for team review
+
+---
+
+## Context
+
+Follow-up to the original Ulukau pivot session. User request: "go find more sft
+training data in ulukau." Systematic survey of ALL Ulukau-family collections plus
+targeted IA pre-1925 bilingual searches.
+
+**Already in plan (not re-counted):**
+- Ka Hoʻoilina (109 HAW/EN section pairs)
+- Wehewehe (6 PD PDFs)
+- Hawaiian Kingdom statutes bilingual (4 paired imprints)
+- Bible/Baibala (1839 + 1868 candidate)
+- Andrews 1865 vocab appendix, kaikki Wiktionary, Wikimedia CX (all in fetch-plan)
+
+---
+
+## New Candidates — Ranked
+
+### Rank 1 ★★★★★ — Hawaiian Phrase Book (1881)
+**IA item:** `hawaiianphrasebo00bishrich`  
+**URL:** `https://archive.org/download/hawaiianphrasebo00bishrich/hawaiianphrasebo00bishrich_djvu.txt`  
+**Size:** 181 KB djvu.txt  
+**Why useful:** Explicit two-column EN/HAW layout. "ENGLISH | HAWAIIAN" headers with paired phrase entries throughout. Covers vocabulary and short conversational phrases across ~20 topic domains (trees, water, houses, body parts, food, clothing, commerce, etc.). 4th edition (1881) = revised and vetted.  
+**Alignment unit:** phrase/term pair  
+**Alignment method:** column-position (deterministic)  
+**Tier:** dictionary-example (Tier C)  
+**Estimated yield:** 800–2,000 pairs after filtering sub-word vocab entries  
+**Rights:** PD (1881 US imprint). Google Books scan of a 19th-century publication. No scraping prohibition on IA djvu.txt.  
+**Adapter approach:** djvu.txt column-split: parse on whitespace gap between EN and HAW halves per line. Filter lines where HAW side is empty or < 3 chars. Emit one pair per entry.  
+**Blocker:** None. Ready for adapter implementation.  
+**Register:** educational  
+
+---
+
+### Rank 2 ★★★★ — Hawaiian Kingdom Constitution and Laws 1852 Pair
+**IA HAW item:** `hekumukanawaiam00hawagoog` (222 KB djvu.txt)  
+**IA EN item:** `constitutionand00hawagoog` (238 KB djvu.txt)  
+**Why useful:** Same-year (1852) paired bilingual editions of the Hawaiian Kingdom Constitution and Laws of Kamehameha III. Extends the existing `hawaiian-kingdom-statutes-bilingual` adapter with a third verified pair. Same-year match eliminates year-mismatch risk.  
+**Alignment unit:** section/article  
+**Alignment method:** section-id (article numbering preserved in both editions)  
+**Tier:** parallel-doc (Tier B, legal register)  
+**Estimated yield:** 200–600 section pairs  
+**Rights:** PD (1852 Hawaiian Kingdom government publication, pre-1925). Sovereign-edicts doctrine applies. Google scan via IA — non-commercial use, djvu.txt freely accessible.  
+**Adapter approach:** Extend HK statutes adapter. Add 1852 as a third pair. Section-id alignment same approach as 1897 Cornell pair.  
+**Blocker:** OCR quality check on HAW Google scan (some "W→AV" substitutions observed). Linus: confirm register cap applies, add to pair registry, prototype-only gate.  
+
+---
+
+### Rank 3 ★★★★ — Hawaiian Statute Laws 1845-1847 Pair
+**IA HAW item:** `kanawaiikauiaek00ricogoog` (1847, HAW-only Kanawai)  
+**IA EN item:** `statutelawshism00ricogoog` (1546 KB djvu.txt, covers 1845+1846+1847 sessions)  
+**Why useful:** Another expansion of the HK statutes adapter. The English volume explicitly covers "A.D. 1845 and 1846 and 1847," so the 1847 HAW Kanawai should match a subset of the EN volume.  
+**Alignment unit:** section/article  
+**Alignment method:** section-id  
+**Tier:** parallel-doc (Tier B, legal register)  
+**Estimated yield:** 100–400 section pairs (1847 session subset only)  
+**Rights:** PD (pre-1925).  
+**Adapter approach:** Must slice EN volume to 1847 session only. Year-range disambiguation pass required first.  
+**Blocker:** Year-range verification needed before pairing. Treat as **inventory-only** until Linus reviews — similar caution as existing 1850/1869 year-mismatch issue.  
+
+---
+
+### Rank 4 ★★★ — Gospel of John in Parallel Columns (1854)
+**IA item:** `gospelaccordingt00hawarich` (274 KB djvu.txt)  
+**URL:** `https://archive.org/download/gospelaccordingt00hawarich/gospelaccordingt00hawarich_djvu.txt`  
+**Why useful:** Explicitly formatted as parallel columns (English left, Hawaiian right). 21 chapters, ~880 verses. OCR is clean. Could serve as a supplementary English-side anchor for Bible adapter alignment.  
+**Alignment unit:** verse  
+**Alignment method:** verse-id (chapter.verse number visible in text)  
+**Tier:** parallel-verse (Tier A, religious)  
+**Estimated yield:** 700–880 verse pairs  
+**Rights:** PD (1854). Mission Press, Honolulu. No scraping restriction.  
+**Adapter approach:** Verse-id alignment same as Baibala adapter. Parse chapter.verse markers. HAW text is pre-1839 Baibala (early missionary translation).  
+**Blocker:** OVERLAP with existing Baibala plan (already have John chapters planned). Linus: is this edition distinct enough to add, or is it dedup noise? If distinct, still counts against Bible cap (<= 30% parallel-train tokens). Recommend: use only as alternative English anchor, not as additional HAW source.  
+
+---
+
+### Rank 5 ★★★ — Sanitary Instructions for Hawaiians (1881)
+**IA item:** `63140380R.nlm.nih.gov` (274 KB djvu.txt)  
+**Why useful:** Government publication, explicitly "in the English and Hawaiian languages." 20 chapters on health/medicine/sanitation — unique register not present in other sources. Written by Walter Murray Gibson (Hawaiian Legislature, 1881).  
+**Alignment unit:** chapter/paragraph  
+**Alignment method:** comparable-aligned (LaBSE required, >= 0.75)  
+**Tier:** comparable-aligned (Tier C, educational/health register)  
+**Estimated yield:** 200–800 comparable paragraph pairs  
+**Rights:** PD (1881, Hawaiian Kingdom Board of Education publication).  
+**Adapter approach:** Two-phase — detect EN/HAW volume boundary; split into two corpora; align by chapter number; LaBSE paragraph scoring.  
+**Blocker:** Requires LaBSE infrastructure (Rusty). Not deterministic. Lower priority than Ranks 1-3.  
+
+---
+
+### Rank 6 ★★ — Diglot New Testament (1859) — DEFERRED
+**IA item:** `HAWPDF_DBS_HS` (2.4 MB djvu.txt, 44 MB PDF)  
+**Why useful if unblocked:** Full NT in two-column HAW/EN format. Potentially 5k-7.9k verse pairs.  
+**Blocker:** OCR severely garbled from two-column layout. djvu.txt is unusable. Would need hOCR/column bounding-box extraction from 84 MB hOCR file or 41 MB djvu.xml. Engineering cost is high; overlaps with existing Baibala plan; Bible cap already constrains yield. **DEFERRED until column-extraction tooling is available.**  
+
+---
+
+## Blocked/Deprioritized (confirmed this session)
+
+| Source | URL | Reason |
+|---|---|---|
+| Hawaiian Place Names (hpn) | `ulukau.org/hpn/` | © 2002-2019 Lloyd Soehren |
+| Kauakūkalahale | `ulukau.org/apo/cgi-bin/kauakuka` | © 2002-2004 Star-Bulletin/authors |
+| Hawaiian Curriculum Materials (cbumbrella) | `ulukau.org/gsdl2.80/cgi-bin/library?c=cbumbrella` | © specific owners (PREL, UH CDS, etc.) |
+| Māhele Database | `ulukau.org/cgi-bin/vicki` | © 2000-2005 Waihona ʻĀina |
+| AHCC Historical Documents | `ulukau.org/gsdl2.85/cgi-bin/library.cgi?c=ahcchist` | © 2013 Hawaiʻi Maoli |
+| EBOOK-DHLLT (Legal Land Terms) | `puke.ulukau.org/...EBOOK-DHLLT` | © 1995, 2022 Native Hawaiian Legal Corp. |
+| Wehi ʻŌlelo | `wehiolelo.org` | Monolingual HAW only — no EN |
+| Graduate Paper Collection (ma-phd) | `ulukau.org/ma-phd/` | 38 theses, © individual authors/UH |
+| Kauakūkalahale | newspaper column | © 2002-2004 |
+| Hoʻoikaika kino (cbumbrella pair) | bilingual curriculum | © 2007, 2009 PREL |
+
+---
+
+## Recommended Next Actions
+
+1. **Immediate (no blockers):** Build phrase-book adapter for `hawaiianphrasebo00bishrich`.
+   - Single IA djvu.txt fetch + column-split parser
+   - 800-2k dictionary-example pairs, PD-clear
+   - Register: educational; fits Tier C cap
+
+2. **Linus action needed:** Review 1852 Constitution pair for HK statutes extension.
+   - Confirm prototype-only gate + OCR quality acceptable
+   - Year-mismatch risk = none (both 1852)
+
+3. **Linus action needed:** Flag 1847 HAW / 1845-47 EN pair as inventory-only pending year-range verification.
+
+4. **Bible cap check:** Confirm whether Gospel of John 1854 edition is worth adding against Bible cap, or mark as dedup-skip.
+
+5. **Defer:** Sanitary Instructions (needs LaBSE); Diglot NT (needs hOCR column extraction).
+
+---
+
+## Yield Outlook (incremental, beyond existing plan)
+
+| Source | Yield estimate | Tier | Readiness |
+|---|---|---|---|
+| Phrase Book 1881 | 800–2,000 pairs | dictionary-example | Immediate |
+| HK Statutes 1852 pair | 200–600 pairs | parallel-doc legal | Linus OK needed |
+| HK Statutes 1847 pair | 100–400 pairs | parallel-doc legal | Verify year-range first |
+| Gospel John 1854 | 700–880 pairs | parallel-verse religious | Overlaps Bible — defer |
+| Sanitary Instructions 1881 | 200–800 comparable pairs | comparable health | LaBSE needed |
+| Diglot NT 1859 | blocked | — | hOCR tooling needed |
+| **Realistic new total** | **1,000–3,000 confirmed pairs** | | |
+
+Discovery artifact: `data/raw/ulukau-stage2-discovery/20260501/manifest.json`
+
+---
+
+# Decision proposal — Stage 2 raw-pull manifest coverage rule
+
+**Proposer:** Frank (Hawaiian Data Collector)
+**Date:** 2026-05-01
+**Status:** PROPOSED — needs Linus + Coordinator review
+
+## Context
+
+Provenance audit of the three Stage 2 raw roots
+(`hooilina-stage2/20260501`, `wehewehe-stage2/20260501`,
+`hawaiian-kingdom-statutes-paired-imprints/20260501`) found:
+
+- 100% local-path coverage and 0 failures across all three roots.
+- One unmanifested orphan in `hooilina-stage2/20260501`:
+  `classifier/all_classifier_nodes.json` — produced by the full
+  classifier walk used to enumerate the 331 leaves. Useful, harmless,
+  but invisible to a manifest-driven audit.
+- One inventory-only row in wehewehe (`textchd`, Combined HD 2020)
+  correctly omits `local_path`/`sha256` and carries
+  `mode="inventory_only"`. Good shape — codify it.
+
+## Proposal
+
+Add the following rules to the Stage-2 source-adapter skill (and to
+any future raw-pull script template):
+
+1. **Every byte on disk under a Stage-2 raw root must be referenced
+   by exactly one manifest row.**
+   - Corpus bytes get a normal `kind` (`section`, `pdf`, `djvu_xml`,
+     `landing`, etc.) with `local_path` + `sha256`.
+   - Non-corpus aux files (classifier walks, robots.txt snapshots,
+     enumeration dumps) get `kind="discovery_aux"` with `local_path`
+     + `sha256` and a one-line `note`. They still count toward
+     audit, but Linus skips them for candidate counting.
+
+2. **Inventory-only rows must omit `local_path` and `sha256`** (no
+   placeholder zeros), and must carry `mode="inventory_only"` plus a
+   `rights_note`. Confirmed pattern in wehewehe.
+
+3. **`manifest_summary.json` is the canonical count source**, not
+   prose in agent histories or commit messages. Off-by-N drift was
+   observed in this audit (history said 348/40; actual is 346/41).
+   Linus should count from the JSONL or summary; agents should not
+   re-state counts in prose without re-deriving them.
+
+4. **Paired-source manifests must include the pair join key in the
+   summary** (`paired_imprints` field on HK statutes is the reference
+   shape).
+
+## Scope
+
+- Applies to: any new `data/raw/<source>-stage2/<date>/` pull.
+- Does NOT require rewriting existing manifests; CLEANUP_NOTES.json
+  sidecars are sufficient retroactive documentation. The hooilina
+  classifier orphan can be left as-is (documented in CLEANUP_NOTES).
+
+## Anti-scope
+
+- This proposal is provenance-shape only. It does not touch
+  rights/policy decisions, cleaning/normalization, or candidate
+  emission.
+- Does not require re-fetches.
+
+## Asks
+
+- **Linus:** Confirm this matches your structured-count expectations
+  before I bake it into the next adapter.
+- **Coordinator:** If accepted, promote into
+  `.squad/skills/stage2-source-adapter/SKILL.md` under a new
+  "Raw-pull manifest coverage" section.
+
+---
+
+# Frank — Wehewehe PD PDF Processing: Extraction Feasibility Report
+
+**Author:** Frank (Hawaiian Data Collector)
+**Date:** 2026-05-03
+**Status:** FINDING — 0 rows emitted; forward path identified
+
+---
+
+## Context
+
+Task: process the already-local Wehewehe PD raw pull (6 pre-1925 dictionaries in
+`data/raw/wehewehe-stage2/20260501/pdfs/`) into Stage 2 candidate rows.
+
+## Extraction Assessment
+
+**Result: 0 structured candidate rows emittable from local PDFs.**
+
+### Root Cause
+
+All 6 PD PDFs are scanned image-only documents:
+- Creator: `pdftk 1.41`, producer: `itext-paulo-155`, creation date 2009.
+- PyMuPDF (fitz) returns **0 text characters** across all tested pages (EBOOK-VOCABULARY:
+  139 pages, 0 chars; EBOOK-ANDREW: 559 pages, 0 chars fully scanned).
+- These PDFs were created by scanning physical books and wrapping the images in PDF
+  containers — there is no text layer.
+
+### OCR Tooling Status
+
+| Tool | Available |
+|---|---|
+| pdftotext | No |
+| tesseract | No |
+| pytesseract | No |
+| PIL | Yes (but useless without tesseract) |
+| fitz/PyMuPDF | Yes (confirmed image-only) |
+
+No OCR tooling is installed. Installing tesseract is a non-trivial system dependency
+(not in requirements.txt) and outside the scope of this task.
+
+### Text Sidecars
+
+`entries/`, `classifier/`, `meta/` subdirectories under the raw root are **empty**.
+Sample entry HTML pages are search-result lists (headwords only, no definition text).
+TOC landing pages are book-level catalog pages with no embedded entry content.
+
+### Andrews 1865 Already Covered
+
+`data/stage2/candidates/andrews_1865_vocab.jsonl` has **1,194 rows** built from the IA
+djvu.txt source (IA item `cu31924026916167`, script `scripts/324_build_andrews_vocab_candidates.py`).
+Processing the local PDF for this dict would only duplicate those rows. Skipped.
+
+---
+
+## Dict Cap Status
+
+- Cap: ≤5,000 rows total across all wehewehe PD dicts
+- Already consumed by Andrews 1865: 1,194 rows
+- Remaining budget: **3,806 rows**
+
+---
+
+## Forward Path: IA djvu.txt for Remaining 5 Dicts
+
+The Internet Archive hosts full-book djvu OCR for these same historical titles. The
+pattern is already proven by `scripts/324_build_andrews_vocab_candidates.py` which
+built 1,194 clean rows from Andrews 1865 IA djvu.txt.
+
+**Priority order for IA djvu.txt fetch:**
+
+1. **Hitchcock 1887 (EBOOK-ehd)** — English-Hawaiian direction; highest structural
+   alignment value (EN headword → HAW gloss, same as Andrews 1865 vocab appendix).
+2. **Andrews 1836 (EBOOK-VOCABULARY)** — shorter vocabulary list, probably simpler
+   to parse than the full 1865 dictionary.
+3. **Parker 1922 (EBOOK-PARKER)** — HAW-EN revised; large dict, useful.
+4. **Emerson 1845 (EBOOK-emd)** — HAW-EN; shorter.
+5. **Dict. of Biblical Words 1872 (EBOOK-CDD)** — lower priority; specialized
+   biblical register; 376 MB PDF suggests high-DPI scan or multi-volume.
+
+**Required steps:**
+1. Identify IA item IDs for each of the 4 remaining dicts (archive.org title search).
+2. Download `_djvu.txt` for each item via `internetarchive` lib (already in requirements.txt).
+3. Write a precision-first 324-style builder script per dict (strict regex, Hawaiian OCR
+   clean alphabet check, wordlist validation).
+4. Emit candidate rows with `register="dictionary-example"`, `alignment_type="dictionary-example"`,
+   `alignment_method="manual"` (headword→gloss is deterministic, not inferred).
+5. Enforce combined cap: all wehewehe PD dicts ≤5,000 rows total.
+
+---
+
+## Proposal
+
+> **Do NOT install OCR tooling just for this task.** The IA djvu.txt path is faster,
+> lower-risk, and already proven. The local PDFs should remain as provenance/backup
+> only — they prove we have the canonical source bytes.
+
+> **Andrews 1836, Emerson 1845, CDD 1872, Hitchcock 1887, Parker 1922** need a targeted
+> IA item-ID discovery pass before any adapter can be built. Recommend this as the
+> next Frank subtask under "process ulukau-family sources".
+
+---
+
+## Files Created/Modified
+
+- `data/raw/wehewehe-stage2/20260501/EXTRACTION_REPORT.json` — full per-PDF extraction
+  probe results, tooling status, forward path (sidecar, raw originals untouched)
+- `.squad/agents/frank/history.md` — Learnings appended
+- This decision note
+
+## Files NOT Created
+
+- `data/stage2/candidates/wehewehe_pd_dictionary_examples.jsonl` — 0 rows to emit;
+  file not created to avoid empty-file confusion in manifest builder
+
+---
+
+# HK Statutes 1897 — Processing Decision & Findings
+
+**Agent:** Linus (Data Engineer)
+**Date:** 2026-05-01
+**Status:** Done — 1897 pair fully processed; 1869/1850 remains inventory-only.
+
+---
+
+## What was done
+
+Processed the Hawaiian Kingdom Statutes 1897 bilingual pair from the already-local
+`data/raw/hawaiian-kingdom-statutes-paired-imprints/20260501/` raw pull into
+Stage-2 candidate rows.
+
+**Script:** `scripts/325_build_hk_statutes_candidates.py`
+**Output:** `data/stage2/candidates/hk_statutes_1897.jsonl` — 1,103 rows
+
+---
+
+## 1897 Pair (esrp641724381 EN × esrp641728581 HAW) — GO
+
+### Approach
+Section-level candidate extraction using deterministic section-ID pairing:
+- EN chapter markers: `CHAPTER N.`  →  section markers: `^§N[,.]`
+- HAW chapter markers: `MOKUNA N.`  →  section markers: `^[$S]N[,.]`
+  (`$` and `S` are OCR artifacts for `§` in the HAW djvu.txt)
+
+Section text extracted from each `§N` marker to the next marker, then cleaned
+(hyphen-join, whitespace collapse, NFC + ʻokina canonicalization on HAW side).
+
+### Counts
+| Metric | Value |
+|---|---|
+| EN sections parsed | 1,292 |
+| HAW sections parsed | 1,456 |
+| Common (paired) sections | 1,103 |
+| Rows emitted | 1,103 |
+| Skipped (too short) | 0 |
+| EN-only (unmatched) | 189 |
+| HAW-only (unmatched) | 353 |
+| Schema violations | 0 |
+
+### Schema/policy
+- `alignment_type = "parallel-sentence"` — section-level parallel (justified: official
+  bilingual publication with matching section numbers)
+- `alignment_method = "filename-pair"` — closest allowed enum value; section-ID
+  pairing within paired files
+- `alignment_review_required = True` — OCR noise present
+- `prototype_only = True`, `release_eligible = False`
+- `split = "review-pending"` (policy: OCR source requires review before train)
+- `direction_original = "en->haw"` — HAW preface confirms *"Unuhiia mai ka Olelo
+  Beritania mai."* (translated from English)
+- License: `public-domain-US-pre1929` on both sides; sovereign-edicts doctrine applies
+
+### Known OCR gaps
+The HAW djvu.txt renders `§` as `8` in ~189 sections (e.g., `§7` → `87.`,
+`§23` → `823.`). These are excluded conservatively because the `8N` pattern is
+ambiguous with real section numbers. A future `§→8` normalization pass (with human
+spot-check) could recover ~189 additional pairs.
+
+---
+
+## 1869/1850 Pair — INVENTORY-ONLY (no change)
+
+Per decisions.md policy, HAW item `esrp468790723` has filename `1850.002_djvu.txt`,
+indicating a year-mismatch with the EN 1869 penal code (`esrp475081650`).
+
+No sections extracted. Status: inventory-only pending year-mismatch verification.
+
+---
+
+## Files created/modified
+
+| File | Change |
+|---|---|
+| `scripts/325_build_hk_statutes_candidates.py` | NEW — section parser + row builder |
+| `data/stage2/candidates/hk_statutes_1897.jsonl` | NEW — 1,103 candidate rows |
+| `data/stage2/reports/hk_statutes_1897_report.json` | NEW — alignment report |
+| `.squad/agents/linus/history.md` | Updated — added Learnings section |
+| `.squad/decisions/inbox/linus-hk-statutes-processing.md` | NEW — this file |
+
+---
+
+## Durable decisions / proposals
+
+1. **`alignment_method = "filename-pair"`** is used as the closest allowed enum value
+   for section-ID-within-paired-files pairing. Propose adding `"section-id"` to the
+   allowed alignment_method enum if future statute/legal sources follow the same pattern.
+
+2. **`register = "unknown"`** is used for legal statute text. Propose adding `"legal"`
+   to the register enum; it does not fit religious / encyclopedic / educational / news.
+
+3. **OCR `§→8` recovery**: ~189 additional pairs are available if a human reviews the
+   `87.`, `823.` etc. markers in the HAW djvu.txt. Recommend a targeted review pass
+   after the current review-pending batch is assessed.
+
+---
+
+# Stage 2 Structured Counts — Inventory (2026-05-01)
+
+**Owner:** Linus (Data Engineer)
+**Date:** 2026-05-01
+**Status:** INFORMATIONAL — counts and readiness assessment
+
+## Summary
+
+Full inventory of Stage 2 structured data as of the 2026-05-01 raw pull.
+
+## Existing Prepared Stage 2
+
+| Metric | Count |
+|---|---|
+| Canonical manifest rows | **11,828** |
+| — train pairs | 4,665 |
+| — review-pending | 7,148 |
+| — dev | 15 |
+| Directional SFT rows | **9,330** (4,665 en→haw + 4,665 haw→en) |
+| Unique pair_ids | 11,828 |
+| Unique dedup_cluster_ids | 11,828 |
+
+**Candidates total on disk:** 32,822 rows across 6 files
+
+| Candidate file | Rows | Merged? |
+|---|---|---|
+| `andrews_1865_vocab.jsonl` | 1,194 | ✅ in manifest |
+| `bible.jsonl` | 5 | ✅ in manifest (smoke) |
+| `bible_haw1868_kjv.jsonl` | 31,101 | ❌ not yet merged |
+| `kaikki_wiktionary.jsonl` | 292 | ✅ in manifest |
+| `tatoeba.jsonl` | 121 | ✅ in manifest |
+| `hooilina.jsonl` | 109 | ❌ new this session |
+
+## Newly Pulled Source Readiness
+
+| Source | Raw Units | Structured Pairs | SFT Potential | Status |
+|---|---|---|---|---|
+| Hoʻoilina | 109 EN + 109 HAW_mod + 109 HAW_orig sections | 109 candidate pairs (emitted) | 218 directional rows (if accepted) | `candidate` |
+| Wehewehe (PD subset) | 6 raw PDFs, 0 extracted entries | 0 | 0 | `raw-only` |
+| Wehewehe (modern dicts) | 7 inventory landings, no PDFs | 0 | 0 | `inventory-only` |
+| HK statutes 1897 Cornell | 2 djvu.txt, section markers confirmed | 0 (adapter needed) | est 400–1200 directional rows | `raw-structured` |
+| HK statutes 1869 (EN) ↔ 1850 (HAW) | 2 djvu.txt | 0 | 0 | `inventory-only` (year-mismatch) |
+| HK statutes 1846 + 1859 | 4 djvu.txt | 0 | TBD | `raw-structured` |
+| Alpaca cleaned (synthetic) | 52,002 parquet rows | 0 | capped (synthetic pool, not human-parallel) | `raw-only` |
+| haw1868 Bible USFM | 66 USFM files | 31,101 (pre-existing candidates) | 62,202 directional (if merged) | `candidate` |
+
+## Key Gaps / Next Steps
+
+1. **bible_haw1868_kjv** (31,101 rows) — ready to merge; run `320_build_stage2_manifest.py --execute`
+2. **Hoʻoilina** (109 rows) — emitted; needs section-level review before manifest merge; `alignment_review_required=True`
+3. **HK statutes 1897** — adapter needed to parse djvu.txt into section-level pairs; section markers confirmed present
+4. **Wehewehe** — no OCR pipeline; Andrews 1865 already covered; other PD dicts need IA djvu.txt items to be useful
+5. **1869 year-mismatch** — resolve before pairing; 1897 Cornell pair is the safe starting point
+
+## Effective Directional SFT Capacity
+
+| Pool | Rows in SFT | Direction |
+|---|---|---|
+| Current SFT (merged train) | 9,330 | 4,665 × 2 |
+| If haw1868 merged | +62,202 | 31,101 × 2 |
+| If Hoʻoilina accepted | +218 | 109 × 2 |
+| **Potential total** | **~71,750** | pending review |
+
+Human-parallel only (excluding synthetic Alpaca pool).
+
+---
+
+# Data Policy Proposal: Ulukau SFT Source Acceptance Rubric
+**Author:** Linus (Data Engineer)
+**Date:** 2026-05-03
+**Status:** PROPOSAL — for team awareness
+
+---
+
+## Summary
+
+Independent vetting of Ulukau-family Stage 2/SFT source classes. Defines a ranked acceptance rubric, row-yield estimates, source gates, and recommended next actions for reaching the 80k directional SFT row target.
+
+Full analysis: `data/stage2/reports/ulukau_sft_vetting_20260503.md`
+
+---
+
+## Policy Decisions
+
+### 1. Source Class Dispositions (Ulukau-family)
+
+| Source Class | Status | Rationale |
+|---|---|---|
+| Verse-aligned parallel Bible (haw1868) | **GO** | Unblocked; merge immediately; enforce Bible ≤30% cap |
+| Ka Hoʻoilina trilingual layers | **PROVISIONAL** | KS © editorial; `prototype_only=True`; `release_eligible=False`; citation required |
+| HK statutes 1897 Cornell pair | **GO (adapter needed)** | PD; djvu.txt on disk; legal ≤15% token cap |
+| HK statutes 1869/1850 pair | **PROVISIONAL** | Year-mismatch unresolved; inventory-only until verified |
+| Wikimedia CX published | **GO (adapter needed)** | CC BY-SA; `stats.mt < 0.5` filter required |
+| Wehewehe PD subset (Andrews 1836, Emerson, Hitchcock, Parker) | **RAW-ONLY** | PDFs on disk; OCR pipeline needed; combined dict cap ≤5k (1,194 consumed) |
+| puke.ulukau.org bilingual books (EBOOK-DHLLT etc.) | **INVENTORY-ONLY** | Per-book rights audit required before adapter |
+| Nupepa / monolingual HAW books/newspapers | **RAW-ONLY** | Stage 1 only; never Stage 2 primary |
+| Modern copyrighted dicts (PE 1986, Māmaka Kaiao 2003, Combined 2020, Kent 1986) | **BLOCKED** | In-copyright; no license grant; do not pull |
+
+### 2. Execution Priority Gate
+
+Before any new Ulukau discovery is acted on, the following adapter backlog must be worked down:
+1. Merge haw1868 with Bible cap enforcement (highest yield, no new code needed)
+2. Wikimedia-cx adapter (CC BY-SA, cleanest quality/effort ratio)
+3. HK statutes 1897 section-level adapter (djvu.txt on disk, rights clear)
+4. Hooilina alignment review → manifest merge
+5. Only then: expand Hoʻoilina full pull, puke.ulukau.org inventory, HK 1869 year-mismatch resolution
+
+### 3. Realistic Gap to 80k Target
+
+After executing P1–P4 above:
+- Projected SFT total: ~55,000–57,000 directional rows
+- Remaining gap: ~23,000–25,000 directional rows
+- **NLLB mined pull is required to bridge this gap.** Non-Bible, non-synthetic human-parallel sources alone cannot reach 80k.
+
+### 4. Adapter-First Principle Confirmed
+
+**Do not search for new Ulukau sources before building adapters for sources already on disk.** Discovery is free; adapter implementation is the bottleneck. Exception: low-cost metadata sweeps of puke.ulukau.org bilingual-tagged book IDs can proceed in parallel.
+
+---
+
+## Caps Restated (existing policy, no changes)
+
+- Bible: ≤30% parallel-train tokens
+- Dictionary examples: ≤5k rows combined across all dict sources
+- Synthetic (BT + FT): ≤15% directional rows, never dev/test
+- Legal register: ≤15% parallel-train tokens
+- Mined/NLLB: LaBSE ≥0.75; never dev/test
+- Hoʻoilina: `prototype_only=True`, `release_eligible=False`
+
+---
+
+## Cross-Team Notes
+
+- **Frank:** Build wikimedia-cx adapter and HK statutes 1897 adapter before next Ulukau discovery pass. Low-cost: inventory puke.ulukau.org EBOOK-* items tagged both `Pelekānia` + `Hawaiʻi` while adapters are being built.
+- **Rusty:** Alignment review needed on hooilina.jsonl (109 rows) before manifest merge. Register tag `"educational"` for Hoʻoilina Lahaina Luna source stream.
+- **Linus (self):** Confirm Bible cap enforcement logic in `320_build_stage2_manifest.py` before haw1868 merge — this is the most important immediate gate.
+
 > Updated 2026-05-01T21:28:28Z: Merged Linus raw-pull rights gate + Frank Stage 2 raw acquisition for sources 1, 2, 3. Outcome: Linus issued go/no-go matrix + metadata schema for Ka Hoʻoilina (provisional prototype-only, KS citation required, release_eligible=False), Wehewehe PD (≤5k rows combined, pre-1925 imprints only, modern dicts blocked), HK statutes (1897 pair cleared, 1850/1869 deferred pending year-mismatch verification, Judd/Pukui/Stokes 1943 inventory-only pending US renewal check). Frank completed raw acquisition: Hoʻoilina 4.6 MB (331 leaf sections), Wehewehe 924 MB (6 PD PDFs + inventory landings), HK statutes 231 MB (8 IA item sets, djvu.txt re-registered). Total 1.16 GB, 0 failures. All gitignored, manifests + ToS captured, ready for adapter implementation after gate confirmations. User directive (raw-first acquisition) fulfilled. Full details in decisions below.
 >
 > Updated 2026-05-01T20:34:18Z: Merged Linus Stage 2 source filter + Frank Ulukau Stage 2 pivot. Outcome: Linus designed Stage 2 acceptance filter (bilingual alignment, rights gates, register taxonomy, 5 hard caps: Bible ≤30% token, dict ≤5k, synthetic ≤15%, mined never dev/test). Ranked 8 discovery targets across Tier A (search now) and Tier B (search next); recommended pilot `wikimedia-cx-en-haw-published` (CC BY-SA, 1–3k pairs, unblocks doc-level LaBSE). Frank confirmed Nupepa is Stage 1-only (monolingual Hawaiian OCR); ranked Ulukau-family candidates: Ka Hoʻoilina (★★★★★, 80% Veridian surface reuse, highest parallel-pair density), Wehewehe dictionary (★★★★, PD pre-1925 subset), HK statutes (★★★★, already in plan), Nā Puke (★★, defer), Baibala (in plan). Recommended adapter-pilot: Ka Hoʻoilina with 3 pre-pilot gates (Linus: citation OK for prototype-only? modernized-HAW primary? smoke test + ToS snapshot?). User directive (2026-05-01T13:28:17-07:00) captured: Stage 2 should focus on bilingual/parallel data, not monolingual newspaper OCR. Dependencies staged: Linus rights review (P1, Hoʻoilina + Wehewehe PD cutoff), Rusty register-fit review (Hoʻoilina spelling layer). Full reports in `.squad/decisions/inbox/linus-stage2-source-filter.md` and `.squad/decisions/inbox/frank-stage2-ulukau-focus.md`.

@@ -330,3 +330,118 @@ Pools sorted by sha256_pair ascending, selected greedily. After selection, recom
 - **Frank:** Unblocked for NLLB-mined + synthetic BT (285 honest pairs; 80k requires non-Bible growth)
 
 **Status:** ACCEPTED. Canonical reviewed manifest locked.
+
+
+## 2026-05-03 — Stage 2 Final Review Verdict Policy
+
+**Output:** `.squad/decisions/inbox/danny-final-review-verdict-policy.md`
+
+### Problem
+
+After the fixed-point cap pass, 33,551 rows in
+`reviewed_stage2_manifest_final_capped.jsonl` still carry
+`split=review-pending` with no further adjudication field. That single
+label was doing two incompatible jobs: (1) emitter signal "not a
+training row," and (2) editorial state "not yet reviewed." The second
+was false for nearly every row — they had all been touched by either
+the cap-enforcement pass, Rusty's review-pending policy, or Linus's
+source-rights gate. Leaving them undifferentiated invited a future
+reader to believe they were still promotion candidates.
+
+### Decision
+
+Keep `split` unchanged (preserves emitter contract and 285/15 train/dev
+counts). Add three required fields to every row:
+`review_status=finalized`, `review_verdict` (closed enum of 8),
+`final_review_reason` (free text). Optional `final_review_repromotion_pool`
+when verdict is `excluded-policy-cap`.
+
+Verdict taxonomy:
+- `accepted-train` / `accepted-dev` for the 285+15
+- `excluded-quality` (failed scorer/flags) — re-extract to revisit
+- `excluded-policy-cap` (the **only** re-promotable bucket; gated on N growth)
+- `excluded-source-not-trainable-now` (Andrews — needs clean re-extraction)
+- `future-work-realign` (different alignment strategy needed)
+- `future-work-native-review` (Hoʻoilina — W1 reviewer #7 gated)
+- `inventory-only` (provenance signal only)
+
+### Source-specific rules (deterministic)
+
+- **Bible 1839 (10,216):** quality_flags-empty + not-train ⇒ cap-overflow;
+  rest ⇒ excluded-quality (`haw_no_diacritics` is *expected* for the
+  1839 imprint and correctly gates these out)
+- **Bible 1868 (20,827):** all `excluded-policy-cap` (largest re-promotion pool)
+- **HK 1897 (1,098):** in `hk_eligible_pool` ⇒ cap-overflow (742); rest ⇒
+  excluded-quality (351, failed §1.5 promotion rule)
+- **Andrews (1,194):** all `excluded-source-not-trainable-now`
+- **Kaikki (139):** all `excluded-quality` (no source cap exists for Kaikki)
+- **Tatoeba (9):** all `excluded-quality` (`side_too_short`)
+- **Hoʻoilina (68):** all `future-work-native-review` (Rusty §1.4)
+
+### Invariants Basher must verify on the artifact
+
+1. Every row has all three new fields (no nulls)
+2. Schema split counts byte-identical (285/15/33,551)
+3. Verdict ↔ split consistency (no accepted-* on review-pending)
+4. Closed enum compliance
+5. Cap-pool membership coherent
+6. Per-source verdict distributions match §3 rules
+7. Bible ≤ 30% / HK ≤ 15% still hold on re-emitted artifact
+8. SFT emitter still produces 570 directional rows
+9. excluded-quality and excluded-policy-cap mutually exclusive
+10. Sum of `excluded-policy-cap` rows logged as the honest
+    re-promotion ceiling for Frank's NLLB / synthetic-BT plan
+
+### Trade-offs named (charter discipline)
+
+- Reused `split=review-pending` as the emitter signal vs. introducing
+  a new `split=excluded`: chose the former to limit blast radius;
+  cost is field overload, mitigated by `review_status=finalized` and
+  the explicit verdict.
+- 8-verdict enum vs. 2-bucket binary: 8 maps onto the operational
+  question "what would unblock this row?" Anything coarser loses the
+  "cap-rerun is legal, re-extraction is required" distinction that
+  drives Frank's planning.
+- Tag pool name only (`final_review_repromotion_pool`) not per-row
+  position-in-cap-pool: cheaper, reproducible from sha256_pair sort;
+  cost is no resumable cap state (accept; cap pass is sub-second).
+
+### Learnings
+
+- **"Pending" is a smell when the work is actually done.** Once a
+  pass touches every row, those rows are *adjudicated*; the schema
+  must reflect that even if the operational label can't change. Add an
+  editorial layer (`review_status`/`review_verdict`) on top of the
+  operational layer (`split`) instead of overloading one field.
+- **Re-promotion bucket is the load-bearing distinction.**
+  `excluded-policy-cap` vs everything else is what keeps a future
+  N-growth pass from accidentally pulling Andrews/Hoʻoilina/quality
+  rejects into train. This single boundary is worth more than the
+  other five verdicts combined.
+- **Don't chase 80k via verdict reclassification.** The honest
+  ceiling for re-promotion = sum of `excluded-policy-cap` rows. The
+  policy makes that number explicit so it can't be inflated by
+  silently relaxing quality or rights gates.
+- **Don't change the canonical manifest.** This is editorial state on
+  the *reviewed* artifact only. `stage2_manifest.jsonl` (pre-review)
+  stays as ingestion truth.
+
+### Status
+
+Decision filed. Basher owns implementation
+(`scripts/334_finalize_review_verdicts.py`). No data artifact modified
+by this pass.
+
+## 2026-05-02T00:56:01Z — Final Review Verdict Policy (Decision Filed)
+
+**Task:** Define final verdict taxonomy and rules for all 33,551 review-pending rows.
+
+**What I did:**
+- Wrote stage 2 final review verdict policy (8 sections, 306 lines).
+- Closed enum of 6 verdicts + 2 accepted verdicts: accepted-train, accepted-dev, excluded-quality, excluded-policy-cap, excluded-source-not-trainable-now, future-work-native-review, future-work-realign, inventory-only.
+- Source-specific rules for 7 sources: Bible 1839/1868, HK 1897, Andrews 1865, Kaikki, Tatoeba, Hoʻoilina, inventory-only.
+- 10 invariants for post-implementation compliance verification.
+- Named trade-offs: verdict granularity (6 exclusion verdicts) vs. cognitive load, schema-split field reuse for emitter compatibility, closed-form pools vs. per-row provenance, no backfill of manual_review_reasons.
+- Handed off to Basher (implementation) + Linus (HK validation) + Frank (NLLB/BT budget planning) + Rusty (no action; policy consumes review-pending rules).
+
+**Status:** ACCEPTED. Policy filed in `.squad/decisions.md`. Basher owns implementation.

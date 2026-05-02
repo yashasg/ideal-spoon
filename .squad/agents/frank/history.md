@@ -2188,3 +2188,17 @@ Decision proposal: `.squad/decisions/inbox/frank-pull-ulukau-family-raw.md`
 1. Implement `325_build_phrase_book_candidates.py` — high-priority, no blockers, estimated 800–2k rows
 2. Re-emit Hoʻoilina adapter with `html.unescape()` + boilerplate filter
 3. Probe Gospel of John djvu.txt OCR column quality (10-verse sample)
+
+## 2026-05-02T00:56:01Z — Re-promotion Budget Available for NLLB/BT Planning
+
+**Milestone:** Stage 2 final review verdicts completed by Danny + Basher.
+
+**What you need to know:**
+- Final re-promotion budget (sum of `excluded-policy-cap` rows across all sources) = **32,756 rows**.
+  - Bible 1839 cap-overflow: 10,185 rows (passes quality; dropped by 30% cap).
+  - Bible 1868 cap-overflow: 20,827 rows (all pass quality; dropped by 30% cap).
+  - HK 1897 cap-overflow: 742 rows (passed hk1897-legal-clean-v1; dropped by 15% cap).
+  - Others: ~2 rows (likely rounding).
+- **Source:** `data/stage2/reports/stage2_finalized_review_verdicts_20260501.json` (full verdict distribution).
+- **Constraint:** This 32,756 is the honest ceiling. Any NLLB-mined or synthetic-BT pairs that re-trigger the Bible/HK cap must come from this pool only. Do not exceed it.
+- **Action:** Integrate this budget into your NLLB yield + synthetic-BT yield plans. Recommend next spawn = Frank (refine NLLB discovery bounds + synthetic-BT generation cap).

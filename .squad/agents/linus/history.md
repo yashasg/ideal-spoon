@@ -2371,3 +2371,13 @@ Non-Bible train = 2,118 (to reach 30% Bible share, need ~10k total non-Bible)
 **Handed to:** Basher for correction per Rusty's policy as sole source of truth.
 
 **Next phase:** Basher to apply caps correctly, but hit different issue (cap math drift).
+
+## 2026-05-02T00:56:01Z — Validation Checklist Ready for HK / Wehewehe Candidates
+
+**Milestone:** Stage 2 final review verdicts completed. Basher established mandatory validation protocol.
+
+**What you need to know:**
+- **Ulukau-family validation checklist:** 6 mandatory checks for all future candidate JSONL files (JSONL parse, required fields, sha256_pair hash invariant, dedup collision scan, SFT dry-run potential, manifest builder dry-run). Details in `.squad/decisions.md`.
+- **Hoʻoilina findings:** 41 rows are boilerplate; 68 content rows have unescaped HTML entities (ʻ, Ā, Ō, Ī). Requires adapter fix (html.unescape() before NFC) + re-emit + re-validate.
+- **HK statutes:** No candidates yet. When you emit `hk_statutes*.jsonl`, apply the 6-check sequence. Additional gates: verify `register="legal"` on all rows; confirm 1897 Cornell pair only (defer 1850/1869 until year-mismatch resolved); legal register ≤15% token cap at manifest build time.
+- **Wehewehe PD:** No candidates yet. When you emit `wehewehe*.jsonl`, apply 6-check sequence. Additional gates: verify source dict name is on PD whitelist (Andrews 1836/1865, Emerson 1845, Hitchcock 1887, Parker 1922, Dict. Biblical Words 1872); `register="dictionary-example"`; combined dict cap ≤3,806 rows remaining (1,194 consumed by andrews_1865_vocab).

@@ -1067,3 +1067,66 @@ Rusty's manifest builder now handles all policy scoring. Basher's emitter needs 
 **Handed to:** Danny for fixed-point cap solution (enforce caps against final artifact tokens, not stale reference denominators).
 
 **Next phase:** Danny solved via closed-form math: H_max=3N/11, B_max=6N/11, T=20N/11 → exact 30%/15% in artifact.
+
+---
+
+## Learnings (2026-05-02) — Stage 2 Finalized Review Verdicts
+
+**Task:** Finish pending reviews on every row in `reviewed_stage2_manifest_final_capped.jsonl`.
+
+**Key findings per source:**
+
+| Source | Pending | Primary verdict | Count |
+|--------|---------|-----------------|-------|
+| Bible 1839 | 10,216 | bible-cap-overflow (accept/review tier) | 10,185 |
+| Bible 1839 | 10,216 | bible-quality-reject (reject tier) | 31 |
+| Bible 1868 | 20,827 | bible-cap-overflow | 20,827 |
+| HK 1897 | 1,098 | hk-legal-cap-overflow (passed quality, hit cap) | 742 |
+| HK 1897 | 1,098 | hk-quality-reject (ratio/length fail) | 356 |
+| Andrews | 1,194 | andrews-dictionary-fragment-rejected | 1,194 |
+| Hoʻoilina | 68 | hooilina-alignment-pending (deferred) | 68 |
+| Kaikki | 139 | kaikki-quality-reject | 139 |
+| Tatoeba | 9 | tatoeba-quality-reject | 9 |
+
+- HK pending splits cleanly: rows with `dropped-by-hk-legal-cap-v2-fixedpoint` in `manual_review_reasons` = cap overflow (742); else quality fail (356).
+- Bible 1839 splits by `alignment_confidence_tier`: reject=quality-reject (31), accept/review=cap-overflow (10,185).
+- Bible 1868 has no confidence tier (verse-id adapter); all 20,827 are cap overflow.
+- All 33,851 rows now have non-empty `final_review_status`, `final_review_verdict`, `final_review_reason`, `final_review_pass_id`.
+- Caps still hold: Bible 29.92%, HK 14.59% (unchanged from Danny's artifact).
+
+**Artifacts:**
+- `data/stage2/reviewed_stage2_manifest_finalized_reviews.jsonl` (33,851 rows)
+- `data/stage2/reports/stage2_finalized_review_verdicts_20260501.json`
+- `scripts/334_finalize_stage2_review_verdicts.py`
+
+**Validation counts:** total=33851, train=285, dev=15, review-pending=33551, SFT rows=570, no missing fields.
+
+## 2026-05-02T00:56:01Z — Finalized Review Verdicts Implementation + Ulukau Validation
+
+**Task 1: Implement Danny's final review verdict policy (scripts/334_finalize_stage2_review_verdicts.py)**
+
+**What I did:**
+- Assigned verdicts to all 33,551 review-pending rows per Danny's source-specific rules.
+- Verified all 10 invariants from Danny's §4.
+- Re-validated artifact compliance: split counts unchanged (train 285, dev 15, review-pending 33,551); all rows have final verdict fields; caps re-verified (Bible 29.92%, HK 14.59%); SFT emitter 570 rows unchanged.
+- Computed re-promotion budget: 32,756 excluded-policy-cap rows (Bible 1839 10,185 + Bible 1868 20,827 + HK 1897 742 + others).
+- Artifacts: `data/stage2/reviewed_stage2_manifest_finalized_reviews.jsonl` (33,851 rows) + `data/stage2/reports/stage2_finalized_review_verdicts_20260501.json` + `scripts/334_finalize_stage2_review_verdicts.py`.
+
+**Status:** COMPLETE. Implementation verified against all 10 invariants.
+
+**Task 2: Validate Stage 2 Ulukau-family candidates + establish checklist**
+
+**What I found:**
+- **Hoʻoilina.jsonl findings:**
+  - Bug 1: 41 rows (37.6%) contain only Greenstone JS UI boilerplate tooltip, not translation pairs.
+  - Bug 2: All 68 content rows have unescaped HTML numeric entities (ʻ, Ā, Ō, Ī); must apply html.unescape() before NFC normalization. Current hashes are stale.
+  - SFT potential: 0 rows now (all gated by alignment_review_required), ≤136 directional rows post-fix.
+  - Recommendation: Re-emit after HTML decode fix + re-validate + re-run manifest builder dry-run.
+
+- **Mandatory validation checklist:** 6 checks for all future Ulukau-family JSONL files (JSONL parse, required fields, sha256_pair hash invariant, dedup collision scan, SFT dry-run potential, manifest builder dry-run).
+
+- **HK Statutes / Wehewehe PD:** No candidates yet (Linus and Frank in-progress); checklist ready for deployment.
+
+**Status:** PROPOSAL filed. Checklist merged into `.squad/decisions.md`.
+
+**Cross-team updates:** Frank given re-promotion budget (32,756 rows); Linus given validation protocol for HK/Wehewehe candidates.

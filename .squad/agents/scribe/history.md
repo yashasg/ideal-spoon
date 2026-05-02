@@ -50,3 +50,23 @@ Wrote orchestration-log entries for both Linus pipeline passes; wrote session lo
 - No history summarization (per spawn manifest)
 
 **Status:** Ready for Frank parser implementation; Coordinator may route #16 to Frank next.
+
+## 2026-05-02T00:56:01Z — Stage 2 Final Review Verdicts Session Log
+
+**Spawn request:** "finish the pending reviews man"
+
+**Tasks completed:**
+1. ✅ **Orchestration log:** `.squad/orchestration-log/2026-05-02T00-56-01Z-stage2-final-review-verdicts.md` — documented Danny policy + Basher implementation + Basher validation + team outcomes.
+2. ✅ **Session log:** `.squad/log/2026-05-02T00-56-01Z-stage2-final-review-verdicts.md` — summarized what happened, artifacts, team impact, next steps.
+3. ✅ **Decisions merge:** Merged 9 inbox files into `.squad/decisions.md`. Updated tag with merge summary. Decisions.md grew from 6,073 to 7,214 lines (~370 KB total; well under 500 KB archive threshold and 30-day policy).
+4. ✅ **Inbox cleanup:** Deleted all 9 inbox files from `.squad/decisions/inbox/`.
+5. ✅ **Cross-agent history appends:** Updated Danny (policy filed) + Basher (implementation + validation complete) histories. Appended brief updates to Scribe (this entry).
+6. ✅ **Git staging:** Will commit `.squad/` changes with co-authored trailer.
+
+**Decisions merged:**
+- Danny final review verdict policy (8 sections, closed enum, source rules, 10 invariants)
+- Basher finalized review verdicts (33,851 rows with verdicts; caps verified; SFT 570 rows unchanged)
+- Basher stage 2 Ulukau validation (hooilina findings + 6-check mandatory protocol)
+- 6 other inbox files (Frank raw-provenance, Frank Wehewehe PD, Frank more-Ulukau-SFT, Linus HK, Linus structured-counts, Linus Ulukau-vetting)
+
+**Status:** All pending reviews finished. Frank ready for NLLB/synthetic-BT budget planning (32,756 re-promotion budget). Linus ready for HK statutes / Wehewehe PD parsing. Hoʻoilina adapter blocked on upstream HTML decode fix.
