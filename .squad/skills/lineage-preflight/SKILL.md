@@ -91,3 +91,85 @@ preflight on this scaffold. Verdict was
 `data/raw/nllb-mined-haw-eng/20260502/endpoint_proof.json`. Saved
 building an entire mined-data adapter against a slice that does not
 exist upstream.
+
+---
+
+## Extension: raw-provenance probe for comparable-aligned MediaWiki sources (Frank, 2026-05-02)
+
+Some Stage-2 sources (Wikipedia langlinks, Wikisource cross-links) are
+**comparable, not parallel**: their fetch plans declare
+`alignment_method=labse`. The honest stance for a data collector when the
+required aligner isn't wired into the repo is **not** to emit candidate rows
+with `alignment_method=null` and `alignment_review_required=true` — that
+silently floods the review queue and inflates N. The honest stance is to
+land a raw-provenance probe that the alignment agent can consume later
+without re-crawling.
+
+### Pattern (mirrors nllb probe scaffold; differs in posture)
+
+For any HF-or-MediaWiki source whose plan-stated alignment is `labse`/`laser`:
+
+1. Read input titles/IDs from the **already-ingested Stage-1 artifact** if
+   present (e.g. `data/extracted/hawwiki/<YYYYMMDD>/extracted.jsonl.gz`).
+   Don't re-crawl what Stage 1 already pinned.
+2. Hit the upstream API (MediaWiki: `prop=langlinks|info|revisions` with
+   `lllang=<en>`, `formatversion=2`, `redirects=1`, `maxlag=5`) and persist
+   *every raw response* under
+   `data/raw/<source-id>/<YYYYMMDD>/batches/<endpoint>_batch_NNNN.json` with
+   sha256, http status, fetch timestamp, content-type.
+3. Snapshot the ToS / license page once per probe day → `tos_snapshot.html`
+   plus a `tos_snapshot.meta.json` with sha256.
+4. Capture *both sides'* current revision IDs (haw side from langlinks query,
+   en side via a follow-up `prop=info|revisions` batch on resolved titles).
+   These are the immutable join keys for the future alignment pass.
+5. Emit a per-pair `langlinks_manifest.jsonl` with at minimum:
+   `{haw_title, haw_pageid, haw_revid, haw_revision_timestamp, haw_url,
+     en_title_requested, en_title_resolved, en_pageid, en_revid,
+     en_revision_timestamp, en_url, fetch_timestamp_utc,
+     license_observed, tos_or_license_url, tos_snapshot_path,
+     alignment_type=comparable-aligned, alignment_method_required=labse,
+     alignment_blocker, dedup_cluster_id_seed}`.
+6. Emit `probe_summary.json` with `verdict`, `stats`, explicit `blockers`,
+   and `dedup_overlap_risk` against any sibling lane (e.g. CX-published).
+7. Copy `probe_summary.json` to `data/stage2/reports/<source>_probe_report.json`.
+8. **Do NOT** emit `data/stage2/candidates/<source>.jsonl`. **Do NOT** touch
+   `data/stage2/stage2_manifest.jsonl` or final-capped artifacts.
+9. Update `data-sources/stage2-parallel-fetch-plan.json::sources[].adapter_status`
+   to `raw_probe_landed_blocked_on_<aligner>` with a `raw_probe` block
+   pointing at script + report + raw dir + smoke counts + blocker.
+
+### MediaWiki API etiquette
+
+- `User-Agent: <project>/<version> (... contact ...)`. Wikimedia bans naked UAs.
+- Sleep ≥1.0s between calls; `maxlag=5` skips during high replication lag
+  with no penalty.
+- `formatversion=2` returns `pages` as a list, not a dict; index code must
+  handle both shapes.
+- `redirects=1` rewrites `pages[].title` to the resolved title and exposes
+  `query.redirects[]` as the alias map. Attach the resolved revision record
+  to *both* requested and resolved title keys when building the join index.
+- Filter mainspace at the *probe input* layer: title-prefix denylist of
+  English-language namespace prefixes (`Wikipedia:`, `Module:`, …) is fine
+  for a smoke set; production-grade filter should use `prop=info` `ns` field
+  to handle Hawaiian-namespace prefixes (`Anakuhi:` for Template,
+  `Hoʻonohonoho:` for Category, etc.).
+
+### Anti-patterns
+
+- Emitting `alignment_method=null` doc-level pairs and tagging them
+  `alignment_review_required=true`. This is review-queue spam, not data.
+- Setting `alignment_score` to a placeholder (0.0, 1.0, or any heuristic).
+  No score is honest until LaBSE/LASER actually runs.
+- Re-crawling titles for which Stage 1 already pinned a revision ID. The
+  probe must consume the Stage-1 extract.
+- Mutating a sibling lane's raw dir (e.g.
+  `data/raw/wikimedia-cx-en-haw-published/`) for "dedup convenience". Probes
+  are additive; dedup is recorded as `dedup_cluster_id_seed` and resolved
+  downstream.
+
+### Reference instance
+
+`data-sources/wiki-haw-en-langlinks/probe.py` — Stage-2 priority #3 lane,
+2026-05-02. Smoke set 60 hawwiki titles → 53 langlink pairs with full
+revision IDs both sides. Verdict `OK_RAW_PROBE_LANGLINKS_RECORDED`,
+adapter_status `raw_probe_landed_blocked_on_labse`. Stage-2 N unchanged.

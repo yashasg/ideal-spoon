@@ -2656,3 +2656,21 @@ CX-pinned one) and re-aligning — a separate task.
 3. 7 nosuchrevid articles recoverable only by fetching current HAW article + re-aligning (separate task).
 
 **Next:** Weblate crawl in progress (just launched).
+
+---
+
+## 2026-05-02T03:49:23Z — Stage-2 Source Priority Checkpoint (Scribe Log)
+
+**Context:** Frank completed NLLB probe (endpoint invalid, yield 0) and Wikipedia langlinks raw-probe (53 pairs, blocked on LaBSE). Linus's CX lane is in progress (14 review-pending rows, rights sign-off pending).
+
+**Impact on your lane:**
+- CX lane remains the stricter, human-translation-attested subset.
+- When alignment lands later, langlinks must cluster-isolate against your CX manifest before counting rows.
+- Frank recorded `dedup_cluster_id_seed` at probe time; the join is ready.
+
+**Ask for you:** Rights-review sign-off on CC BY-SA 4.0 / GFDL attribution carry-through to derivative artifacts. Question: are per-revision URLs required in each training row, or is dataset-card-level attribution sufficient? This blocks langlinks promotion.
+
+**Team status:**
+- Stage-2 N: 603 canonical / 1,206 directional (unchanged)
+- Honest ceiling without LaBSE: ~50–60k directional (down from 80–150k target)
+- Coordinator is making replacement mined-source decision (MADLAD-400, HPLT v2, OPUS-mined, or target renegotiation)

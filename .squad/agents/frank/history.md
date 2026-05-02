@@ -2400,3 +2400,38 @@ prototype-only ruling does not transfer.
 **Stage 2 impact:** The 8–15k expected pairs from NLLB-mined was the single largest gap-closer in the 80k plan. Without it, honest ceiling is ~50–60k directional rows. Target must be renegotiated or Coordinator must authorize replacement mined-source discovery (MADLAD-400, HPLT v2, OPUS-mined).
 
 **Next:** Unblocked for Wikipedia langlinks discovery. NLLB-mined is closed.
+
+---
+
+## Learnings — Wikipedia haw↔en langlinks raw probe (2026-05-02)
+
+**Task:** Process priority #3 (Wikipedia langlinks) after NLLB closed and while Linus runs CX in parallel.
+
+**Outcome:** Raw-probe lane landed; *no* train-ready rows emitted. The plan-stated `alignment_method=labse` is honest about the gate, and LaBSE is not in this repo yet. Emitting fake or unscored sentence pairs would have padded N at the cost of breaking Stage-2 quality rules.
+
+**Concrete artifacts:**
+- `data-sources/wiki-haw-en-langlinks/probe.py` — stdlib-only, polite (≤1 req/sec) MediaWiki API client. Three modes (`--self-test`, `--dry-run`, `--execute`). Mirrors the `nllb-mined-haw-eng/probe.py` pattern but for active enumeration rather than coverage check.
+- `data-sources/wiki-haw-en-langlinks/README.md` — provenance + rights posture + dedup-against-CX note.
+- `data/raw/wiki-haw-en-langlinks/20260502/` — ToS snapshot, batched API responses (sha256 + http status + fetch ts), `langlinks_manifest.jsonl` (53 pairs from 60-title smoke set), `probe_summary.json`.
+- `data/stage2/reports/wiki_haw_en_langlinks_probe_report.json` — copy of probe summary for the Stage-2 reports dir.
+- `data-sources/stage2-parallel-fetch-plan.json` — `adapter_status` flipped from `none` → `raw_probe_landed_blocked_on_labse` with a `raw_probe` block describing the blocker.
+
+**Smoke results:** 51/60 mainspace hawwiki titles had an `lllang=en` langlink (~85%). All 53 EN counterparts resolved to a current revision id on en.wikipedia.org. Zero CX overlap in this 60-title smoke set, but at full 3.7k-title scale CX overlap is near-certain on the popular articles — that's why `dedup_cluster_id_seed = wiki-haw-en-langlinks::<haw_pageid>::<en_pageid>` is recorded at probe time.
+
+**Stage 2 N:** Unchanged. Still 603 canonical / 1,206 directional. Wikipedia langlinks is now an *enumerated raw inventory* with explicit alignment blocker, not a row-count contributor.
+
+**What MUST happen before this lane contributes rows:**
+1. LaBSE (or comparable scored aligner) wired into this repo as a 320-phase script.
+2. Sentence-segmentation pass per side using NFC + ʻokina canonicalization (mirror `code/llm_hawaii/stage2_quality.py::OKINA_MISENCODINGS`).
+3. Threshold gate per `docs/data-pipeline.md` (default 0.75 LaBSE), with `alignment_review_required=True` for borderline.
+4. Cluster-isolated dedup against `data/stage2/candidates/wikimedia_cx_en_haw.jsonl` and Stage-1 hawwiki hashes (`crosslink_stage1_overlap=True` where positive).
+5. Rights-reviewer (Linus) sign-off on CC BY-SA 4.0 / GFDL attribution carry-through into derivative artifacts.
+
+**MediaWiki API gotchas worth remembering:**
+- `formatversion=2` returns `pages` as a *list*, not a dict keyed by pageid; index code must handle both.
+- `prop=langlinks&lllang=en&lllimit=max` returns 0–1 `langlinks` entries per haw page (the en counterpart). Don't trust 1:1; some pages have multiple entries because of redirect history — keep them all and de-dupe downstream.
+- `redirects=1` rewrites the response's `pages[].title` to the resolved title, but `query.redirects[]` keeps the alias map; use the alias map to attach the resolved revision record to *both* requested and resolved title keys.
+- Wikimedia public APIs tolerate polite bursts but `maxlag=5` is the right etiquette parameter to include — server skips the request if replication lag is too high, no penalty.
+- `Anakuhi:` (and other Hawaiian-namespace prefixes) leak through any English-prefix-only mainspace filter. The probe currently lets these through; the API just returns empty `langlinks` for them, no harm. Future hardening: filter on `prop=info` `ns` field rather than title prefix.
+
+**Lane verdict:** `OK_RAW_PROBE_LANGLINKS_RECORDED`. Hand-off ready for whoever lands the LaBSE pass next.

@@ -7302,3 +7302,46 @@ The 8–15k pairs from NLLB-mined was the single largest gap-closer in the 80k S
 
 - `data/stage2/candidates/wikimedia_cx_en_haw.jsonl` — ready for future review pass when policy settled.
 - No impact on `stage2_manifest.jsonl` or existing train-ready counts.
+# Decision: wiki-haw-en-langlinks landed as raw-probe only; not counted toward Stage-2 N
+
+**Author:** Frank (Hawaiian Data Collector)
+**Date:** 2026-05-02
+**Lane:** Stage-2 priority #3 (after NLLB closed, parallel with Linus's CX lane)
+
+## What I decided
+
+Land the Wikipedia haw↔en langlinks lane as a **raw-probe + provenance ledger only**. Do **not** emit `data/stage2/candidates/wiki_haw_en_langlinks.jsonl`. Do **not** modify `data/stage2/stage2_manifest.jsonl` or any final-capped artifact. Stage-2 N stays at 603 canonical / 1,206 directional.
+
+## Why
+
+The fetch plan declares `alignment_method=labse` for this source because it produces *comparable*, not parallel, docs. LaBSE/LASER is not wired into this repo yet. Emitting candidate rows in this state would require either:
+
+1. Faking an alignment score (forbidden by Stage-2 quality rules and my charter).
+2. Setting `alignment_method=null` + `alignment_review_required=true` for unscored doc-level pairs that haven't been sentence-segmented (would dilute the alignment-review queue with 1000s of rows that nobody can review without a tool, and silently inflate N).
+
+Neither is honest. Capturing raw provenance now means the next agent who lands a LaBSE pass can pull from a fully-sha256'd, revision-pinned manifest without re-fetching anything.
+
+## What I shipped
+
+- `data-sources/wiki-haw-en-langlinks/probe.py` — stdlib-only, polite (≤1 req/sec, `maxlag=5`), three-mode CLI (`--self-test`, `--dry-run`, `--execute`).
+- `data-sources/wiki-haw-en-langlinks/README.md`.
+- `data/raw/wiki-haw-en-langlinks/20260502/` — ToS snapshot, batched API JSON with sha256s, `langlinks_manifest.jsonl`, `probe_summary.json`.
+- `data/stage2/reports/wiki_haw_en_langlinks_probe_report.json`.
+- `data-sources/stage2-parallel-fetch-plan.json` — `adapter_status` → `raw_probe_landed_blocked_on_labse` + `raw_probe` block.
+
+Smoke set: 60 mainspace hawwiki titles → 53 langlink pairs with full revision IDs on both sides. Zero CX overlap in the smoke set; expect overlap at full scale on popular articles.
+
+## What this means for the team
+
+- **Linus:** my probe writes only under `data/raw/wiki-haw-en-langlinks/`. I did not touch `data/raw/wikimedia-cx-en-haw-published/` or the CX candidates JSONL. Your CX lane is the stricter, human-translation-attested subset; when alignment lands, langlinks must cluster-isolate against your manifest before counting rows. The probe records `dedup_cluster_id_seed = wiki-haw-en-langlinks::<haw_pageid>::<en_pageid>` at fetch time so the dedup is a join, not a re-crawl.
+- **Rusty:** when you confirm the LaBSE threshold for the Tier-B pipeline, this lane is ready to feed in. The honest yield projection from the plan is 3–5k *before* a LaBSE-≥0.75 cut; expect well under that after threshold + length-ratio + LID + CX dedup.
+- **Coordinator:** Stage-2 N is unchanged. NLLB lane (priority #1) is closed at 0; CX lane (priority #2, Linus) is in progress; Wikipedia langlinks (priority #3) is now raw-probe-landed. Honest ceiling without a LaBSE pass remains ~50–60k directional rows against the 80k target.
+
+## Asks
+
+- **Linus, when you have cycles:** rights-review sign-off on CC BY-SA 4.0 / GFDL attribution carry-through to derivative artifacts (per-revision URLs are intrinsic; the question is whether downstream training rows must include them or whether dataset-card-level attribution suffices).
+- **Whoever owns 320-phase alignment next:** the probe manifest at `data/raw/wiki-haw-en-langlinks/<YYYYMMDD>/langlinks_manifest.jsonl` is the canonical input. Do not re-crawl titles/revisions; pull article bodies by `haw_revid` / `en_revid` only.
+
+## Reversal cost
+
+Cheap. The probe is additive — re-running with `--execute` produces a new dated subdir and never overwrites the manifest. Removing the lane is `rm -r data/raw/wiki-haw-en-langlinks/` + revert the fetch-plan diff.
