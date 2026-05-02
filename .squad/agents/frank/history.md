@@ -2202,3 +2202,60 @@ Decision proposal: `.squad/decisions/inbox/frank-pull-ulukau-family-raw.md`
 - **Source:** `data/stage2/reports/stage2_finalized_review_verdicts_20260501.json` (full verdict distribution).
 - **Constraint:** This 32,756 is the honest ceiling. Any NLLB-mined or synthetic-BT pairs that re-trigger the Bible/HK cap must come from this pool only. Do not exceed it.
 - **Action:** Integrate this budget into your NLLB yield + synthetic-BT yield plans. Recommend next spawn = Frank (refine NLLB discovery bounds + synthetic-BT generation cap).
+
+## 2026-05-02 — Hoʻoilina Sentence Pipeline v2 (Frank revision, under Linus lockout)
+
+**Trigger:** Linus's `325_build_hooilina_sentence_candidates.py` rejected for emitting paragraph-level rows labeled `parallel-sentence`. Frank owns this revision cycle.
+
+### What changed
+
+**`scripts/325_build_hooilina_sentence_candidates.py` (v2):**
+- Added `split_sentences()` function: stdlib-only, conservative boundary detection using `SENT_SPLIT_RE = re.compile(r'(?<=[.!?])\s+(?=[A-ZĀĒĪŌŪ\u02bb])')` — splits only when sentence-ending punctuation is followed by whitespace and an uppercase letter (covers both EN and HAW, including ʻOkina-prefixed starts like `ʻO`).
+- Added `ABBREV_SET` for common EN abbreviations (Mr., Dr., No., etc.) to prevent over-splitting.
+- Decimal numbers are protected by the uppercase lookahead (e.g. "3.14 kg" does not split).
+- Whitespace/newlines normalised to a single space before splitting, so `\n`-separated sentences are handled correctly.
+- Paragraph pairs are now **skipped** (conservative) when EN sentence count ≠ HAW sentence count.
+- Added `MAX_TOKENS_PER_SIDE = 80` quality gate.
+- New metadata fields per row: `paragraph_index`, `sentence_index`, `sentence_count_in_paragraph`.
+- Updated `alignment_method` to `"filename-pair+paragraph-order+sentence-split-v2"`.
+- Updated `pair_id` format: `hooilina-sent-v2-{suffix}.p{NNN}.s{NNN}`.
+- All hashes recomputed per sentence (not paragraph).
+
+**`scripts/333_build_reviewed_manifest_final_capped.py`:**
+- Hoʻoilina gate now requires `alignment_type == "parallel-sentence"` (hard filter: paragraph rows cannot pass).
+- Added `en_t <= 80 and haw_t <= 80` to promotion gate.
+- Updated promotion rule id to `hooilina-sentence-v2`.
+
+**`scripts/334_finalize_stage2_review_verdicts.py`:**
+- Updated train reason string for hooilina source to reference v2 gate.
+
+### Results
+
+- Parent rows: 68; splittable at paragraph level: 6 (62 have no numbered-paragraph structure).
+- Paragraph pairs: 36 total; sentence-count mismatches: 8 skipped; quality rejections: 1 (too_short).
+- **Sentence pairs emitted: 60** (was 35 paragraph-level rows in v1).
+- EN tok range: 3–59 (max well under 80); HAW tok range: 5–64. Zero rows over 80 tokens.
+- All 8 verification checks pass: no multi-sentence rows, no side >80 tok, no dev rows, Bible 29.66%, HK 14.90%, SFT = 2× train.
+- Final capped manifest: 369 train, 15 dev, 33527 review-pending. SFT rows: 738.
+
+### Key files
+
+- `scripts/325_build_hooilina_sentence_candidates.py` — v2 sentence builder (Frank)
+- `scripts/333_build_reviewed_manifest_final_capped.py` — tightened Hoʻoilina gate
+- `scripts/334_finalize_stage2_review_verdicts.py` — updated hooilina train reason
+- `data/stage2/candidates/hooilina_sentences.jsonl` — 60 actual sentence pairs
+- `data/stage2/reports/hooilina_sentence_build_report_20260501.json` — v2 build stats
+- `data/stage2/reviewed_stage2_manifest_final_capped.jsonl` — regenerated (60 hooilina train)
+- `data/stage2/reports/stage2_review_pass_final_capped_20260501.json` — regenerated
+- `data/stage2/reviewed_stage2_manifest_finalized_reviews.jsonl` — regenerated
+- `data/stage2/reports/stage2_finalized_review_verdicts_20260501.json` — regenerated
+- `data/stage2/stage2_sft_final_capped.jsonl` — 738 rows (369 pairs × 2 directions)
+
+### Sentence-split policy (for future agents)
+
+- Use `(?<=[.!?])\s+(?=[A-ZĀĒĪŌŪ\u02bb])` as the sentence boundary pattern for HAW/EN mixed text.
+- Protect abbreviations by checking if the last word before the split is in `ABBREV_SET`.
+- Normalise whitespace (including `\n`) to a single space before sentence splitting.
+- Conservative: skip paragraph pairs where EN sentence count ≠ HAW sentence count.
+- Cap per sentence: min 3 tokens/side, max 80 tokens/side, ratio 0.5–2.5.
+- All Hoʻoilina sentence rows must have `alignment_type="parallel-sentence"` to be eligible for promotion in script 333.

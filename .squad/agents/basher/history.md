@@ -1130,3 +1130,23 @@ Rusty's manifest builder now handles all policy scoring. Basher's emitter needs 
 **Status:** PROPOSAL filed. Checklist merged into `.squad/decisions.md`.
 
 **Cross-team updates:** Frank given re-promotion budget (32,756 rows); Linus given validation protocol for HK/Wehewehe candidates.
+
+---
+
+## 2026-05-03 — Hoʻoilina sentence pipeline verification
+
+**Task:** Verify Linus's Hoʻoilina sentence pipeline and final Stage 2 training artifact against 7 specific claims.
+
+**Findings:** All 7 claims verified ✅
+
+| Claim | Verified value | Pass |
+|---|---|---|
+| Hoʻoilina sentence candidates emitted | 35 (file lines + report `para_pairs_emitted`) | ✅ |
+| Final train-ready canonical rows | 368 (finalized reviews split_counts + manifest count) | ✅ |
+| Final directional SFT rows | 736 (wc -l stage2_sft_final_capped.jsonl) | ✅ |
+| No Hoʻoilina dev rows | 0 dev hooilina rows; `no_hooilina_dev_rows: true` in report | ✅ |
+| Bible train token share <= 30% | 0.2998 (29.98%) measured from artifact text fields | ✅ |
+| HK legal train token share <= 15% | 0.1500 (14.9953% per report) from artifact | ✅ |
+| stage2_manifest.jsonl not overwritten | git status clean; file has 11,828 rows (no hooilina), output is a separate file | ✅ |
+
+**Status:** Approved.
