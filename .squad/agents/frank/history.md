@@ -2839,3 +2839,11 @@ Awaiting coordinator decision on:
 
 **Relevant to you:** Linus's Round 5 near-duplicate collapse (306 groups, threshold 0.92) revealed strong Bible-vs-Gospel-John overlap signal. Majority of collapsed near-dupes are Bible family text variants (particularly Gospel of John). May impact source-priority ranking, prototype validation scope, or rights-alignment strategy for future rounds.
 
+
+---
+
+## Cross-Agent Update: 2026-05-03T1100Z — Linus R7 HK Statutes Sourcing Priority
+
+**From:** Scribe (Orchestration)
+
+**Relevant to you:** Linus's Round 7 sourcing priority ranking places Hawaiian Kingdom statutes (bilingual 1869/1859/1846 editions) at the **top** of the Round-8 candidate queue. These are public domain (Internet Archive), deterministic section-id alignment, and the 1897 adapter provides the clearest pattern. Plan: extend `scripts/325_build_hk_statutes_candidates.py` to parameterize edition pairs and reuse CHAPTER/MOKUNA/section matching; enforce combined legal-register cap downstream. When ready, confirm this aligns with your sourcing roadmap and team priorities.

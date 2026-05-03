@@ -1,11 +1,85 @@
 # Decisions
 
-> Updated 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
+> Updated 2026-05-03T1100Z: Merged R7 linus-stage2-paraphrase-grouping (161 EN/32 HAW exact groups accepted as lexical diversity, 395 rows annotated, zero drops, copilot user directive captured). Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
 >
 
 ---
 
-# Stage-2 Short-Variant Exact Duplicate Policy
+# Stage-2 Paraphrase Grouping Decision (Round 7)
+
+**Owner:** Linus  
+**Date:** 2026-05-03  
+**Status:** Implemented
+
+## Decision
+
+Accept the remaining one-sided exact duplicate groups as legitimate lexical diversity and annotate them with `paraphrase_group_id`; do not drop more rows and do not move them to held-out.
+
+## Evidence
+
+Post-Round-6 dry-run still shows 161 exact-English groups and 32 exact-Hawaiian groups. Samples are mostly expected formulaic or lexical variants:
+
+- Bible formulae with distinct Hawaiian renderings: "The grace of our Lord Jesus Christ be with you all. Amen." maps to multiple verse endings.
+- Bible narrative formulae: "And the LORD spake unto Moses, saying," and "The word of the LORD came unto me, saying," recur with small Hawaiian lexical/OCR/casing variation.
+- Hawaiian-side lexical variants: Tatoeba keeps "ʻO Keoni koʻu inoa." for "My name is John." / "My name's John." / "John is my name."
+- Dictionary variants are semantically legitimate: Andrews "Nothing" / "Nought" both map to "he ole, he mea ole."
+
+No obvious broken pattern justified another hard drop rule. Additional dedup would mostly erase useful paraphrase/lexical diversity.
+
+## Implementation
+
+`code/llm_hawaii/stage2_dedup.py` now annotates connected one-sided exact groups after exact-pair collapse, one-sided caps, and near-duplicate collapse. `scripts/320_build_stage2_manifest.py` records `paraphrase_grouping` stats in ingest provenance. The manifest row count remains unchanged.
+
+## Metrics
+
+- Manifest rows: 37,084 → 37,084 (delta 0)
+- Exact-EN groups annotated: 161 groups / 341 row hits
+- Exact-HAW groups annotated: 32 groups / 71 row hits
+- Connected paraphrase components: 178
+- Rows with `paraphrase_group_id`: 395
+
+---
+
+# Stage-2 Sourcing Priorities (Round 7 Part B)
+
+**Owner:** Linus  
+**Date:** 2026-05-03  
+**Status:** Round-8 handoff
+
+## Current eligibility
+
+Round-7 in-memory dry-run from `scripts/320_build_stage2_manifest.py` emits 37,084 clean manifest rows. Current train split contains 2,396 canonical pairs, or 4,792 bidirectional SFT rows via `scripts/330_emit_stage2_sft_jsonl.py` filters. Gap to 40,000 directional SFT rows: 35,208.
+
+The large difference between clean rows and SFT rows is expected: 34,438 rows are `review-pending`, 250 are `dev`, and only 2,396 are `train`. The manifest builder forces review/reject quality tiers to `review-pending`; only accept-tier rows are assigned train/dev, with non-parallel rows forced train-only. The SFT emitter then emits only requested splits and skips synthetic rows by default.
+
+## Prioritized next sources
+
+1. **Hawaiian Kingdom statutes bilingual — remaining 1869/1859/1846 pairs.** Public IA / PD, no compute dependency, deterministic section-id alignment, and the 1897 adapter provides the clearest pattern. Plan: extend `scripts/325_build_hk_statutes_candidates.py` to parameterize edition pairs and reuse CHAPTER/MOKUNA/section matching; enforce combined legal-register cap downstream.
+2. **Weblate EN↔HAW public translation memories.** Plain HTTP/Weblate API, no embedding dependency, existing localization/TMX-line adapter pattern from Weblate/software-l10n work. Plan: dry-run enumerate public Hawaiian projects, apply permissive-license filter first, then adapt `scripts/329_build_weblate_en_haw_candidates.py` style rows.
+3. **Global-PIQA haw_Latn TSV.** Public static TSV, no auth/compute, simple row-id adapter pattern. Plan: HEAD/probe the TSV and verify license/register; if train-appropriate, emit parallel-sentence candidates; otherwise hash into eval ledger only.
+
+Excluded for Round 8: NLLB and Wikisource endpoints are invalid; wiki-langlinks and Sanitary require LaBSE/compute; Bible-family additions are cap-saturated; Pukui/modern dictionary work needs rights review; synthetic BT needs model-quality and cap infrastructure.
+
+---
+
+# Copilot User Directive: Stage-2 Sourcing Compliance
+
+**Date:** 2026-05-03T10:40Z  
+**From:** yashasg (via Copilot CLI)  
+**Scope:** Stage-2 sourcing and all future data intake
+
+## Directive
+
+Stage-2 sourcing must not break any laws. Respect TOS, copyright, license terms, robots.txt, and rate limits. License/TOS check happens **BEFORE** fetch. No bypassing auth/paywalls. When in doubt, escalate to user instead of fetching.
+
+## Implementation
+
+- All sourcing agents (Frank, Linus, data-sourcing specialists) must read this before executing any remote fetch or data integration.
+- Log license/TOS check results in adapter history or sourcing decision file.
+- If a source requires legal review or user sign-off, block the fetch and document the hold.
+
+---
+
 
 **Owner:** Linus  
 **Date:** 2026-05-03  
