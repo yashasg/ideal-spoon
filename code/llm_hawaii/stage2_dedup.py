@@ -14,8 +14,11 @@ import unicodedata
 from collections import Counter, defaultdict
 from typing import Any
 
-POLICY_VERSION = "stage2-cross-source-dedup-v0.2"
+POLICY_VERSION = "stage2-cross-source-dedup-v0.3"
 EXACT_SIDE_MAX_PER_KEY = 3
+SHORT_EXACT_SIDE_MAX_PER_KEY = 2
+SHORT_EXACT_SIDE_TOKEN_MAX = 3
+SHORT_EXACT_OTHER_SIDE_MIN_TOKENS = 4
 NEAR_DUPE_THRESHOLD = 0.92
 _TOKEN_RE = re.compile(r"[\wʻ'-]+", re.UNICODE)
 _OKINA_FOLD = str.maketrans({"'": "ʻ", "‘": "ʻ", "’": "ʻ", "`": "ʻ"})
@@ -144,8 +147,16 @@ def _normal_text(text: Any, *, haw: bool) -> str:
     return " ".join(_TOKEN_RE.findall(s.casefold()))
 
 
+def _token_list(text: Any, *, haw: bool) -> list[str]:
+    return _normal_text(text, haw=haw).split()
+
+
+def _token_count(text: Any, *, haw: bool) -> int:
+    return len(_token_list(text, haw=haw))
+
+
 def _tokens(text: Any, *, haw: bool) -> set[str]:
-    return set(_normal_text(text, haw=haw).split())
+    return set(_token_list(text, haw=haw))
 
 
 def _text_similarity(a: str, b: str) -> float:
@@ -258,6 +269,10 @@ def _cap_exact_key(
     *,
     key_name: str,
     other_key_name: str,
+    key_text_name: str,
+    key_text_haw: bool,
+    other_text_name: str,
+    other_text_haw: bool,
     max_per_key: int,
     reason_prefix: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -274,8 +289,11 @@ def _cap_exact_key(
 
     kept_by_index: dict[int, dict[str, Any]] = {idx: row for idx, row in passthrough}
     capped_groups = 0
+    short_policy_groups = 0
     dropped_total = 0
+    short_other_too_short = 0
     source_counts: Counter[str] = Counter()
+    reason_counts: Counter[str] = Counter()
     group_size_histogram: Counter[str] = Counter()
     examples: list[dict[str, Any]] = []
 
@@ -286,17 +304,44 @@ def _cap_exact_key(
             for idx, row in indexed:
                 kept_by_index[idx] = row
             continue
-        if len(indexed) <= max_per_key or len(other_values) <= 1:
+        if len(other_values) <= 1:
             for idx, row in indexed:
                 kept_by_index[idx] = row
             continue
+
+        key_lengths = [_token_count(row.get(key_text_name), haw=key_text_haw) for _, row in indexed]
+        nonzero_key_lengths = [length for length in key_lengths if length > 0]
+        is_short_key = bool(nonzero_key_lengths) and max(nonzero_key_lengths) <= SHORT_EXACT_SIDE_TOKEN_MAX
+        effective_max = SHORT_EXACT_SIDE_MAX_PER_KEY if is_short_key else max_per_key
+        eligible = indexed
+        if is_short_key:
+            short_policy_groups += 1
+            filtered: list[tuple[int, dict[str, Any]]] = []
+            for idx, row in indexed:
+                source = str(row.get("source") or row.get("source_id") or "<missing>")
+                other_tokens = _token_count(row.get(other_text_name), haw=other_text_haw)
+                if other_tokens >= SHORT_EXACT_OTHER_SIDE_MIN_TOKENS:
+                    filtered.append((idx, row))
+                else:
+                    dropped_total += 1
+                    short_other_too_short += 1
+                    source_counts[source] += 1
+                    reason_counts[f"short_other_min_{SHORT_EXACT_OTHER_SIDE_MIN_TOKENS}"] += 1
+                    _append_reason(row, f"{reason_prefix}_short_variant_drop:other_tokens_lt_{SHORT_EXACT_OTHER_SIDE_MIN_TOKENS}")
+            eligible = filtered
+
+        if len(eligible) <= effective_max:
+            for idx, row in eligible:
+                kept_by_index[idx] = row
+            continue
+
         capped_groups += 1
-        group_size_histogram[str(len(indexed))] += 1
-        ranked = sorted(indexed, key=lambda item: canonical_sort_key(item[1]))
-        keep = set(id(row) for _, row in ranked[:max_per_key])
+        group_size_histogram[str(len(eligible))] += 1
+        ranked = sorted(eligible, key=lambda item: canonical_sort_key(item[1]))
+        keep = set(id(row) for _, row in ranked[:effective_max])
         kept_sources = []
         dropped_sources = []
-        for idx, row in indexed:
+        for idx, row in eligible:
             source = str(row.get("source") or row.get("source_id") or "<missing>")
             if id(row) in keep:
                 kept_by_index[idx] = row
@@ -304,12 +349,16 @@ def _cap_exact_key(
             else:
                 dropped_total += 1
                 source_counts[source] += 1
+                reason_counts[f"max_{effective_max}"] += 1
                 dropped_sources.append(source)
-                _append_reason(row, f"{reason_prefix}_cap_drop:max_{max_per_key}")
+                _append_reason(row, f"{reason_prefix}_cap_drop:max_{effective_max}")
         if len(examples) < 12:
             examples.append({
                 "key": key,
                 "group_size": len(indexed),
+                "eligible_group_size": len(eligible),
+                "effective_max_per_key": effective_max,
+                "short_variant_policy_applied": is_short_key,
                 "kept_sources": kept_sources,
                 "dropped_sources": dropped_sources,
             })
@@ -319,8 +368,14 @@ def _cap_exact_key(
         "input_rows": len(rows),
         "output_rows": len(kept_rows),
         "max_per_key": max_per_key,
+        "short_exact_side_max_per_key": SHORT_EXACT_SIDE_MAX_PER_KEY,
+        "short_exact_side_token_max": SHORT_EXACT_SIDE_TOKEN_MAX,
+        "short_exact_other_side_min_tokens": SHORT_EXACT_OTHER_SIDE_MIN_TOKENS,
+        "short_policy_groups": short_policy_groups,
         "capped_groups": capped_groups,
         "dropped_rows": dropped_total,
+        "short_other_too_short_dropped_rows": short_other_too_short,
+        "drop_reasons": dict(reason_counts),
         "drop_sources": dict(source_counts),
         "capped_group_size_histogram": dict(group_size_histogram),
         "examples": examples,
@@ -333,6 +388,10 @@ def cap_exact_en(rows: list[dict[str, Any]], max_per_key: int = EXACT_SIDE_MAX_P
         rows,
         key_name="sha256_en_clean",
         other_key_name="sha256_haw_clean",
+        key_text_name="text_en",
+        key_text_haw=False,
+        other_text_name="text_haw",
+        other_text_haw=True,
         max_per_key=max_per_key,
         reason_prefix="exact_en",
     )
@@ -344,6 +403,10 @@ def cap_exact_haw(rows: list[dict[str, Any]], max_per_key: int = EXACT_SIDE_MAX_
         rows,
         key_name="sha256_haw_clean",
         other_key_name="sha256_en_clean",
+        key_text_name="text_haw",
+        key_text_haw=True,
+        other_text_name="text_en",
+        other_text_haw=False,
         max_per_key=max_per_key,
         reason_prefix="exact_haw",
     )

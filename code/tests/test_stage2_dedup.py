@@ -70,10 +70,10 @@ class TestStage2CrossSourceDedupPolicy(unittest.TestCase):
 
     def test_cap_exact_en_keeps_three_best_variants(self):
         rows = [
-            {**row("opus-haw-subsets", "opus", "p1"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h1", "text_en": "Hello", "text_haw": "A"},
-            {**row("ia-hawaiian-phrase-book-1881", "phrase", "p2"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h2", "text_en": "Hello", "text_haw": "Aloha kakahiaka"},
-            {**row("hooilina", "hoo", "p3"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h3", "text_en": "Hello", "text_haw": "Aloha nui loa"},
-            {**row("tatoeba", "tat", "p4"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h4", "text_en": "Hello", "text_haw": "Aloha"},
+            {**row("opus-haw-subsets", "opus", "p1"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h1", "text_en": "This English phrase is longer", "text_haw": "A"},
+            {**row("ia-hawaiian-phrase-book-1881", "phrase", "p2"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h2", "text_en": "This English phrase is longer", "text_haw": "Aloha kakahiaka"},
+            {**row("hooilina", "hoo", "p3"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h3", "text_en": "This English phrase is longer", "text_haw": "Aloha nui loa"},
+            {**row("tatoeba", "tat", "p4"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h4", "text_en": "This English phrase is longer", "text_haw": "Aloha"},
         ]
         kept, stats = cap_exact_en(rows, max_per_key=3)
         kept_sources = {r["source"] for r in kept}
@@ -85,16 +85,52 @@ class TestStage2CrossSourceDedupPolicy(unittest.TestCase):
 
     def test_cap_exact_haw_keeps_three_best_variants(self):
         rows = [
-            {**row("opus-haw-subsets", "opus", "p1"), "sha256_en_clean": "e1", "sha256_haw_clean": "same-haw", "text_en": "Hi", "text_haw": "Aloha"},
-            {**row("ia-hawaiian-phrase-book-1881", "phrase", "p2"), "sha256_en_clean": "e2", "sha256_haw_clean": "same-haw", "text_en": "Greetings", "text_haw": "Aloha"},
-            {**row("hooilina", "hoo", "p3"), "sha256_en_clean": "e3", "sha256_haw_clean": "same-haw", "text_en": "A warm greeting", "text_haw": "Aloha"},
-            {**row("tatoeba", "tat", "p4"), "sha256_en_clean": "e4", "sha256_haw_clean": "same-haw", "text_en": "Hello", "text_haw": "Aloha"},
+            {**row("opus-haw-subsets", "opus", "p1"), "sha256_en_clean": "e1", "sha256_haw_clean": "same-haw", "text_en": "Hi", "text_haw": "Aloha nui i kēia kakahiaka"},
+            {**row("ia-hawaiian-phrase-book-1881", "phrase", "p2"), "sha256_en_clean": "e2", "sha256_haw_clean": "same-haw", "text_en": "Greetings", "text_haw": "Aloha nui i kēia kakahiaka"},
+            {**row("hooilina", "hoo", "p3"), "sha256_en_clean": "e3", "sha256_haw_clean": "same-haw", "text_en": "A warm greeting", "text_haw": "Aloha nui i kēia kakahiaka"},
+            {**row("tatoeba", "tat", "p4"), "sha256_en_clean": "e4", "sha256_haw_clean": "same-haw", "text_en": "Hello", "text_haw": "Aloha nui i kēia kakahiaka"},
         ]
         kept, stats = cap_exact_haw(rows, max_per_key=3)
         self.assertEqual(len(kept), 3)
         self.assertEqual(stats["capped_groups"], 1)
         self.assertEqual(stats["dropped_rows"], 1)
         self.assertNotIn("opus-haw-subsets", {r["source"] for r in kept})
+
+    def test_short_exact_en_requires_long_other_side_and_caps_at_two(self):
+        rows = [
+            {**row("ia-hawaiian-phrase-book-1881", "short", "p1"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h1", "text_en": "good house", "text_haw": "Hale"},
+            {**row("andrews-1865-en-haw-vocab-appendix", "edge", "p2"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h2", "text_en": "good house", "text_haw": "He hale maikaʻi kēia"},
+            {**row("tatoeba", "long", "p3"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h3", "text_en": "good house", "text_haw": "He hale nui maikaʻi loa"},
+        ]
+        kept, stats = cap_exact_en(rows)
+        self.assertEqual([r["pair_id"] for r in kept], ["edge", "long"])
+        self.assertEqual(stats["short_policy_groups"], 1)
+        self.assertEqual(stats["short_other_too_short_dropped_rows"], 1)
+        self.assertEqual(stats["dropped_rows"], 1)
+
+    def test_short_exact_haw_drops_empty_other_side(self):
+        rows = [
+            {**row("ia-hawaiian-phrase-book-1881", "empty", "p1"), "sha256_en_clean": "e1", "sha256_haw_clean": "same-haw", "text_en": "", "text_haw": "ʻAe"},
+            {**row("andrews-1865-en-haw-vocab-appendix", "threshold", "p2"), "sha256_en_clean": "e2", "sha256_haw_clean": "same-haw", "text_en": "This has four tokens", "text_haw": "ʻAe"},
+            {**row("tatoeba", "also-threshold", "p3"), "sha256_en_clean": "e3", "sha256_haw_clean": "same-haw", "text_en": "That also has four", "text_haw": "ʻAe"},
+            {**row("kaikki", "over-cap", "p4"), "sha256_en_clean": "e4", "sha256_haw_clean": "same-haw", "text_en": "Another valid long gloss", "text_haw": "ʻAe"},
+        ]
+        kept, stats = cap_exact_haw(rows)
+        self.assertEqual(len(kept), 2)
+        self.assertNotIn("empty", {r["pair_id"] for r in kept})
+        self.assertEqual(stats["drop_reasons"], {"short_other_min_4": 1, "max_2": 1})
+
+    def test_empty_duplicate_side_uses_generic_cap(self):
+        rows = [
+            {**row("hooilina", "a", "p1"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h1", "text_en": "", "text_haw": "Ekahi"},
+            {**row("tatoeba", "b", "p2"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h2", "text_en": "", "text_haw": "Elua"},
+            {**row("ia-hawaiian-phrase-book-1881", "c", "p3"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h3", "text_en": "", "text_haw": "Ekolu"},
+            {**row("opus-haw-subsets", "d", "p4"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h4", "text_en": "", "text_haw": "Eha"},
+        ]
+        kept, stats = cap_exact_en(rows)
+        self.assertEqual(len(kept), 3)
+        self.assertEqual(stats["short_policy_groups"], 0)
+        self.assertEqual(stats["drop_reasons"], {"max_3": 1})
 
     def test_collapse_near_dupes_prefers_richer_source(self):
         rows = [
