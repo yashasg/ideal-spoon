@@ -36,6 +36,7 @@ def _load_manifest_builder():
 
 
 _manifest = _load_manifest_builder()
+from llm_hawaii import eval_contamination  # noqa: E402
 from llm_hawaii.stage2_dedup import (  # noqa: E402
     EXACT_SIDE_MAX_PER_KEY,
     NEAR_DUPE_THRESHOLD,
@@ -79,7 +80,7 @@ def jaccard(a: set[str], b: set[str]) -> float:
 
 def candidate_paths(args: argparse.Namespace) -> list[Path]:
     if args.candidates:
-        paths = [Path(p) for p in args.candidates]
+        paths = [Path(p).resolve() for p in args.candidates]
     else:
         paths = sorted(DEFAULT_CANDIDATES.glob("*.jsonl"))
     return [p for p in paths if p.exists()]
@@ -98,7 +99,22 @@ def pair_hash(en_clean_hash: str, haw_clean_hash: str) -> str:
     return _manifest.compute_pair_hash(en_clean_hash, haw_clean_hash)
 
 
-def audit(paths: list[Path], *, max_examples: int = 8) -> dict[str, Any]:
+def _load_eval_contamination_hashes(paths: list[Path]) -> eval_contamination.EvalHashSet:
+    hashes = eval_contamination.EvalHashSet()
+    for path in paths:
+        loaded = eval_contamination.load_eval_hashes(path)
+        hashes.update(loaded)
+        hashes.bible_overlap_side_hashes.update(getattr(loaded, "bible_overlap_side_hashes", set()))
+    return hashes
+
+
+def audit(
+    paths: list[Path],
+    *,
+    max_examples: int = 8,
+    eval_hashes: set[str] | None = None,
+    eval_hash_paths: list[Path] | None = None,
+) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     counts_by_file: dict[str, int] = {}
     counts_by_source: Counter[str] = Counter()
@@ -117,6 +133,9 @@ def audit(paths: list[Path], *, max_examples: int = 8) -> dict[str, Any]:
     en_index: dict[str, list[dict[str, Any]]] = defaultdict(list)
     haw_index: dict[str, list[dict[str, Any]]] = defaultdict(list)
     en_text_index: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    contamination_by_source: Counter[str] = Counter()
+    contamination_by_match_type: Counter[str] = Counter({"full_pair": 0, "single_side_haw": 0, "single_side_en": 0})
+    contamination_rows: list[dict[str, Any]] = []
 
     for path in paths:
         file_count = 0
@@ -125,6 +144,17 @@ def audit(paths: list[Path], *, max_examples: int = 8) -> dict[str, Any]:
             loc = {"file": str(path.relative_to(REPO_ROOT)), "line": line_no, "pair_id": row.get("pair_id") or row.get("source_pair_id")}
             source = row.get("source") or row.get("source_id") or "<missing>"
             counts_by_source[source] += 1
+
+            if eval_hashes is not None:
+                match_type = eval_contamination.contamination_match_type(row, eval_hashes)
+                if match_type is not None:
+                    contamination_by_source[str(source)] += 1
+                    contamination_by_match_type[match_type] += 1
+                    contamination_rows.append({
+                        **loc,
+                        "source": source,
+                        "match_type": match_type,
+                    })
 
             raw_viol = _manifest.validate_row(dict(row))
             for v in raw_viol:
@@ -312,6 +342,18 @@ def audit(paths: list[Path], *, max_examples: int = 8) -> dict[str, Any]:
             if len(near_dupes) >= max_examples:
                 break
 
+    contamination_report = {
+        "enabled": eval_hashes is not None,
+        "ledger_path": None if eval_hash_paths is None else ([str(p) for p in eval_hash_paths] if len(eval_hash_paths) != 1 else str(eval_hash_paths[0])),
+        "ledger_size": 0 if eval_hashes is None else len(eval_hashes),
+        "total_matches": len(contamination_rows),
+        "by_source": dict(contamination_by_source),
+        "by_match_type": dict(contamination_by_match_type),
+        "row_ids": [r.get("pair_id") for r in contamination_rows],
+        "rows": contamination_rows[:max_examples],
+        "error": "candidate contamination found" if contamination_rows else None,
+    }
+
     return {
         "files_audited": len(paths),
         "rows_audited": sum(counts_by_file.values()),
@@ -330,6 +372,7 @@ def audit(paths: list[Path], *, max_examples: int = 8) -> dict[str, Any]:
             "post_policy_violation_count": sum(post_policy_schema_violations.values()),
             "post_policy_violation_types": dict(post_policy_schema_violations),
         },
+        "contamination": contamination_report,
         "duplicates": {
             "cross_source_exact_pair_hash_groups": len(exact_pair_groups),
             "raw_cross_source_exact_pair_hash_groups": len(raw_exact_pair_groups),
@@ -358,17 +401,28 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--candidates", nargs="*", help="Candidate JSONL files; defaults to data/stage2/candidates/*.jsonl")
     parser.add_argument("--max-examples", type=int, default=8)
-    parser.add_argument("--strict", action="store_true", help="Exit 3 if post-policy schema violations or pair-hash mismatches are found")
+    parser.add_argument("--eval-hashes", type=Path, action="append", default=None, help="Eval-hashes JSONL ledger(s) to audit against without dropping rows")
+    parser.add_argument("--strict", action="store_true", help="Exit 3 if post-policy schema violations, pair-hash mismatches, or eval contamination are found")
     args = parser.parse_args(argv)
 
+    if args.eval_hashes:
+        missing = [p for p in args.eval_hashes if not p.exists()]
+        if missing:
+            print(f"error: eval-hashes ledger not found: {missing[0]}", file=sys.stderr)
+            return 2
+        eval_hashes = _load_eval_contamination_hashes(args.eval_hashes)
+    else:
+        eval_hashes = None
+
     paths = candidate_paths(args)
-    report = audit(paths, max_examples=args.max_examples)
+    report = audit(paths, max_examples=args.max_examples, eval_hashes=eval_hashes, eval_hash_paths=args.eval_hashes)
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
 
     if args.strict:
         schema_bad = report["schema"]["post_policy_violation_count"]
         pair_bad = report["hash_mismatches_if_haw_okina_canonicalized"].get("sha256_pair", 0)
-        if schema_bad or pair_bad:
+        contamination_bad = report["contamination"]["total_matches"]
+        if schema_bad or pair_bad or contamination_bad:
             return 3
     return 0
 

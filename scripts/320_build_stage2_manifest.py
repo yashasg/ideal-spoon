@@ -73,6 +73,7 @@ CANDIDATES_DIR = DATA_STAGE2 / "candidates"
 DEFAULT_STAGE2_MANIFEST = DATA_STAGE2 / "stage2_manifest.jsonl"
 DEFAULT_BUILD_MANIFEST = DATA_STAGE2 / "build_manifest.json"
 DEFAULT_SCORE_SUMMARY = DATA_STAGE2 / "score_summary.json"
+DEFAULT_CONTAMINATION_REPORT = DATA_STAGE2 / "contamination_report.json"
 
 # Make `code/` importable so the scorer module loads without packaging.
 _CODE_DIR = REPO_ROOT / "code"
@@ -529,6 +530,7 @@ def ingest_candidates(
     dev_modulus: int = _DEV_MODULUS,
     strict: bool = False,
     policy_config: PolicyConfig | None = None,
+    contamination_hashes: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[tuple[str, list[str]]], dict[str, Any]]:
     """Read candidate JSONL files and return (rows, per_row_violations, provenance).
 
@@ -610,6 +612,24 @@ def ingest_candidates(
         if file_row_count == 0:
             print(f"warn: {cpath} yielded no rows", file=sys.stderr)
 
+    contamination_filter_report = _empty_contamination_report()
+    contamination_filter_report["input_rows"] = len(rows)
+    contamination_filter_report["output_rows"] = len(rows)
+    if contamination_hashes is not None:
+        rows_before_contamination = len(rows)
+        rows, contamination_filter_report = eval_contamination.contamination_report(rows, contamination_hashes)
+        contamination_filter_report["input_rows"] = rows_before_contamination
+        contamination_filter_report["output_rows"] = len(rows)
+        if contamination_filter_report["total_dropped"]:
+            print(
+                f"info: dropped {contamination_filter_report['total_dropped']} eval-contaminated candidate rows via --eval-hashes",
+                file=sys.stderr,
+            )
+            print(
+                f"info: eval contamination drops by source: {contamination_filter_report['per_source_dropped']}",
+                file=sys.stderr,
+            )
+
     rows, cross_source_dedup_stats = collapse_pair_hash_duplicates(rows)
     rows, exact_en_cap_stats = cap_exact_en(rows, max_per_key=EXACT_SIDE_MAX_PER_KEY)
     rows, exact_haw_cap_stats = cap_exact_haw(rows, max_per_key=EXACT_SIDE_MAX_PER_KEY)
@@ -629,8 +649,10 @@ def ingest_candidates(
         "candidate_files": candidate_file_shas,
         "per_source_row_counts": per_source,
         "per_source_row_counts_before_cross_source_dedup": per_source_raw,
+        "total_candidates_before_contamination_filter": contamination_filter_report.get("input_rows", cross_source_dedup_stats["input_rows"]),
         "total_candidates_before_cross_source_dedup": cross_source_dedup_stats["input_rows"],
         "total_candidates_ingested": len(rows),
+        "contamination_filter": contamination_filter_report,
         "total_violations": len(per_row_violations),
         "dev_modulus": dev_modulus,
         "policy_version": POLICY_VERSION,
@@ -769,6 +791,15 @@ def write_build_manifest(payload: dict[str, Any], dry_run: bool) -> str | None:
     return str(out_path)
 
 
+def write_contamination_report(report: dict[str, Any], dry_run: bool) -> str | None:
+    if dry_run or not report:
+        return None
+    DATA_STAGE2.mkdir(parents=True, exist_ok=True)
+    with DEFAULT_CONTAMINATION_REPORT.open("w", encoding="utf-8") as fh:
+        json.dump(report, fh, ensure_ascii=False, indent=2, sort_keys=True)
+    return str(DEFAULT_CONTAMINATION_REPORT)
+
+
 def write_score_summary(summary: dict[str, Any], dry_run: bool) -> str | None:
     """Persist the run-level alignment-quality summary (issue #19).
 
@@ -786,6 +817,44 @@ def write_score_summary(summary: dict[str, Any], dry_run: bool) -> str | None:
 
 
 # ---------- CLI ----------
+
+def _empty_contamination_report() -> dict[str, Any]:
+    return {
+        "total_dropped": 0,
+        "per_source_dropped": {},
+        "per_match_type": {"full_pair": 0, "single_side_haw": 0, "single_side_en": 0},
+        "drop_reasons": {},
+        "dropped_rows": [],
+        "input_rows": 0,
+        "output_rows": 0,
+    }
+
+
+def _load_eval_contamination_hashes(paths: list[Path]) -> eval_contamination.EvalHashSet:
+    hashes = eval_contamination.EvalHashSet()
+    for path in paths:
+        loaded = eval_contamination.load_eval_hashes(path)
+        hashes.update(loaded)
+        hashes.bible_overlap_side_hashes.update(getattr(loaded, "bible_overlap_side_hashes", set()))
+    return hashes
+
+
+def _contamination_sidecar(ledger_paths: list[Path], ledger_size: int, filter_report: dict[str, Any]) -> dict[str, Any]:
+    ledger_value: str | list[str]
+    if len(ledger_paths) == 1:
+        ledger_value = str(ledger_paths[0])
+    else:
+        ledger_value = [str(p) for p in ledger_paths]
+    return {
+        "ledger_path": ledger_value,
+        "ledger_size": ledger_size,
+        "total_dropped": int(filter_report.get("total_dropped", 0)),
+        "per_source_dropped": filter_report.get("per_source_dropped", {}),
+        "per_match_type": filter_report.get("per_match_type", {"full_pair": 0, "single_side_haw": 0, "single_side_en": 0}),
+        "drop_reasons": filter_report.get("drop_reasons", {}),
+        "dropped_rows": filter_report.get("dropped_rows", []),
+    }
+
 
 def _default_eval_hash_paths() -> list[Path]:
     """Best-effort enumeration of on-disk eval-hash JSONL ledgers."""
@@ -865,6 +934,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     started = _utcnow_iso()
+    if args.eval_hashes:
+        missing = [p for p in args.eval_hashes if not p.exists()]
+        if missing:
+            print(f"error: eval-hashes ledger not found: {missing[0]}", file=sys.stderr)
+            return 2
     eval_hash_paths = list(args.eval_hashes) if args.eval_hashes else _default_eval_hash_paths()
 
     if args.check:
@@ -901,22 +975,19 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
 
+    contamination_hashes = _load_eval_contamination_hashes(args.eval_hashes) if args.eval_hashes else None
     rows, per_row_violations, ingest_provenance = ingest_candidates(
-        resolved, dev_modulus=args.dev_modulus, strict=args.strict,
+        resolved,
+        dev_modulus=args.dev_modulus,
+        strict=args.strict,
+        contamination_hashes=contamination_hashes,
     )
 
-    eval_contamination_dropped = 0
-    if args.eval_hashes:
-        contamination_hashes: set[str] = set()
-        for path in args.eval_hashes:
-            contamination_hashes.update(eval_contamination.load_eval_hashes(path))
-        kept_iter, eval_contamination_dropped = eval_contamination.filter_candidates(rows, contamination_hashes)
-        rows = list(kept_iter)
-        if eval_contamination_dropped:
-            print(
-                f"info: dropped {eval_contamination_dropped} eval-contaminated candidate rows via --eval-hashes",
-                file=sys.stderr,
-            )
+    contamination_filter_report = ingest_provenance.get("contamination_filter", _empty_contamination_report())
+    eval_contamination_dropped = int(contamination_filter_report.get("total_dropped", 0))
+    contamination_sidecar = None
+    if args.eval_hashes and contamination_hashes is not None:
+        contamination_sidecar = _contamination_sidecar(args.eval_hashes, len(contamination_hashes), contamination_filter_report)
 
     eval_hashes = load_eval_hashes(eval_hash_paths)
     report = run_checks(rows, eval_hashes)
@@ -925,6 +996,7 @@ def main(argv: list[str] | None = None) -> int:
     score_summary_path = write_score_summary(score_summary, args.dry_run)
 
     written = write_manifest(rows, args.dry_run)
+    contamination_report_path = write_contamination_report(contamination_sidecar or {}, args.dry_run)
     payload = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "started_utc": started,
@@ -932,6 +1004,7 @@ def main(argv: list[str] | None = None) -> int:
         "rows_emitted": len(rows),
         "rows_skipped_violations": len(per_row_violations),
         "eval_contamination_dropped": eval_contamination_dropped,
+        "contamination_report": contamination_sidecar,
         "eval_hash_ledgers": [str(p) for p in eval_hash_paths],
         "eval_hashes_loaded": len(eval_hashes),
         "ingest": ingest_provenance,
@@ -946,6 +1019,8 @@ def main(argv: list[str] | None = None) -> int:
         payload["outputs"]["build_manifest"] = build_manifest_path
     if score_summary_path:
         payload["outputs"]["score_summary"] = score_summary_path
+    if contamination_report_path:
+        payload["outputs"]["contamination_report"] = contamination_report_path
 
     json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")

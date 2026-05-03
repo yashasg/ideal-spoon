@@ -1,0 +1,3 @@
+{"source": "fixture-eval-full", "content_sha256": "82c67b50c186a9e4ad885fbba0ca108d2fa5c837c6e3c4c11ba9dd6b104f57b8", "eval_only": true}
+{"source": "fixture-eval-bible-haw", "content_sha256": "7b48fa6917d7372877353d569d742fc9e72fef3d1dfb6d34cfa02cca8fda2a92", "eval_only": true, "bible_overlap_candidate": true}
+{"source": "fixture-eval-bible-en", "content_sha256": "a0f9bdd281b0abffb27963ffbc60d6c00d8b55d5cf64b91a0dfb5b0325bea4fe", "eval_only": true, "bible_overlap_candidate": true}
