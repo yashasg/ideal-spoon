@@ -2847,3 +2847,15 @@ Awaiting coordinator decision on:
 **From:** Scribe (Orchestration)
 
 **Relevant to you:** Linus's Round 7 sourcing priority ranking places Hawaiian Kingdom statutes (bilingual 1869/1859/1846 editions) at the **top** of the Round-8 candidate queue. These are public domain (Internet Archive), deterministic section-id alignment, and the 1897 adapter provides the clearest pattern. Plan: extend `scripts/325_build_hk_statutes_candidates.py` to parameterize edition pairs and reuse CHAPTER/MOKUNA/section matching; enforce combined legal-register cap downstream. When ready, confirm this aligns with your sourcing roadmap and team priorities.
+
+## Cross-Agent Update: 2026-05-03T1118Z — Linus R9 License Probes: Weblate Permissive-Only + Global-PIQA Eval-Only
+
+**From:** Scribe (Orchestration)
+
+**Relevant to you:** Linus's Round 9 license-first probes cleared two sources with restrictions:
+1. **Weblate EN↔HAW:** YELLOW—proceed with MIT/Apache-2.0 filter only. Exclude GPL/LGPL/AGPL components. Next round builds permissive-only adapter with per-project license gate.
+2. **Global-PIQA haw_Latn:** YELLOW—EVAL-ONLY. Dataset card explicitly prohibits training use. Route 103 haw_Latn test rows to eval/final ledger ingestor, NOT training pipeline.
+
+**For your data collection roadmap:** Use these license restrictions as guard rails. Weblate-sourced rows must carry transparent source-license tags; Global-PIQA is holdout/benchmark, not training fuel.
+
+**Details:** `.squad/decisions.md` → both probe verdicts preserved in full; `.squad/orchestration-log/2026-05-03T11-18-08Z-linus-r9.md` → orchestration snapshot.

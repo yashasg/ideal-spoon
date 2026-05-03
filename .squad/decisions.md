@@ -2847,3 +2847,240 @@ Ordered first-match policy for exact `sha256_pair` collision groups:
 - `PYTHONPATH=code python3 -m unittest discover -s code/tests -p 'test_stage2_dedup.py'`: 5/5 pass.
 - `python3 code/tests/test_stage2_manifest.py`: 45/45 pass.
 - `python3 code/tests/test_stage2_candidate_normalization_audit.py`: 3/3 pass.
+
+---
+
+# Linus Stage-2 Round 9 license probe — Weblate EN↔HAW translation memory
+
+Date: 2026-05-03  
+Scope: license-first metadata probe only; no PO/TMX/download exports fetched.
+
+## Source name + canonical URLs
+
+Source: public Weblate EN→HAW/Hawaiian projects.
+
+Instances checked:
+
+- Hosted Weblate: <https://hosted.weblate.org/languages/haw/>
+- Fedora Weblate: <https://translate.fedoraproject.org/languages/haw/>
+- Codeberg Translate: <https://translate.codeberg.org/languages/haw/> — no Hawaiian projects found.
+- Framasoft Weblate: <https://weblate.framasoft.org/languages/haw/> — no Hawaiian projects found.
+
+Hosted Weblate HAW projects found from the language page:
+
+| Instance | Project URL | Source language(s) | Component license(s) seen via Weblate API |
+|---|---|---:|---|
+| Hosted Weblate | <https://hosted.weblate.org/projects/django-zxcvbn-password-validator/-/haw/> | `en` | `MIT` (2 components) |
+| Hosted Weblate | <https://hosted.weblate.org/projects/dpo-voyager/-/haw/> | `en` | `Apache-2.0` (2 components) |
+| Hosted Weblate | <https://hosted.weblate.org/projects/f-droid/-/haw/> | `en`, `en_US` | `GPL-3.0-or-later` (7), `Apache-2.0` (3), `AGPL-3.0-or-later` (10) |
+| Hosted Weblate | <https://hosted.weblate.org/projects/geoweather/-/haw/> | `en` | `Apache-2.0` (1), but HAW page showed 0% translated; likely no usable pairs yet. |
+| Hosted Weblate | <https://hosted.weblate.org/projects/iso-codes/-/haw/> | `en_GB` | `LGPL-2.1-or-later` (8) |
+| Hosted Weblate | <https://hosted.weblate.org/projects/prismlauncher/-/haw/> | `en_US` | `Apache-2.0` (1), `GPL-3.0-or-later` (1) |
+| Hosted Weblate | <https://hosted.weblate.org/projects/stellarium-mobile/-/haw/> | `en` | `GPL-2.0-only` (2) |
+| Fedora Weblate | <https://translate.fedoraproject.org/projects/rpminspect/-/haw/> | `en` | `GPL-3.0-or-later` (`main`, `glossary`) |
+
+## License / TOS quotes
+
+Per-project/component license values were read from the public Weblate REST API. Verbatim API fields observed:
+
+- Hosted `django-zxcvbn-password-validator`: `"license": "MIT", "license_url": "https://spdx.org/licenses/MIT.html"`
+- Hosted `dpo-voyager`: `"license": "Apache-2.0", "license_url": "https://spdx.org/licenses/Apache-2.0.html"`
+- Hosted `f-droid`: `"license": "GPL-3.0-or-later"`, `"license": "Apache-2.0"`, and `"license": "AGPL-3.0-or-later"` across components.
+- Hosted `iso-codes`: `"license": "LGPL-2.1-or-later", "license_url": "https://spdx.org/licenses/LGPL-2.1-or-later.html"`
+- Hosted `prismlauncher`: `"license": "Apache-2.0"` for launcher component and `"license": "GPL-3.0-or-later"` for glossary component.
+- Hosted `stellarium-mobile`: `"license": "GPL-2.0-only", "license_url": "https://spdx.org/licenses/GPL-2.0-only.html"`
+- Fedora `rpminspect`: `"license": "GPL-3.0-or-later", "license_url": "https://spdx.org/licenses/GPL-3.0-or-later.html"`
+
+Relevant Weblate terms page text (Hosted and Fedora terms share the Weblate-hosted terms template):
+
+> "Translation Memory means an optional translation memory service provided on Weblate"
+
+> "Hosted String means a text unit defined in the translation format. It can be a word, sentence, or paragraph. It is counted separately for each language"
+
+The terms page describes the Weblate service license; it did not provide a separate public-domain/open-data grant for hosted translation strings. Therefore the component/project license must be treated as the controlling content license, with the instance TOS/robots governing access mechanics.
+
+## Robots.txt status
+
+- Hosted Weblate robots: `Allow: /projects/`, `Allow: /languages/`, `Allow: /exports/`, then `Disallow: /`. Metadata pages and export paths are explicitly allowed.
+- Fedora Weblate robots: same pattern: `Allow: /projects/`, `Allow: /languages/`, `Allow: /exports/`, then `Disallow: /`.
+- Codeberg Translate robots: same pattern, but `/languages/haw/` returned no HAW projects.
+- Framasoft Weblate robots: no wildcard `User-agent: *` group was observed; named AI bots are disallowed. `/languages/haw/` returned no HAW projects.
+
+## Access method
+
+Next-round adapter should use Weblate public endpoints only, no auth:
+
+1. Metadata: REST API `GET /api/projects/{project}/components/` to snapshot `license`, `license_url`, `source_language`, and component slugs.
+2. Data export only after license filter: public Weblate download/TMX/PO endpoint for `haw` translations, e.g. `GET /download/{project}/{component}/haw/?format=po` or a TMX export if the instance exposes it.
+3. Accept only translated HAW rows (`msgstr` non-empty); exclude suggestions, fuzzy/unapproved rows unless Weblate marks them translated.
+
+## Rate-limit guidance
+
+- Hosted Weblate API response headers: `x-ratelimit-limit: 100`, `x-ratelimit-remaining: 58`, `x-ratelimit-reset: 86081`.
+- Fedora Weblate API response headers: `x-ratelimit-limit: 100`, `x-ratelimit-remaining: 98`, `x-ratelimit-reset: 86372`.
+- Use the user-mandated polite User-Agent and at least 2 seconds between requests; keep metadata probes well below 100 requests/window. Prefer one component-list request per project, then one export request only for cleared components.
+
+## Verdict
+
+**YELLOW — proceed with restrictions.**
+
+Reasoning:
+
+- Instances found: Hosted Weblate has multiple EN-source Hawaiian projects; Fedora has `rpminspect` EN→HAW.
+- Robots explicitly allow `/languages/`, `/projects/`, and `/exports/` on Hosted and Fedora Weblate.
+- Component licenses are explicit. MIT and Apache-2.0 components are usable candidates under a strict open-license gate.
+- Copyleft components (`GPL-*`, `LGPL-*`, `AGPL-*`) are not clearly compatible with the mixed Stage-2 training corpus and should remain blocked unless counsel/project policy explicitly approves copyleft localization strings for ML training.
+- Weblate TOS does not itself grant content reuse rights; do not treat platform-level openness as sufficient.
+
+Allowed next-round subset:
+
+- Hosted Weblate components with `MIT` or `Apache-2.0` only: `django-zxcvbn-password-validator`, `dpo-voyager`, Apache-licensed F-Droid components, `geoweather` if translated rows exist, and the Apache-licensed Prism Launcher component.
+- Exclude Fedora `rpminspect`, Hosted `iso-codes`, GPL/AGPL F-Droid components, GPL Prism glossary, and Stellarium Mobile.
+
+## Adapter sketch
+
+Canonical Stage-2 candidate rows:
+
+- `source`: `weblate-en-haw`
+- `source_url`: component language URL, e.g. `https://hosted.weblate.org/projects/{project}/{component}/haw/`
+- `edition_or_version`: `{instance_host}@{project}/{component}/haw; license={SPDX}; probed=20260503`
+- `en`: PO `msgid` / source string.
+- `haw`: PO `msgstr` / Hawaiian target string.
+- `register`: `software-l10n`
+- `direction_original`: `en->haw` when `source_language.code` is `en`, `en_US`, or `en_GB`.
+- `alignment_type`: `parallel-sentence` for single string units; `alignment_method`: `source-target-localization`.
+- `split`: `review-pending` initially; promote only after quality/cap review.
+- `prototype_only`: `true`; `release_eligible`: `false` until final legal review.
+- `license_inferred`: `null`; store SPDX in `source_license`/metadata field if schema supports it, otherwise report sidecar.
+- Filters: non-empty source/target, source language EN-family, exact component license in permissive allowlist, no fuzzy/suggestion-only rows, min-length/ratio checks.
+
+Dedup priority slot: low-priority `software-l10n`, below canonical Tatoeba/Wikimedia/HK legal sources; prefer non-software sources on exact-pair conflicts, but keep unique software localization rows as review-pending.
+
+## What would change the verdict
+
+- GREEN: each fetched component has permissive SPDX license (`MIT`, `Apache-2.0`, `BSD-*`, `ISC`, `CC0`, `CC-BY`) plus a stable, robots-allowed export endpoint and an on-disk TOS snapshot.
+- RED for any component if license is missing, project-level license conflicts with component license, export path becomes robots-disallowed, or the instance requires auth/paywall/API terms that prohibit reuse.
+
+---
+
+# Linus Stage-2 Round 9 license probe — Global-PIQA haw_Latn
+
+Date: 2026-05-03  
+Scope: license-first Hugging Face metadata probe only; no TSV/raw dataset download.
+
+## Source name + canonical URLs
+
+Source: Global PIQA Parallel, Hawaiian Latin-script configuration.
+
+Canonical URLs:
+
+- Dataset card: <https://huggingface.co/datasets/mrlbenchmarks/global-piqa-parallel>
+- Raw card metadata: <https://huggingface.co/datasets/mrlbenchmarks/global-piqa-parallel/raw/main/README.md>
+- HF dataset API: <https://huggingface.co/api/datasets/mrlbenchmarks/global-piqa-parallel>
+- Dataset-server metadata: <https://datasets-server.huggingface.co/splits?dataset=mrlbenchmarks/global-piqa-parallel&config=haw_latn>
+- File listed by card/API: `data/parallel_haw_latn.tsv`
+- Repository commit observed from HF metadata/download checksums elsewhere in the dataset-server response: `a350910e9cfc8b0b57cb55aa8261780deabb6568`.
+
+## License / dataset-card quotes
+
+Verbatim dataset card/API license fields:
+
+> `license: cc-by-sa-4.0`
+
+> `cardData license: cc-by-sa-4.0`
+
+Verbatim dataset card license section:
+
+> "Global PIQA is released under a [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.en) license. However, we do <b>not</b> allow training of AI systems on Global PIQA, or on synthetic data that uses Global PIQA as a seed."
+
+> "Global PIQA is intended for LLM evaluation only."
+
+Dataset card description of construction:
+
+> "In the parallel split, each example was machine-translated from English, then manually corrected by a native speaker of the target language."
+
+## Robots.txt status
+
+- `https://huggingface.co/robots.txt`: `User-agent: *` and `Allow: /`.
+- `https://datasets-server.huggingface.co/robots.txt`: returned 404 (no robots.txt found). Treat as no robots restriction found for metadata endpoints, but keep access minimal.
+
+## Access method
+
+Allowed next-round access method is metadata/eval-only HF access, no auth:
+
+1. Use HF dataset API/card to pin repo id, commit SHA, license, and file path.
+2. Use datasets-server metadata endpoints for splits/schema where available.
+3. If building the eval ledger, fetch only `data/parallel_haw_latn.tsv` once after recording the no-training license restriction; hash rows into `data/evals`/`data/final` ledger before any train ingest.
+4. Do **not** use `load_dataset()` in training code or any train candidate adapter.
+
+## Rate-limit guidance
+
+HF API response headers from the dataset API:
+
+- `RateLimit: "api";r=499;t=240`
+- `RateLimit-Policy: "fixed window";"api";q=500;w=300`
+
+Use the user-mandated polite User-Agent and at least 2 seconds between requests. A next-round eval adapter should need one API/card request plus one raw TSV GET if approved.
+
+## Schema and row-count findings
+
+Config/split from card and dataset-server:
+
+- `config_name: haw_latn`
+- split: `test`
+- file path: `data/parallel_haw_latn.tsv`
+
+Field schema from dataset-server preview metadata:
+
+| Field | Type |
+|---|---|
+| `prompt` | string |
+| `solution0` | string |
+| `solution1` | string |
+| `solution2` | string |
+| `solution3` | string |
+| `label` | int64 |
+| `language` | string |
+| `eng_prompt` | string |
+| `eng_solution0` | string |
+| `eng_solution1` | string |
+| `eng_solution2` | string |
+| `eng_solution3` | string |
+| `categories` | string |
+| `example_id` | string |
+| `supplement` | string |
+
+Row count: **103 test examples** for `haw_Latn`/`haw_latn` is the operational count to plan around. Caveat: the direct `datasets-server /size?dataset=...&config=haw_latn` endpoint returned 500 and the all-config `/info` response did not include `haw_latn`, so this count is inferred from the dataset-server size pattern for cached Global-PIQA parallel configs (103 rows/config) and from the preview endpoint showing the `haw_latn` test split. Confirm by counting TSV lines only in the next round if proceeding with eval-ledger ingestion.
+
+## Verdict
+
+**YELLOW — EVAL-only; do not train.**
+
+Reasoning:
+
+- Dataset is public on HF and the card/API license is explicit (`cc-by-sa-4.0`).
+- The dataset card adds an explicit no-training restriction: "we do not allow training of AI systems" and "intended for LLM evaluation only."
+- Therefore it must **not** route to TRAIN and must not seed synthetic/back-translation data.
+- It can proceed only as an eval/final ledger source, consistent with existing Stage-2 docs that list `global-piqa-parallel` as a milestone holdout/eval anchor.
+
+## Adapter sketch
+
+Do not create Stage-2 training candidates. Build an eval/final ledger ingester instead:
+
+- `origin`: `global-piqa-parallel-haw`
+- `division`: `final` (major-milestone holdout) unless evaluator owner chooses `evals`.
+- `split`: `test`
+- `edition_or_version`: `mrlbenchmarks/global-piqa-parallel@a350910e9cfc8b0b57cb55aa8261780deabb6568; config=haw_latn; split=test; license=CC-BY-SA-4.0; no-training`
+- Preserve row id: `example_id`.
+- Evaluation schema: PIQA multiple-choice, not simple parallel training rows.
+  - Hawaiian prompt/options: `prompt`, `solution0`..`solution3`.
+  - English prompt/options for reference/diagnostics only: `eng_prompt`, `eng_solution0`..`eng_solution3`.
+  - Gold answer: `label`.
+  - Metadata: `language`, `categories`, parsed `supplement` JSON if needed.
+- Hash ledger before use: hash Hawaiian prompt+options+label and optionally English prompt+options to prevent contamination.
+- Dedup priority: eval-only ledger, not part of train dedup priority. If any text overlaps existing train rows, train rows must be dropped/held out, not this eval source.
+
+## What would change the verdict
+
+- GREEN for TRAIN would require the dataset owner to remove the no-training restriction and publish a training-compatible open license (for example CC0/CC-BY or an explicit dataset-card grant permitting ML training). Current CC-BY-SA plus the explicit no-training sentence is not train-compatible.
+- RED would apply if the owner disallowed evaluation use, if HF access became gated/authenticated, or if the card license became ambiguous. Current card explicitly permits evaluation intent, so eval-only remains YELLOW.
