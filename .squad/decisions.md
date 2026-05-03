@@ -3171,3 +3171,180 @@ Normalization is NFC + whitespace collapse. Hawaiian maps ASCII/curly apostrophe
 ## Next
 
 Recommended Round 12: probe another eval-only diagnostic (Taxi1500) or refresh Tatoeba before adding more train-side sources.
+
+---
+
+# Stage-2 Round 12 — Taxi1500 License-First Probe
+
+**Owner:** Linus  
+**Date:** 2026-05-03  
+**Status:** Verdict finalized
+
+## Canonical URL
+
+- Repository: `https://github.com/cisnlp/Taxi1500`
+- Stage-2 registry entry: `data-sources/stage2-parallel-fetch-plan.json:414-450`
+- Prior inventory alias: `cis-lmu/Taxi1500-RawData` / `haw_Latn`, documented in `.squad/decisions-archive.md:2220-2252`.
+
+## Network/TOS clearance
+
+Allowed metadata-only requests made with a polite UA; no corpus zip, TSV, split file, or authenticated endpoint was fetched.
+
+- `https://github.com/robots.txt`: HTTP 200. `User-agent: *` blocks raw/tree/search-like crawler paths on `github.com`, but the repository README was read via `raw.githubusercontent.com` as a license/card-style metadata page; no bulk data path was fetched.
+- `https://raw.githubusercontent.com/cisnlp/Taxi1500/main/README.md`: HTTP 200; repository card/README only.
+- `https://raw.githubusercontent.com/cisnlp/Taxi1500/main/LICENSE`: HTTP 200; license text only.
+- `Taxi1500-c_v1.0/README.md` and `Taxi1500-c_v2.0/README.md`: HTTP 200; subdirectory README metadata only.
+
+## License
+
+Repository `LICENSE` is Apache-2.0. Verbatim grant excerpt:
+
+> "Apache License Version 2.0, January 2004"
+>
+> "Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare Derivative Works of, publicly display, publicly perform, sublicense, and distribute the Work and such Derivative Works in Source or Object form."
+
+Important caveat from the README:
+
+> "While Taxi1500 covers 1502 languages in total, we release 1871 editions in 823 languages which are either open access or have a license permitting distribution at the time of publication. Due to copyright restrictions, these are released as a corpus instead of the actual dataset, and can be converted into the dataset format shown below using the included processing code."
+
+Subdir metadata says v1.0/v2.0 corpora are downloadable ZIPs from LMU and explains permissive filtering, but those ZIPs were not fetched.
+
+## haw_Latn coverage
+
+- Coverage remains **not count-confirmed** in this no-data-fetch probe.
+- Existing project inventory says `cis-lmu/Taxi1500-RawData` has `haw_Latn` and describes it as "Bible-derived topic classification eval" (`.squad/decisions-archive.md:2220-2252`).
+- The active fetch plan still marks `taxi1500-haw` as `verification_status: pending_endpoint_check` and `adapter_status: none` (`data-sources/stage2-parallel-fetch-plan.json:414-450`).
+- Train/dev/test row counts for `haw_Latn`: **unknown from the allowed README/license pages**. Confirming counts appears to require either fetching/listing corpus/split contents or using a dedicated metadata endpoint not cleared in this round. Under the hard rule, stop here rather than infer counts.
+
+## Schema
+
+README dataset structure:
+
+| Field | Meaning |
+|---|---|
+| `id` | verse id |
+| `label` | topic label |
+| `verse` | verse text |
+
+Label set quoted from the README table:
+
+- `Recommendation`
+- `Faith`
+- `Description`
+- `Sin`
+- `Grace`
+- `Violence`
+
+## Contamination risk
+
+**High.** Taxi1500 is explicitly Bible-derived:
+
+> "Taxi1500 is developed based on the PBC and 1000Langs corpora."
+
+The task examples are Bible verses, and the Stage-2 plan already says "never train on FLORES / global-piqa / Taxi1500" (`data-sources/stage2-parallel-fetch-plan.json:975`). Any Hawaiian rows may overlap semantically or exactly with existing Baibala 1839 / Baibala 1868 / BibleNLP-style candidate rows. If ever ingested, every row must be registered in `data/evals/eval_hashes.jsonl` before any train manifest build, and train candidates matching Taxi1500 verse hashes must be dropped or quarantined.
+
+## Verdict
+
+**YELLOW — EVAL-only pending count/pin confirmation.**
+
+The repo license is clear for repository contents, but the released corpus is Bible-derived and count/split metadata for `haw_Latn` was not safely confirmable without fetching data. Routing remains diagnostic/eval-only, never TRAIN.
+
+## Routing
+
+**EVAL-only.** Rationale:
+
+1. Bible-domain classification, not translation training data.
+2. Direct contamination risk against existing Bible 1839/1868 rows.
+3. Existing project policy explicitly says never train on Taxi1500.
+4. Split/count confirmation still needs a later metadata-cleared or local-file round.
+
+## Adapter sketch if proceeding
+
+Do not create `data/stage2/candidates/` rows. Build an eval-ledger ingester only after a future round confirms `haw_Latn` counts and pins an exact commit or release artifact:
+
+- Require exact source pin: repo commit plus corpus version (`Taxi1500-c_v1.0` or `Taxi1500-c_v2.0`) and local license/TOS snapshot.
+- Require operator confirmation: `--confirm-routing EVAL_ONLY_NO_TRAIN`.
+- Parse fields `id`, `label`, `verse`; reject rows outside the six-label set.
+- Emit only `data/evals/eval_hashes.jsonl` entries with `origin=taxi1500-haw`, `eval_only=true`, `content_sha256`, `label`, and source row id.
+- Before manifest emission, use the existing eval contamination guard to exclude matching Bible-family train rows.
+
+---
+
+# Stage-2 Round 12 — Tatoeba Refresh License-First Probe
+
+**Owner:** Linus  
+**Date:** 2026-05-03  
+**Status:** Verdict finalized; gated next round
+
+## Current registry pin
+
+- Fetch plan source: `tatoeba-haw-eng` (`data-sources/stage2-parallel-fetch-plan.json:188-229`).
+- Adapter pin: `data-sources/tatoeba/PINNED_DUMP.json` records `dump_date: 2025-05-01`, `license: CC-BY 2.0 FR`, and the haw/eng/link export URLs.
+- Adapter README records the same pinned dump date and says raw downloads live under `data/raw/tatoeba-haw-eng/<YYYYMMDD>/` (`data-sources/tatoeba/README.md:7-17`, `:56-60`). No raw Tatoeba dump directory is present locally.
+- Current local direct Tatoeba candidate file: `data/stage2/candidates/tatoeba.jsonl` has 121 rows, 111 unique `tatoeba_sentence_id_haw` values. The finalized review manifest has 121 Tatoeba rows: 105 train, 15 dev, 1 held-out/finalized.
+
+## Network/TOS clearance
+
+Allowed metadata-only requests made with a polite UA; no Tatoeba export body was downloaded.
+
+- `https://tatoeba.org/robots.txt`: HTTP 200. It specifies `Crawl-delay: 8`; this probe used >=8s sleeps for Tatoeba requests. The stats page is not disallowed.
+- `https://downloads.tatoeba.org/robots.txt`: HTTP 404; no robots restriction found for download metadata. Only HEAD requests were sent to export URLs.
+- `https://tatoeba.org/eng/stats/sentences_by_language`: HTTP 200; public stats page only.
+- `https://tatoeba.org/eng/terms_of_use`: HTTP 200; license/TOS page only.
+- HEAD metadata only:
+  - `haw_sentences_detailed.tsv.bz2`: `Last-Modified: Sat, 02 May 2026 06:25:58 GMT`, `Content-Length: 3039`.
+  - `haw-eng_links.tsv.bz2`: `Last-Modified: Sat, 02 May 2026 06:33:37 GMT`, `Content-Length: 941`.
+
+## License confirmation
+
+Tatoeba terms still state the text-sentence default license. Verbatim excerpt:
+
+> "Tatoeba's technical infrastructure uses the default Creative Commons Attribution 2.0 France license (CC-BY 2.0 FR) for the use of textual sentences. The BY mention implies a single restriction on the use, reuse, modification and distribution of the sentence: a condition of attribution. That is, using, reusing, modifying and distributing the sentence is only allowed if the name of the author is cited."
+
+Existing adapter policy is still correct: preserve `contributor_haw`, `contributor_en`, sentence IDs, and source URLs for attribution flow-down.
+
+## Latest public haw sentence count
+
+The public stats page row for Hawaiian is:
+
+```html
+<tr><td>222</td><td>... alt="haw" title="Hawaiian" ...</td><td>haw</td><td>...Hawaiian...</td><td class="num-sentences"><div class="bar" style="width:0.0094427545301861%"></div>192</td></tr>
+```
+
+Latest public Hawaiian sentence count: **192**.
+
+## Comparison to pinned edition
+
+Exact pinned total Hawaiian sentence count is **not stored** in `PINNED_DUMP.json` or the README; local raw downloads are absent. The local candidate artifact has 121 en↔haw rows and 111 unique Hawaiian sentence IDs, which is a linked-pair count, not the same denominator as the stats page's total Hawaiian sentence count.
+
+Best safe delta estimate without re-download:
+
+- Latest total haw sentences: 192.
+- Current local linked haw sentence IDs: 111.
+- Upper-bound unrepresented Hawaiian sentences relative to our linked set: **up to 81**.
+- Upper-bound new en↔haw pair opportunity relative to 121 current pairs: **up to 71** if every extra Hawaiian sentence has an English link; actual pair delta may be lower and requires a future licensed export refresh/count.
+- Export `Last-Modified` dates are 2026-05-02, newer than the 2025-05-01 pin, so metadata indicates the export changed since our pin.
+
+## Refresh trigger threshold
+
+Recommend refresh when either condition is met:
+
+1. Confirmed en↔haw pair delta is **≥5%** of the pinned 121 pairs (≥7 new linked pairs), or
+2. Confirmed new Hawaiian sentence count is **≥500**.
+
+For this tiny source, the 5% linked-pair threshold is the practical trigger; 500 new Hawaiian sentences is a long-tail safeguard for larger future growth.
+
+## Verdict
+
+**REFRESH-NOW for a gated next round; no data fetched in this round.**
+
+Reason: license remains clear, export metadata is newer than the 2025-05-01 pin, and the latest public haw count (192) leaves a large enough upper-bound gap versus the local linked set (111 unique haw IDs / 121 pairs) to exceed the 5% trigger if even a small fraction are English-linked.
+
+## Next adapter action
+
+In a separate execute-approved round:
+
+- Reconfirm robots/TOS snapshots.
+- HEAD all three pinned export URLs and record `Last-Modified`, `Content-Length`, and hashes after download.
+- Download only the three existing Tatoeba export files, rebuild `data/stage2/candidates/tatoeba.jsonl`, and report exact pair delta.
+- Preserve the current split policy: hash before split, keep held-out/dev rows protected, and prefer canonical Tatoeba over OPUS-Tatoeba duplicates.
