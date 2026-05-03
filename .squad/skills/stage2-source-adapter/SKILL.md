@@ -406,3 +406,27 @@ Use it to catch four adapter regressions before they enter cap math:
 4. **Cross-source duplicates:** exact pair/en/haw hash groups and near-dupes should be handled in adapters or manifest dedup, not manually edited under `data/`.
 
 The audit is intentionally read-only and writes no files under `data/`.
+
+---
+
+## Reference instance: legacy candidate normalization patcher (2026-05-03)
+
+When older/probe adapters have already emitted candidate JSONLs with schema/hash drift, use a patcher rather than editing raw data or hand-editing rows:
+
+```bash
+python3 scripts/341_normalize_legacy_candidates.py          # dry-run report
+python3 scripts/341_normalize_legacy_candidates.py --apply  # rewrites candidates with .jsonl.bak copies
+python3 scripts/340_audit_stage2_candidate_normalization.py --strict
+python3 scripts/320_build_stage2_manifest.py --dry-run
+```
+
+Reusable rules from `341_normalize_legacy_candidates.py`:
+
+1. Patch only generated `data/stage2/candidates/*.jsonl`; never touch `data/raw/`.
+2. Back up every changed candidate file as `<file>.bak` before rewriting.
+3. Use `--apply`, not `--execute`, for artifact patchers so they are distinct from source fetchers.
+4. HAW clean text/hash path is NFC + ʻokina fold; EN clean text/hash path is NFC only.
+5. Map legacy adapter-specific enums into manifest enums and preserve adapter-specific detail in `notes`.
+6. Recompute `sha256_en_clean`, `sha256_haw_clean`, and `sha256_pair` together; never update one hash in isolation.
+7. Null `license_inferred` and enforce `prototype_only=true => release_eligible=false` before validation.
+8. Re-run both audit strict mode and manifest dry-run before considering the patch complete.
