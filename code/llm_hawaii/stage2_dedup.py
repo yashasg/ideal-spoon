@@ -15,7 +15,7 @@ import unicodedata
 from collections import Counter, defaultdict
 from typing import Any
 
-POLICY_VERSION = "stage2-cross-source-dedup-v0.5"
+POLICY_VERSION = "stage2-cross-source-dedup-v0.6"
 EXACT_SIDE_MAX_PER_KEY = 3
 SHORT_EXACT_SIDE_MAX_PER_KEY = 2
 SHORT_EXACT_SIDE_TOKEN_MAX = 3
@@ -24,6 +24,7 @@ SOFTWARE_L10N_SHORT_VARIANT_TOKEN_MAX = 6
 NEAR_DUPE_THRESHOLD = 0.92
 _TOKEN_RE = re.compile(r"[\wʻ'-]+", re.UNICODE)
 _OKINA_FOLD = str.maketrans({"'": "ʻ", "‘": "ʻ", "’": "ʻ", "`": "ʻ"})
+_INVISIBLE_FORMAT_CONTROLS = str.maketrans("", "", "\u00ad\u200b\u200c\u200d\ufeff")
 WEBLATE_SOURCES = {"weblate", "weblate-en-haw"}
 
 BIBLE_FAMILIES = {
@@ -154,7 +155,7 @@ def _append_reason(row: dict[str, Any], reason: str) -> None:
 
 
 def _normal_text(text: Any, *, haw: bool) -> str:
-    s = unicodedata.normalize("NFC", str(text or ""))
+    s = unicodedata.normalize("NFC", str(text or "")).translate(_INVISIBLE_FORMAT_CONTROLS)
     if haw:
         s = s.translate(_OKINA_FOLD)
     return " ".join(_TOKEN_RE.findall(s.casefold()))
@@ -209,7 +210,7 @@ def select_preferred(rows: list[dict[str, Any]]) -> tuple[dict[str, Any], list[d
             dropped = [row for row in rows if row is not kept]
             return kept, dropped, str(rule["id"])
 
-    kept = sorted(rows, key=_stable_row_key)[0]
+    kept = sorted(rows, key=canonical_sort_key)[0]
     dropped = [row for row in rows if row is not kept]
     return kept, dropped, "deterministic_fallback_no_policy_rule"
 

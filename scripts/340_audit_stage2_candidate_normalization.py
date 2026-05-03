@@ -21,6 +21,8 @@ from typing import Any, Iterable
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CANDIDATES = REPO_ROOT / "data" / "stage2" / "candidates"
 OKINA_FOLD = str.maketrans({"'": "ʻ", "‘": "ʻ", "’": "ʻ", "`": "ʻ"})
+INVISIBLE_FORMAT_CONTROLS = str.maketrans("", "", "\u00ad\u200b\u200c\u200d\ufeff")
+NON_ASCII_WHITESPACE = {"\u00a0", "\u1680", "\u2000", "\u2001", "\u2002", "\u2003", "\u2004", "\u2005", "\u2006", "\u2007", "\u2008", "\u2009", "\u200a", "\u2028", "\u2029", "\u202f", "\u205f", "\u3000"}
 TOKEN_RE = re.compile(r"[\wʻ'-]+", re.UNICODE)
 
 
@@ -56,12 +58,20 @@ def normalize_haw(text: str) -> str:
     return nfc(text).translate(OKINA_FOLD)
 
 
+def normalize_en_for_dedup_key(text: str) -> str:
+    return nfc(text).translate(INVISIBLE_FORMAT_CONTROLS)
+
+
+def normalize_haw_for_dedup_key(text: str) -> str:
+    return normalize_haw(text).translate(INVISIBLE_FORMAT_CONTROLS)
+
+
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def text_key(text: str, *, haw: bool) -> str:
-    text = normalize_haw(text) if haw else nfc(text)
+    text = normalize_haw_for_dedup_key(text) if haw else normalize_en_for_dedup_key(text)
     toks = TOKEN_RE.findall(text.casefold())
     return " ".join(toks)
 
@@ -125,6 +135,8 @@ def audit(
     haw_non_nfc = 0
     en_non_nfc = 0
     en_apostrophe_rows = 0
+    invisible_format_control_rows = 0
+    non_ascii_whitespace_rows = 0
     examples: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     raw_pair_index: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -175,6 +187,15 @@ def audit(
 
             en = row.get("text_en")
             haw = row.get("text_haw")
+            joined_text = "".join(x for x in (en, haw) if isinstance(x, str))
+            if any(ch in joined_text for ch in "\u00ad\u200b\u200c\u200d\ufeff"):
+                invisible_format_control_rows += 1
+                if len(examples["invisible_format_control_rows"]) < max_examples:
+                    examples["invisible_format_control_rows"].append(loc)
+            if any(ch in joined_text for ch in NON_ASCII_WHITESPACE):
+                non_ascii_whitespace_rows += 1
+                if len(examples["non_ascii_whitespace_rows"]) < max_examples:
+                    examples["non_ascii_whitespace_rows"].append(loc)
             if isinstance(en, str):
                 if en != nfc(en):
                     en_non_nfc += 1
@@ -364,6 +385,8 @@ def audit(
             "haw_non_nfc_rows": haw_non_nfc,
             "en_non_nfc_rows": en_non_nfc,
             "en_rows_with_apostrophe_or_right_quote_preserved": en_apostrophe_rows,
+            "invisible_format_control_rows": invisible_format_control_rows,
+            "non_ascii_whitespace_rows": non_ascii_whitespace_rows,
         },
         "hash_mismatches_if_haw_okina_canonicalized": dict(hash_mismatches),
         "schema": {

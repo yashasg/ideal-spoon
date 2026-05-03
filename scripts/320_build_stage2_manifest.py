@@ -61,6 +61,7 @@ import datetime
 import hashlib
 import json
 import sys
+import unicodedata
 from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable
@@ -200,6 +201,16 @@ def compute_pair_hash(sha256_en_clean: str, sha256_haw_clean: str) -> str:
     ).hexdigest()
 
 
+_INVISIBLE_FORMAT_CONTROLS = str.maketrans("", "", "\u00ad\u200b\u200c\u200d\ufeff")
+
+
+def _has_nonblank_text_value(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    visible = unicodedata.normalize("NFC", value).translate(_INVISIBLE_FORMAT_CONTROLS).strip()
+    return bool(visible)
+
+
 def read_jsonl(path: Path) -> Iterable[dict[str, Any]]:
     with path.open("r", encoding="utf-8") as fh:
         for ln, line in enumerate(fh, 1):
@@ -242,9 +253,9 @@ def validate_row(row: dict[str, Any]) -> list[str]:
         violations.append("dep:license_inferred_must_be_null")
     if row.get("prototype_only") is True and row.get("release_eligible") is True:
         violations.append("dep:prototype_not_release_eligible")
-    if not (row.get("text_en") or row.get("text_en_path")):
+    if not (_has_nonblank_text_value(row.get("text_en")) or _has_nonblank_text_value(row.get("text_en_path"))):
         violations.append("dep:text_en_or_ref_required")
-    if not (row.get("text_haw") or row.get("text_haw_path")):
+    if not (_has_nonblank_text_value(row.get("text_haw")) or _has_nonblank_text_value(row.get("text_haw_path"))):
         violations.append("dep:text_haw_or_ref_required")
     # Dev/test forbid non-`parallel-*` and forbid Stage-1 cross-link.
     if row.get("split") in EVAL_SPLITS:

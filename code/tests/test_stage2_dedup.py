@@ -14,6 +14,7 @@ from llm_hawaii.stage2_dedup import (
     cap_exact_haw,
     collapse_near_dupes,
     collapse_pair_hash_duplicates,
+    near_duplicate_groups,
     select_preferred,
     source_family,
 )
@@ -170,6 +171,39 @@ class TestStage2CrossSourceDedupPolicy(unittest.TestCase):
         self.assertEqual(len(capped), 2)
         self.assertEqual(stats["short_policy_groups"], 1)
         self.assertNotIn("weblate", {r["source"] for r in capped})
+
+    def test_unruled_exact_pair_fallback_uses_source_priority_not_source_id(self):
+        kept, dropped, reason = select_preferred([
+            {**row("andrews-1865-en-haw-vocab-appendix", "andrews", "same"), "text_en": "Short", "text_haw": "Pōkole"},
+            {**row("hooilina", "hooilina", "same"), "text_en": "Short", "text_haw": "Pōkole"},
+        ])
+        self.assertEqual(kept["source"], "hooilina")
+        self.assertEqual(dropped[0]["source"], "andrews-1865-en-haw-vocab-appendix")
+        self.assertEqual(reason, "deterministic_fallback_no_policy_rule")
+
+    def test_near_duplicate_matching_ignores_invisible_format_controls(self):
+        rows = [
+            {**row("hooilina", "plain", "p1"), "text_en": "abcdef", "text_haw": "hooponopono"},
+            {**row("andrews-1865-en-haw-vocab-appendix", "hidden", "p2"), "text_en": "abc\u200bdef", "text_haw": "hoo\u00adponopono"},
+        ]
+        self.assertEqual(near_duplicate_groups(rows, threshold=1.0), [[0, 1]])
+        kept, stats = collapse_near_dupes(rows, threshold=1.0)
+        self.assertEqual([r["pair_id"] for r in kept], ["plain"])
+        self.assertEqual(stats["dropped_rows"], 1)
+
+    def test_english_okina_and_apostrophe_are_not_folded_for_dedup(self):
+        rows = [
+            {**row("hooilina", "apostrophe", "p1"), "text_en": "Hawai'i", "text_haw": "hawaiʻi"},
+            {**row("tatoeba", "okina", "p2"), "text_en": "Hawaiʻi", "text_haw": "hawaiʻi"},
+        ]
+        self.assertEqual(near_duplicate_groups(rows, threshold=1.0), [])
+
+    def test_trailing_punctuation_only_variants_are_near_duplicates(self):
+        rows = [
+            {**row("andrews-1865-en-haw-vocab-appendix", "bare", "p1"), "text_en": "Blue", "text_haw": "uliuli"},
+            {**row("ia-hawaiian-phrase-book-1881", "punct", "p2"), "text_en": "Blue.", "text_haw": "Uliuli."},
+        ]
+        self.assertEqual(near_duplicate_groups(rows, threshold=1.0), [[0, 1]])
 
     def test_annotate_paraphrase_groups_marks_remaining_one_sided_groups(self):
         rows = [

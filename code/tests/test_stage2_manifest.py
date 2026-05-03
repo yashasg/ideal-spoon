@@ -107,6 +107,23 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
 # assign_split
 # ---------------------------------------------------------------------------
 
+class TestValidateRowTextPresence(unittest.TestCase):
+
+    def test_whitespace_only_inline_text_is_missing_even_when_string_is_truthy(self):
+        row = _make_valid_row()
+        row["text_en"] = " \t\u200b\u00ad "
+        row["text_en_path"] = None
+        violations = m.validate_row(row)
+        self.assertIn("dep:text_en_or_ref_required", violations)
+
+    def test_invisible_only_text_path_is_missing(self):
+        row = _make_valid_row()
+        row["text_haw"] = None
+        row["text_haw_path"] = "\u200b\u00ad"
+        violations = m.validate_row(row)
+        self.assertIn("dep:text_haw_or_ref_required", violations)
+
+
 class TestAssignSplit(unittest.TestCase):
 
     def test_deterministic_same_input(self):
