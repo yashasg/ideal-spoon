@@ -1,0 +1,73 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_id": "stage2-weblate-source-registry",
+  "owner": "linus (Data Engineer)",
+  "purpose": "Permissive-only Stage-2 registry for public Weblate English↔Hawaiian localization components. No content fetch is allowed until instance TOS/robots snapshots are present locally and component SPDX license is allowlisted.",
+  "legal_directive": {
+    "license_tos_check_before_fetch": true,
+    "no_auth_or_paywall_bypass": true,
+    "robots_and_rate_limits": "Respect robots.txt and Weblate API rate limits; use explicit ideal-spoon User-Agent, >=2s between requests, and <=30 requests/minute by default.",
+    "when_in_doubt": "Stop and write a TOS/license review note before fetching translation content. Missing or ambiguous project license is blocked."
+  },
+  "allowlist_spdx_regex": "^(MIT|Apache-2\\.0|BSD-2-Clause|BSD-3-Clause|MPL-2\\.0|CC0-1\\.0|CC-BY-4\\.0)$",
+  "blocked_license_families": ["GPL-*", "AGPL-*", "LGPL-*", "CC-BY-SA-*", "all-rights-reserved", "missing-license"],
+  "adapter_scripts": {
+    "discovery": "scripts/345_discover_weblate_haw_projects.py",
+    "candidate_builder": "scripts/346_build_weblate_candidates.py"
+  },
+  "instances": [
+    {
+      "instance_key": "hosted",
+      "name": "Hosted Weblate",
+      "base_url": "https://hosted.weblate.org",
+      "language_url": "https://hosted.weblate.org/languages/haw/",
+      "tos_url": "https://weblate.org/en/terms/",
+      "tos_snapshot_ref": {
+        "path_required_before_execute": "data/raw/weblate-discovery/tos/hosted-weblate-terms.html",
+        "sha256": "pending-local-snapshot-before-execute",
+        "fetched_at": "pending-local-snapshot-before-execute",
+        "status": "required_execute_gate"
+      },
+      "robots_snapshot": {
+        "path_required_before_execute": "data/raw/weblate-discovery/tos/hosted-weblate-robots.txt",
+        "sha256": "pending-local-snapshot-before-execute",
+        "fetched_at": "pending-local-snapshot-before-execute",
+        "r9_observed_summary": "Allow: /projects/, /languages/, /exports/; Disallow: /",
+        "status": "required_execute_gate"
+      },
+      "rate_limit": {"min_sleep_seconds": 2.0, "max_requests_per_minute": 30},
+      "projects": [
+        {"project_slug": "django-zxcvbn-password-validator", "license_spdx": "MIT", "license_url": "https://spdx.org/licenses/MIT.html", "fetched_at": "2026-05-03T00:00:00Z", "components_haw": ["translations"]},
+        {"project_slug": "dpo-voyager", "license_spdx": "Apache-2.0", "license_url": "https://spdx.org/licenses/Apache-2.0.html", "fetched_at": "2026-05-03T00:00:00Z", "components_haw": ["dpo-voyager"]},
+        {"project_slug": "f-droid", "license_spdx": "mixed; component-level filter required", "license_url": null, "fetched_at": "2026-05-03T00:00:00Z", "components_haw": ["privileged-extension-metadata", "glossary-f-droid"]},
+        {"project_slug": "geoweather", "license_spdx": "Apache-2.0", "license_url": "https://spdx.org/licenses/Apache-2.0.html", "fetched_at": "2026-05-03T00:00:00Z", "components_haw": []},
+        {"project_slug": "prismlauncher", "license_spdx": "mixed; component-level filter required", "license_url": null, "fetched_at": "2026-05-03T00:00:00Z", "components_haw": ["launcher"]}
+      ]
+    },
+    {
+      "instance_key": "fedora",
+      "name": "Fedora Weblate",
+      "base_url": "https://translate.fedoraproject.org",
+      "language_url": "https://translate.fedoraproject.org/languages/haw/",
+      "tos_url": "https://weblate.org/en/terms/",
+      "tos_snapshot_ref": {
+        "path_required_before_execute": "data/raw/weblate-discovery/tos/fedora-weblate-terms.html",
+        "sha256": "pending-local-snapshot-before-execute",
+        "fetched_at": "pending-local-snapshot-before-execute",
+        "status": "required_execute_gate"
+      },
+      "robots_snapshot": {
+        "path_required_before_execute": "data/raw/weblate-discovery/tos/fedora-weblate-robots.txt",
+        "sha256": "pending-local-snapshot-before-execute",
+        "fetched_at": "pending-local-snapshot-before-execute",
+        "r9_observed_summary": "Allow: /projects/, /languages/, /exports/; Disallow: /",
+        "status": "required_execute_gate"
+      },
+      "rate_limit": {"min_sleep_seconds": 2.0, "max_requests_per_minute": 30},
+      "projects": [
+        {"project_slug": "rpminspect", "license_spdx": "GPL-3.0-or-later", "license_url": "https://spdx.org/licenses/GPL-3.0-or-later.html", "fetched_at": "2026-05-03T00:00:00Z", "components_haw": []}
+      ],
+      "status": "blocked_no_allowlisted_components_in_r9_probe"
+    }
+  ]
+}

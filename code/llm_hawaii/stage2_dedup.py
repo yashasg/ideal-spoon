@@ -15,14 +15,16 @@ import unicodedata
 from collections import Counter, defaultdict
 from typing import Any
 
-POLICY_VERSION = "stage2-cross-source-dedup-v0.4"
+POLICY_VERSION = "stage2-cross-source-dedup-v0.5"
 EXACT_SIDE_MAX_PER_KEY = 3
 SHORT_EXACT_SIDE_MAX_PER_KEY = 2
 SHORT_EXACT_SIDE_TOKEN_MAX = 3
 SHORT_EXACT_OTHER_SIDE_MIN_TOKENS = 4
+SOFTWARE_L10N_SHORT_VARIANT_TOKEN_MAX = 6
 NEAR_DUPE_THRESHOLD = 0.92
 _TOKEN_RE = re.compile(r"[\wʻ'-]+", re.UNICODE)
 _OKINA_FOLD = str.maketrans({"'": "ʻ", "‘": "ʻ", "’": "ʻ", "`": "ʻ"})
+WEBLATE_SOURCES = {"weblate", "weblate-en-haw"}
 
 BIBLE_FAMILIES = {
     "bible-1868",
@@ -41,11 +43,13 @@ SOURCE_PRIORITY: dict[str, int] = {
     "hk_constitution_1852": 5,
     "wikimedia-cx-en-haw": 6,
     "tatoeba": 7,
-    "kaikki-haw-en-wiktionary": 8,
-    "kaikki": 8,
-    "andrews-1865-en-haw-vocab-appendix": 9,
-    "andrews": 9,
-    "ia-hawaiian-phrase-book-1881": 10,
+    "weblate": 8,
+    "weblate-en-haw": 8,
+    "kaikki-haw-en-wiktionary": 9,
+    "kaikki": 9,
+    "andrews-1865-en-haw-vocab-appendix": 10,
+    "andrews": 10,
+    "ia-hawaiian-phrase-book-1881": 11,
     "opus-haw-subsets": 20,
 }
 
@@ -72,6 +76,12 @@ PREFERENCE_RULES: list[dict[str, Any]] = [
         "rationale": "Canonical Tatoeba rows retain native sentence/link IDs; OPUS-Tatoeba is a mirrored derivative.",
     },
     {
+        "id": "tatoeba-over-weblate",
+        "prefer": ["tatoeba"],
+        "when_also_present": ["weblate"],
+        "rationale": "Tatoeba sentence pairs outrank short software-localization strings on exact overlap.",
+    },
+    {
         "id": "bible-1868-over-other-bible-editions",
         "prefer": ["bible-1868"],
         "when_also_present": ["bible-1839", "gospel-john-1854", "bible-other"],
@@ -91,6 +101,8 @@ def source_family(row: dict[str, Any]) -> str:
         return "wikimedia-cx"
     if source == "tatoeba":
         return "tatoeba"
+    if source in WEBLATE_SOURCES:
+        return "weblate"
     if source == "opus-haw-subsets":
         if pair_id.startswith("opus-tatoeba-"):
             return "opus-tatoeba"
@@ -312,7 +324,9 @@ def _cap_exact_key(
 
         key_lengths = [_token_count(row.get(key_text_name), haw=key_text_haw) for _, row in indexed]
         nonzero_key_lengths = [length for length in key_lengths if length > 0]
-        is_short_key = bool(nonzero_key_lengths) and max(nonzero_key_lengths) <= SHORT_EXACT_SIDE_TOKEN_MAX
+        has_weblate = bool(sources & WEBLATE_SOURCES)
+        short_token_max = SOFTWARE_L10N_SHORT_VARIANT_TOKEN_MAX if has_weblate else SHORT_EXACT_SIDE_TOKEN_MAX
+        is_short_key = bool(nonzero_key_lengths) and max(nonzero_key_lengths) <= short_token_max
         effective_max = SHORT_EXACT_SIDE_MAX_PER_KEY if is_short_key else max_per_key
         eligible = indexed
         if is_short_key:

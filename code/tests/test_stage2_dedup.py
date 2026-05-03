@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import sys
 import unittest
+from pathlib import Path
+
+_CODE_DIR = Path(__file__).resolve().parents[1]
+if str(_CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(_CODE_DIR))
 
 from llm_hawaii.stage2_dedup import (
     annotate_paraphrase_groups,
@@ -145,6 +151,25 @@ class TestStage2CrossSourceDedupPolicy(unittest.TestCase):
         self.assertEqual(stats["dropped_rows"], 1)
         self.assertIn("hooilina", {r["source"] for r in kept})
         self.assertNotIn("ia-hawaiian-phrase-book-1881", {r["source"] for r in kept})
+
+    def test_weblate_orders_below_tatoeba_and_uses_short_variant_cap(self):
+        kept, dropped, reason = select_preferred([
+            row("weblate", "weblate:hosted:demo:app:menu.open"),
+            row("tatoeba", "tatoeba-haw1-en1"),
+        ])
+        self.assertEqual(kept["source"], "tatoeba")
+        self.assertEqual(dropped[0]["source"], "weblate")
+        self.assertEqual(reason, "tatoeba-over-weblate")
+
+        rows = [
+            {**row("weblate", "w", "p1"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h1", "text_en": "Open settings now", "text_haw": "E wehe"},
+            {**row("tatoeba", "t", "p2"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h2", "text_en": "Open settings now", "text_haw": "E wehe i nā hoʻonohonoho"},
+            {**row("kaikki", "k", "p3"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h3", "text_en": "Open settings now", "text_haw": "E wehe i kēia papa hoʻonohonoho"},
+        ]
+        capped, stats = cap_exact_en(rows)
+        self.assertEqual(len(capped), 2)
+        self.assertEqual(stats["short_policy_groups"], 1)
+        self.assertNotIn("weblate", {r["source"] for r in capped})
 
     def test_annotate_paraphrase_groups_marks_remaining_one_sided_groups(self):
         rows = [

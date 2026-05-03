@@ -480,13 +480,13 @@
         "manifest_alignment_method": "tmx-line",
         "register": "software-l10n"
       },
-      "verification_status": "pending_endpoint_check",
+      "verification_status": "adapter-ready, awaiting --execute",
       "exclusions_or_risks": [
         "Mixed per-project licenses — easy to accidentally fold a non-permissive project in; the per-project filter is a hard gate.",
         "UI-string register skew; cap as with OPUS l10n subsets."
       ],
       "expected_pair_yield_estimate": "1000-3000 (per-project license filter required)",
-      "adapter_status": "none"
+      "adapter_status": "adapter-ready, awaiting --execute"
     },
     {
       "source_id": "wiki-haw-en-langlinks",
