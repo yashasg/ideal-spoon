@@ -375,3 +375,15 @@ record_id_haw = f"haw-rev-{targetRevisionId}-p{para_idx}"
 Wikipedia content is **CC BY-SA 4.0 / GFDL — not PD**. All CX rows must be
 `prototype_only=True`, `release_eligible=False` until a rights policy
 explicitly clears the encyclopedic register for training use.
+
+---
+
+## Reference instance: comparable-aligned LaBSE adapters (Sanitary Instructions, 2026-05-03)
+
+For comparable sources aligned by embeddings, keep manifest enum fields generic and put adapter policy detail elsewhere:
+
+- `alignment_type="comparable-aligned"`.
+- `alignment_method="labse"` or `"laser"` only; do not invent values like `labse-mutual-nearest-paragraph-v1` because `320_build_stage2_manifest.py::validate_row` rejects them.
+- Put the specific algorithm/threshold policy in `policy_version`, `manual_review_reasons`, and `alignment_score_components`.
+- New comparable-source rows should remain `prototype_only=True`, `release_eligible=False`, `split="review-pending"`, and `alignment_review_required=True` until a final cap/rights pass promotes or excludes them.
+- Extract mutual-nearest selection into a pure function that accepts a score matrix; unit tests can verify schema/hash invariants without loading LaBSE or touching the network.

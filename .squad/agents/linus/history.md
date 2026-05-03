@@ -114,3 +114,7 @@ The 1897 bilingual imprint has a clean 1:1 structural correspondence:
 - Titles align (e.g., "DEFINITIONS" ↔ "NA WEHEWEHE ANO")
 - HAW preface explicitly states *"Unuhiia mai ka Olelo Beritania mai"*
   (Translated from English) → `direction_original = "en->haw"` is reliable.
+
+### Sanitary Instructions 1881 adapter schema gotcha
+
+The Sanitary Instructions paired volumes are comparable-aligned, not deterministic parallel paragraphs. Candidate rows must use schema enums `alignment_type="comparable-aligned"` and `alignment_method="labse"`; keep the adapter-specific mutual-nearest policy in `policy_version` / `manual_review_reasons`. Because this source is still review-pending and rights/cap-gated, rows stay `prototype_only=True`, `release_eligible=False`, `license_inferred=None`, and `register="unknown"` until final policy review. The adapter's `--execute` path is triple-gated by pinned edition confirmation plus an on-disk IA ToS snapshot.
