@@ -32,17 +32,11 @@ def log(msg):
 
 
 def resolve_token(token_env_name, dry_run):
-    """Resolve HF token from environment."""
-    token = os.getenv(token_env_name)
-    if not token:
-        fallback = os.getenv("HF_TOKEN")
-        if fallback:
-            token = fallback
-        elif not dry_run:
-            log(f"❌ Neither {token_env_name} nor HF_TOKEN environment variables are set.")
-            log("   Set one of them or use --dry-run to test locally.")
-            sys.exit(2)
-    return token
+    """Resolve HF token from environment, or fall back to cached `hf auth login`."""
+    token = os.getenv(token_env_name) or os.getenv("HF_TOKEN")
+    if not token and not dry_run:
+        log(f"No {token_env_name}/HF_TOKEN env var set — falling back to cached `hf auth login` credentials.")
+    return token  # None is fine: huggingface_hub will use ~/.cache/huggingface/token
 
 
 def download_checkpoint(hf_repo, checkpoint, local_dir, remote_prefix, token, dry_run):
