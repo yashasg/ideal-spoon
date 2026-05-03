@@ -1,7 +1,45 @@
 # Decisions
 
-> Updated 2026-05-03T20:38:30Z: Merged R15 linus-stage2-r15-dedup-edge-fixes (fallback exact-pair ordering uses canonical source priority not alphabetical; near-dupe matching strips invisible controls U+00AD/U+200B/U+200C/U+200D/U+FEFF; manifest validation rejects whitespace/invisible-only refs; audit reports 7 invisible-control rows, 3 NBSP rows, 37,084 rows stable, all suites green). Prior 2026-05-03T20:33:14Z: Merged R14 linus-stage2-r14-contamination-wired (train-side eval-contamination filter now enforcing gate; `--eval-hashes` loads explicit eval ledgers before dedup, drops matches before cross-source/side/near-duplicate dedup, missing ledger hard error, writes contamination_report.json sidecar, all regression suites green). Prior 2026-05-03T1100Z: Merged R7 linus-stage2-paraphrase-grouping (161 EN/32 HAW exact groups accepted as lexical diversity, 395 rows annotated, zero drops, copilot user directive captured). Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
+> Updated 2026-05-03T20:45:08Z: Merged R16 linus-stage2-r16-hash-determinism-policy (EN-side hash canonicalization contract locked: NFC normalize, strip invisibles, collapse whitespace, preserve case, fold EN curly quotes/hyphens to ASCII, keep U+02BC/U+02BB/em-en-dashes, HAW ʻokina folding HAW-only; 7 determinism tests added; FLORES+ and Common Voice probed RED/SKIP for Hawaiian; 37,084 rows stable, all suites green, commit 85ba2e5). Prior 2026-05-03T20:38:30Z: Merged R15 linus-stage2-r15-dedup-edge-fixes (fallback exact-pair ordering uses canonical source priority not alphabetical; near-dupe matching strips invisible controls U+00AD/U+200B/U+200C/U+200D/U+FEFF; manifest validation rejects whitespace/invisible-only refs; audit reports 7 invisible-control rows, 3 NBSP rows, 37,084 rows stable, all suites green). Prior 2026-05-03T20:33:14Z: Merged R14 linus-stage2-r14-contamination-wired (train-side eval-contamination filter now enforcing gate; `--eval-hashes` loads explicit eval ledgers before dedup, drops matches before cross-source/side/near-duplicate dedup, missing ledger hard error, writes contamination_report.json sidecar, all regression suites green). Prior 2026-05-03T1100Z: Merged R7 linus-stage2-paraphrase-grouping (161 EN/32 HAW exact groups accepted as lexical diversity, 395 rows annotated, zero drops, copilot user directive captured). Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
 >
+
+---
+
+# Stage-2 Hash Determinism Contract (Round 16)
+
+**Owner:** Linus  
+**Date:** 2026-05-03  
+**Status:** Implemented  
+**Commit:** 85ba2e5
+
+## Decision
+
+Stage-2 EN clean-text hashes now have an explicit canonicalization contract before side hashing:
+
+- NFC normalize.
+- Remove soft hyphen, zero-width space/joiner/non-joiner, and BOM.
+- Collapse all whitespace runs to one ASCII space and trim edges.
+- Preserve case.
+- For EN, fold curly single quotes to ASCII apostrophe, curly double quotes to ASCII quote, and U+2010/U+2011 hyphens to ASCII hyphen-minus.
+- For EN, do not fold U+02BC modifier-letter apostrophe or U+02BB Hawaiian ʻokina.
+- For HAW, fold apostrophe-like marks to U+02BB ʻokina.
+- Keep em/en dashes, double hyphen, and spaced hyphen distinct.
+
+## Rationale
+
+This makes `sha256_en_clean`, `sha256_haw_clean`, and `sha256_pair` deterministic across typographic punctuation and whitespace drift without erasing case or Hawaiian orthography distinctions on the English side.
+
+## License Probes (No Fetch)
+
+**FLORES+:** RED/SKIP — Hawaiian split absent from FLORES+/200 set; would be CC-BY-SA if added (eval-only gate applies).
+
+**Common Voice:** RED/SKIP — no Hawaiian locale present; would be CC0 if added (audio not relevant for text Stage-2).
+
+## Verification
+
+- `python3 code/tests/test_hash_determinism.py -v`: 7 tests passed.
+- `python3 code/tests/test_stage2_dedup.py -v`: 17 tests passed.
+- `python3 scripts/320_build_stage2_manifest.py --dry-run`: 37,084 rows.
 
 ---
 
