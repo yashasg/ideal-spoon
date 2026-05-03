@@ -492,40 +492,70 @@ def build_trainer_kwargs(
 
 
 def _allowlist_checkpoint_globals() -> None:
-    """Allowlist numpy globals for torch.load weights_only=True (PyTorch 2.6+).
+    """Make HF Trainer's resume work with PyTorch 2.6+ weights_only=True.
 
-    HF Trainer calls torch.load(rng_file, weights_only=True) when resuming.
-    Checkpoints saved with older torch contain numpy reconstructors that the
-    new safe-unpickler rejects. We trust our own checkpoints, so allowlist
-    the common numpy globals before resume.
+    Two layers (defense in depth — we trust our own checkpoints):
+
+    1. Allowlist numpy globals via torch.serialization.add_safe_globals.
+       Register them under BOTH module paths the pickle might use:
+       `numpy._core.multiarray` (modern, numpy >= 1.25) and
+       `numpy.core.multiarray` (legacy alias).
+
+    2. Monkey-patch torch.load to force `weights_only=False`. The rng_state
+       file in HF checkpoints contains arbitrary numpy state that the safe
+       unpickler can't fully cover; since we trust our own checkpoint,
+       turning off weights_only is correct here.
     """
     try:
         import torch
     except ImportError:
         return
+
+    # Layer 1: allowlist numpy globals (best effort)
     add_safe_globals = getattr(torch.serialization, "add_safe_globals", None)
-    if add_safe_globals is None:
-        return  # torch < 2.6, no allowlist needed
-    safe = []
-    try:
-        import numpy as np
-        safe.append(np.core.multiarray._reconstruct)
-        safe.append(np.ndarray)
-        safe.append(np.dtype)
-        for name in ("Float64DType", "Int64DType", "UInt32DType", "BoolDType"):
-            t = getattr(np.dtypes, name, None)
-            if t is not None:
-                safe.append(t)
-        scalar = getattr(np.core.multiarray, "scalar", None)
-        if scalar is not None:
-            safe.append(scalar)
-    except Exception as e:
-        warnings.warn(f"Could not allowlist numpy globals for torch.load: {e}")
-    if safe:
+    if add_safe_globals is not None:
+        safe = []
         try:
-            add_safe_globals(safe)
+            import numpy as np
+            for mod_path in ("numpy._core.multiarray", "numpy.core.multiarray"):
+                try:
+                    import importlib
+                    mod = importlib.import_module(mod_path)
+                    for attr in ("_reconstruct", "scalar"):
+                        fn = getattr(mod, attr, None)
+                        if fn is not None:
+                            safe.append(fn)
+                except Exception:
+                    pass
+            safe.extend([np.ndarray, np.dtype])
+            for name in ("Float64DType", "Int64DType", "Int32DType",
+                         "UInt32DType", "UInt64DType", "BoolDType",
+                         "Float32DType"):
+                t = getattr(getattr(np, "dtypes", object), name, None)
+                if t is not None:
+                    safe.append(t)
         except Exception as e:
-            warnings.warn(f"add_safe_globals failed: {e}")
+            warnings.warn(f"Could not gather numpy globals: {e}")
+        if safe:
+            try:
+                add_safe_globals(safe)
+            except Exception as e:
+                warnings.warn(f"add_safe_globals failed: {e}")
+
+    # Layer 2: force weights_only=False on torch.load (trusted-source override)
+    if not getattr(torch.load, "_squad_patched", False):
+        _orig_load = torch.load
+
+        def _patched_load(*args, **kwargs):
+            kwargs["weights_only"] = False
+            return _orig_load(*args, **kwargs)
+
+        _patched_load._squad_patched = True  # type: ignore[attr-defined]
+        torch.load = _patched_load  # type: ignore[assignment]
+        warnings.warn(
+            "[squad] Forcing torch.load(weights_only=False) for checkpoint resume. "
+            "Trusted-source override for our own training checkpoints."
+        )
 
 
 def run_training(
