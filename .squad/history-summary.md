@@ -1,6 +1,6 @@
 # History Summary Report
 
-**Date:** 2026-05-03T10:50:51Z
+**Date:** 2026-05-03T10:55:58Z
 
 ## Large Histories (>12KB)
 
@@ -11,7 +11,7 @@
 | Rusty | 78KB | Source vetting, review-pending semantics | 2026-05-03T03:41:47Z |
 | Danny | 32KB | Architecture, final verdict policy | 2026-05-03T10:25:53Z |
 | Livingston | 21KB | Deployment pipeline, inference setup | Recent |
-| Linus | 14KB | Data engineering, stage-2 dedup policy | 2026-05-03T10:50:51Z (R5 append) |
+| Linus | 17KB | Data engineering, stage-2 dedup policy | 2026-05-03T10:55:58Z (R6 append: short-variant cap) |
 
 ## Archive Status
 
