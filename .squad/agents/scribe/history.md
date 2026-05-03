@@ -96,3 +96,21 @@ Wrote orchestration-log entries for both Linus pipeline passes; wrote session lo
 **Size:** Decisions.md now ~70 KB (under 20 KB archive threshold for policy-excluded; no 30+ day entries yet).
 
 **Status:** LaBSE review band correctly filtered by policy. Recommendation to target new sources at ≥0.75 LaBSE score. All decisions recorded; ready for git commit.
+
+## 2026-05-03T20:15:04Z — Linus R11 Global-PIQA Eval-Only Ingester Session Log
+
+**Spawn request:** Linus completed Global-PIQA eval-only ingester + contamination guard work. Process orchestration logs, session logs, merge inbox, commit.
+
+**Tasks completed:**
+1. ✅ **Orchestration log:** `.squad/orchestration-log/2026-05-03T20-15-04Z-linus-r11.md` — documented triple-gated ingester, contamination guard, ʻokina normalization, test results (5/5 + 4/4 pass).
+2. ✅ **Session log:** `.squad/log/2026-05-03T20-15-04Z-stage2-r11.md` — brief R11 summary with manifest status (37,084 rows), blocker count (3 active).
+3. ✅ **Decisions merge:** Merged 1 inbox file into `.squad/decisions.md`. Global-PIQA eval-only ingester appended with full implementation details, verification, and next-round recommendations.
+4. ✅ **Inbox cleanup:** Deleted `.squad/decisions/inbox/linus-stage2-global-piqa-eval-ingester.md` after merge.
+5. ✅ **Git commit:** Committed .squad/ changes with co-authored trailer.
+
+**Decisions merged:**
+- Linus Global-PIQA eval-only ingester (YELLOW/eval-only verdict, triple-gated execution, contamination guard wired to manifest builder)
+
+**Size:** Decisions.md now ~77 KB (under 300 KB total; no 30+ day entries yet).
+
+**Status:** Global-PIQA eval ledger adapter ready; awaiting `--execute` approval. Manifest dry-run stable at 37,084 rows. All session artifacts recorded; commit completed.
