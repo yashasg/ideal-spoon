@@ -235,7 +235,25 @@ def main():
                         help="Don't download or modify files, just show what would happen")
     
     args = parser.parse_args()
-    
+
+    # Early path validation — fail fast with clear errors before any download/HF work
+    config_path = Path(args.config)
+    if not config_path.is_file():
+        log(f"❌ --config path does not exist or is not a file: {args.config}")
+        log(f"   cwd: {Path.cwd()}")
+        log(f"   Tip: check for typos, missing quotes, or stray newlines in the path.")
+        sys.exit(2)
+
+    local_dir = Path(args.local_dir)
+    if not local_dir.exists():
+        log(f"❌ --local-dir does not exist: {args.local_dir}")
+        log(f"   cwd: {Path.cwd()}")
+        log(f"   Create it first (mkdir -p) or fix the path.")
+        sys.exit(2)
+    if not local_dir.is_dir():
+        log(f"❌ --local-dir is not a directory: {args.local_dir}")
+        sys.exit(2)
+
     # 1. Resolve token
     token = resolve_token(args.hf_token_env, args.dry_run)
     

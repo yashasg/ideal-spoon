@@ -42,6 +42,7 @@ import hashlib
 import inspect
 import json
 import subprocess
+import sys
 import time
 import warnings
 from pathlib import Path
@@ -668,6 +669,53 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     ns = parser.parse_args(argv)
+
+    config_path = Path(ns.config)
+    if not config_path.is_file():
+        print(
+            f"ERROR: --config path does not exist or is not a file: {ns.config}\n"
+            f"  cwd: {Path.cwd()}\n"
+            f"  Tip: check for typos, missing quotes, or stray newlines in the path.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if ns.resume_from_checkpoint is not None:
+        ckpt = Path(ns.resume_from_checkpoint)
+        if not ckpt.is_dir():
+            print(
+                f"ERROR: --resume-from-checkpoint path does not exist or is not a directory:\n"
+                f"  {ns.resume_from_checkpoint}\n"
+                f"  cwd: {Path.cwd()}\n"
+                f"  Tip: quote the path and ensure no line breaks split it. "
+                f"Run `ls <path>` first to confirm it exists.",
+                file=sys.stderr,
+            )
+            return 2
+        trainer_state = ckpt / "trainer_state.json"
+        if not trainer_state.is_file():
+            print(
+                f"ERROR: --resume-from-checkpoint missing trainer_state.json:\n"
+                f"  {ckpt}\n"
+                f"  This directory exists but is not a valid HF Trainer checkpoint.",
+                file=sys.stderr,
+            )
+            return 2
+        model_files = (
+            "pytorch_model.bin",
+            "model.safetensors",
+            "model.safetensors.index.json",
+            "adapter_model.safetensors",
+            "adapter_model.bin",
+        )
+        if not any((ckpt / f).exists() for f in model_files):
+            print(
+                f"ERROR: --resume-from-checkpoint has no model weights:\n"
+                f"  {ckpt}\n"
+                f"  Expected one of: {', '.join(model_files)}",
+                file=sys.stderr,
+            )
+            return 2
 
     cfg = load_config(ns.config)
 
