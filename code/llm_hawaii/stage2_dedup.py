@@ -1,22 +1,48 @@
-"""Stage-2 cross-source exact-pair dedup preference policy.
+"""Stage-2 duplicate and near-duplicate preference policy.
 
 The manifest builder calls this module after candidate rows have been scored and
-schema-normalized, but before cap math.  It only collapses exact ``sha256_pair``
-collisions; near-duplicate and source-cap policy remains elsewhere.
+schema-normalized, but before cap math.  Exact ``sha256_pair`` collisions are
+collapsed first, then optional one-sided exact-text caps and near-dupe collapse
+can be applied with deterministic source preference.
 """
 
 from __future__ import annotations
 
+import difflib
+import re
+import unicodedata
 from collections import Counter, defaultdict
 from typing import Any
 
-POLICY_VERSION = "stage2-cross-source-dedup-v0.1"
+POLICY_VERSION = "stage2-cross-source-dedup-v0.2"
+EXACT_SIDE_MAX_PER_KEY = 3
+NEAR_DUPE_THRESHOLD = 0.92
+_TOKEN_RE = re.compile(r"[\wʻ'-]+", re.UNICODE)
+_OKINA_FOLD = str.maketrans({"'": "ʻ", "‘": "ʻ", "’": "ʻ", "`": "ʻ"})
 
 BIBLE_FAMILIES = {
     "bible-1868",
     "bible-1839",
     "gospel-john-1854",
     "bible-other",
+}
+
+SOURCE_PRIORITY: dict[str, int] = {
+    "hooilina": 0,
+    "baibala-hemolele-1868": 1,
+    "baibala-hemolele-1839": 2,
+    "gospel_john_1854": 3,
+    "hk_statutes_1897": 4,
+    "hk-statutes-1897": 4,
+    "hk_constitution_1852": 5,
+    "wikimedia-cx-en-haw": 6,
+    "tatoeba": 7,
+    "kaikki-haw-en-wiktionary": 8,
+    "kaikki": 8,
+    "andrews-1865-en-haw-vocab-appendix": 9,
+    "andrews": 9,
+    "ia-hawaiian-phrase-book-1881": 10,
+    "opus-haw-subsets": 20,
 }
 
 # Ordered rules: first matching rule chooses the retained source family.
@@ -86,6 +112,58 @@ def _stable_row_key(row: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
+def _source_priority(row: dict[str, Any]) -> int:
+    source = str(row.get("source") or row.get("source_id") or "")
+    if source in SOURCE_PRIORITY:
+        return SOURCE_PRIORITY[source]
+    family = source_family(row)
+    if family.startswith("bible") or family == "gospel-john-1854":
+        return 2
+    return 50
+
+
+def _text_len(row: dict[str, Any]) -> int:
+    return len(str(row.get("text_en") or "")) + len(str(row.get("text_haw") or ""))
+
+
+def canonical_sort_key(row: dict[str, Any]) -> tuple[int, int, str, str, str]:
+    """Deterministic keep-order: richer source, longer text, stable ids."""
+    return (*(_source_priority(row), -_text_len(row)), *_stable_row_key(row))
+
+
+def _append_reason(row: dict[str, Any], reason: str) -> None:
+    reasons = row.setdefault("manual_review_reasons", [])
+    if isinstance(reasons, list):
+        reasons.append(reason)
+
+
+def _normal_text(text: Any, *, haw: bool) -> str:
+    s = unicodedata.normalize("NFC", str(text or ""))
+    if haw:
+        s = s.translate(_OKINA_FOLD)
+    return " ".join(_TOKEN_RE.findall(s.casefold()))
+
+
+def _tokens(text: Any, *, haw: bool) -> set[str]:
+    return set(_normal_text(text, haw=haw).split())
+
+
+def _text_similarity(a: str, b: str) -> float:
+    if a == b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio()
+
+
+def _set_similarity(a: set[str], b: set[str]) -> float:
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
 def select_preferred(rows: list[dict[str, Any]]) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
     """Choose one row from an exact-pair collision group.
 
@@ -149,9 +227,7 @@ def collapse_pair_hash_duplicates(rows: list[dict[str, Any]]) -> tuple[list[dict
         for row in dropped:
             dropped_source = str(row.get("source") or row.get("source_id") or "<missing>")
             source_pair_counts[f"{kept_source} <- {dropped_source}"] += 1
-            reasons = row.setdefault("manual_review_reasons", [])
-            if isinstance(reasons, list):
-                reasons.append(f"cross_source_exact_pair_dedup_drop:{reason}")
+            _append_reason(row, f"cross_source_exact_pair_dedup_drop:{reason}")
             if len(dropped_examples) < 12:
                 dropped_examples.append({
                     "sha256_pair": pair_hash,
@@ -175,3 +251,209 @@ def collapse_pair_hash_duplicates(rows: list[dict[str, Any]]) -> tuple[list[dict
         "dropped_examples": dropped_examples,
     }
     return kept_rows, stats
+
+
+def _cap_exact_key(
+    rows: list[dict[str, Any]],
+    *,
+    key_name: str,
+    other_key_name: str,
+    max_per_key: int,
+    reason_prefix: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if max_per_key < 1:
+        raise ValueError("max_per_key must be >= 1")
+    groups: dict[str, list[tuple[int, dict[str, Any]]]] = defaultdict(list)
+    passthrough: list[tuple[int, dict[str, Any]]] = []
+    for idx, row in enumerate(rows):
+        key = row.get(key_name)
+        if isinstance(key, str) and key:
+            groups[key].append((idx, row))
+        else:
+            passthrough.append((idx, row))
+
+    kept_by_index: dict[int, dict[str, Any]] = {idx: row for idx, row in passthrough}
+    capped_groups = 0
+    dropped_total = 0
+    source_counts: Counter[str] = Counter()
+    group_size_histogram: Counter[str] = Counter()
+    examples: list[dict[str, Any]] = []
+
+    for key, indexed in groups.items():
+        other_values = {row.get(other_key_name) for _, row in indexed}
+        sources = {str(row.get("source") or row.get("source_id") or "") for _, row in indexed}
+        if "baibala-hemolele-1839" in sources:
+            for idx, row in indexed:
+                kept_by_index[idx] = row
+            continue
+        if len(indexed) <= max_per_key or len(other_values) <= 1:
+            for idx, row in indexed:
+                kept_by_index[idx] = row
+            continue
+        capped_groups += 1
+        group_size_histogram[str(len(indexed))] += 1
+        ranked = sorted(indexed, key=lambda item: canonical_sort_key(item[1]))
+        keep = set(id(row) for _, row in ranked[:max_per_key])
+        kept_sources = []
+        dropped_sources = []
+        for idx, row in indexed:
+            source = str(row.get("source") or row.get("source_id") or "<missing>")
+            if id(row) in keep:
+                kept_by_index[idx] = row
+                kept_sources.append(source)
+            else:
+                dropped_total += 1
+                source_counts[source] += 1
+                dropped_sources.append(source)
+                _append_reason(row, f"{reason_prefix}_cap_drop:max_{max_per_key}")
+        if len(examples) < 12:
+            examples.append({
+                "key": key,
+                "group_size": len(indexed),
+                "kept_sources": kept_sources,
+                "dropped_sources": dropped_sources,
+            })
+
+    kept_rows = [kept_by_index[idx] for idx in sorted(kept_by_index)]
+    return kept_rows, {
+        "input_rows": len(rows),
+        "output_rows": len(kept_rows),
+        "max_per_key": max_per_key,
+        "capped_groups": capped_groups,
+        "dropped_rows": dropped_total,
+        "drop_sources": dict(source_counts),
+        "capped_group_size_histogram": dict(group_size_histogram),
+        "examples": examples,
+    }
+
+
+def cap_exact_en(rows: list[dict[str, Any]], max_per_key: int = EXACT_SIDE_MAX_PER_KEY) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Cap rows sharing one English clean hash but multiple Hawaiian hashes."""
+    return _cap_exact_key(
+        rows,
+        key_name="sha256_en_clean",
+        other_key_name="sha256_haw_clean",
+        max_per_key=max_per_key,
+        reason_prefix="exact_en",
+    )
+
+
+def cap_exact_haw(rows: list[dict[str, Any]], max_per_key: int = EXACT_SIDE_MAX_PER_KEY) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Cap rows sharing one Hawaiian clean hash but multiple English hashes."""
+    return _cap_exact_key(
+        rows,
+        key_name="sha256_haw_clean",
+        other_key_name="sha256_en_clean",
+        max_per_key=max_per_key,
+        reason_prefix="exact_haw",
+    )
+
+
+def _near_blocks(rows: list[dict[str, Any]]) -> dict[tuple[str, str, str, str], list[int]]:
+    blocks: dict[tuple[str, str, str, str], list[int]] = defaultdict(list)
+    for idx, row in enumerate(rows):
+        en_tokens = _normal_text(row.get("text_en"), haw=False).split()
+        haw_tokens = _normal_text(row.get("text_haw"), haw=True).split()
+        if not en_tokens or not haw_tokens:
+            continue
+        key = (en_tokens[0], en_tokens[-1], haw_tokens[0], haw_tokens[-1])
+        blocks[key].append(idx)
+        blocks[("haw-token-set", " ".join(sorted(set(haw_tokens))), "", "")].append(idx)
+        if len(en_tokens) <= 6:
+            blocks[("short-en", " ".join(sorted(set(en_tokens))), haw_tokens[0], haw_tokens[-1])].append(idx)
+    return blocks
+
+
+def near_duplicate_groups(rows: list[dict[str, Any]], threshold: float = NEAR_DUPE_THRESHOLD) -> list[list[int]]:
+    """Return index groups whose EN and HAW sides are both near-identical."""
+    parent = list(range(len(rows)))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    prepared = []
+    for row in rows:
+        en = _normal_text(row.get("text_en"), haw=False)
+        haw = _normal_text(row.get("text_haw"), haw=True)
+        prepared.append((en, haw, set(en.split()), set(haw.split())))
+
+    seen_pairs: set[tuple[int, int]] = set()
+    for idxs in _near_blocks(rows).values():
+        unique = sorted(set(idxs))
+        if len(unique) < 2 or len(unique) > 400:
+            continue
+        block_sources = {str(rows[idx].get("source") or rows[idx].get("source_id") or "") for idx in unique}
+        if len(block_sources) < 2:
+            continue
+        for pos, i in enumerate(unique):
+            for j in unique[pos + 1:]:
+                if (rows[i].get("source") or rows[i].get("source_id")) == (rows[j].get("source") or rows[j].get("source_id")):
+                    continue
+                pair = (i, j)
+                if pair in seen_pairs:
+                    continue
+                seen_pairs.add(pair)
+                en_i, haw_i, en_tok_i, haw_tok_i = prepared[i]
+                en_j, haw_j, en_tok_j, haw_tok_j = prepared[j]
+                en_score = max(_text_similarity(en_i, en_j), _set_similarity(en_tok_i, en_tok_j))
+                if en_score < threshold:
+                    continue
+                haw_score = max(_text_similarity(haw_i, haw_j), _set_similarity(haw_tok_i, haw_tok_j))
+                if haw_score >= threshold:
+                    union(i, j)
+
+    grouped: dict[int, list[int]] = defaultdict(list)
+    for idx in range(len(rows)):
+        root = find(idx)
+        if root != idx:
+            grouped[root].append(idx)
+            if root not in grouped[root]:
+                grouped[root].append(root)
+    return [sorted(set(v)) for v in grouped.values() if len(set(v)) > 1]
+
+
+def collapse_near_dupes(rows: list[dict[str, Any]], threshold: float = NEAR_DUPE_THRESHOLD) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Collapse near-duplicate EN/HAW groups using canonical source preference."""
+    groups = near_duplicate_groups(rows, threshold=threshold)
+    drop_ids: set[int] = set()
+    source_counts: Counter[str] = Counter()
+    examples: list[dict[str, Any]] = []
+    for group in groups:
+        ranked = sorted(group, key=lambda idx: canonical_sort_key(rows[idx]))
+        keep_idx = ranked[0]
+        for idx in ranked[1:]:
+            drop_ids.add(idx)
+            source = str(rows[idx].get("source") or rows[idx].get("source_id") or "<missing>")
+            source_counts[source] += 1
+            _append_reason(rows[idx], f"near_duplicate_drop:threshold_{threshold}")
+        if len(examples) < 12:
+            examples.append({
+                "group_size": len(group),
+                "kept_source": rows[keep_idx].get("source") or rows[keep_idx].get("source_id"),
+                "kept_pair_id": rows[keep_idx].get("pair_id") or rows[keep_idx].get("source_pair_id"),
+                "dropped": [
+                    {
+                        "source": rows[idx].get("source") or rows[idx].get("source_id"),
+                        "pair_id": rows[idx].get("pair_id") or rows[idx].get("source_pair_id"),
+                    }
+                    for idx in ranked[1:4]
+                ],
+            })
+    kept = [row for idx, row in enumerate(rows) if idx not in drop_ids]
+    return kept, {
+        "input_rows": len(rows),
+        "output_rows": len(kept),
+        "threshold": threshold,
+        "near_duplicate_groups": len(groups),
+        "dropped_rows": len(drop_ids),
+        "drop_sources": dict(source_counts),
+        "examples": examples,
+    }

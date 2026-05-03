@@ -79,7 +79,14 @@ _CODE_DIR = REPO_ROOT / "code"
 if str(_CODE_DIR) not in sys.path:
     sys.path.insert(0, str(_CODE_DIR))
 
-from llm_hawaii.stage2_dedup import collapse_pair_hash_duplicates  # noqa: E402
+from llm_hawaii.stage2_dedup import (  # noqa: E402
+    EXACT_SIDE_MAX_PER_KEY,
+    NEAR_DUPE_THRESHOLD,
+    cap_exact_en,
+    cap_exact_haw,
+    collapse_near_dupes,
+    collapse_pair_hash_duplicates,
+)
 from llm_hawaii.stage2_quality import (  # noqa: E402
     POLICY_VERSION,
     BAIBALA_1839_SOURCE_ID,
@@ -602,13 +609,17 @@ def ingest_candidates(
             print(f"warn: {cpath} yielded no rows", file=sys.stderr)
 
     rows, cross_source_dedup_stats = collapse_pair_hash_duplicates(rows)
+    rows, exact_en_cap_stats = cap_exact_en(rows, max_per_key=EXACT_SIDE_MAX_PER_KEY)
+    rows, exact_haw_cap_stats = cap_exact_haw(rows, max_per_key=EXACT_SIDE_MAX_PER_KEY)
+    rows, near_dupe_stats = collapse_near_dupes(rows, threshold=NEAR_DUPE_THRESHOLD)
+
     per_source: dict[str, int] = {}
     for row in rows:
         src = row.get("source", "<unknown>")
         per_source[src] = per_source.get(src, 0) + 1
 
     # Apply historical-orthography sub-cap after all rows are scored, split,
-    # and exact cross-source pair duplicates have been collapsed.
+    # and duplicate/near-duplicate policy has been applied.
     hist_orth_cap_stats = _apply_historical_orthography_cap(rows, policy_config)
 
     provenance: dict[str, Any] = {
@@ -622,6 +633,9 @@ def ingest_candidates(
         "policy_version": POLICY_VERSION,
         "tier_counts": dict(tier_counts),
         "cross_source_dedup": cross_source_dedup_stats,
+        "exact_en_cap": exact_en_cap_stats,
+        "exact_haw_cap": exact_haw_cap_stats,
+        "near_duplicate_collapse": near_dupe_stats,
         "historical_orthography": hist_orth_cap_stats,
     }
     return rows, per_row_violations, provenance

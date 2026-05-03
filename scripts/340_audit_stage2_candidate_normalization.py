@@ -36,7 +36,15 @@ def _load_manifest_builder():
 
 
 _manifest = _load_manifest_builder()
-from llm_hawaii.stage2_dedup import collapse_pair_hash_duplicates  # noqa: E402
+from llm_hawaii.stage2_dedup import (  # noqa: E402
+    EXACT_SIDE_MAX_PER_KEY,
+    NEAR_DUPE_THRESHOLD,
+    cap_exact_en,
+    cap_exact_haw,
+    collapse_near_dupes,
+    collapse_pair_hash_duplicates,
+    near_duplicate_groups,
+)
 
 
 def nfc(text: str) -> str:
@@ -166,7 +174,15 @@ def audit(paths: list[Path], *, max_examples: int = 8) -> dict[str, Any]:
                     hash_mismatches["sha256_pair"] += 1
                     if len(examples["pair_hash_mismatch"]) < max_examples:
                         examples["pair_hash_mismatch"].append(loc)
-                row_for_dupes = {**loc, "source": source, "sha256_pair": expected_pair, "text_en": en, "text_haw": haw}
+                row_for_dupes = {
+                    **loc,
+                    "source": source,
+                    "sha256_en_clean": en_hash,
+                    "sha256_haw_clean": haw_hash,
+                    "sha256_pair": expected_pair,
+                    "text_en": en,
+                    "text_haw": haw,
+                }
                 rows.append({**row_for_dupes, "en_tokens": token_set(en, haw=False), "haw_tokens": token_set(haw, haw=True)})
                 dedup_rows.append(row_for_dupes)
                 raw_pair_index[expected_pair].append({**loc, "source": source})
@@ -183,9 +199,80 @@ def audit(paths: list[Path], *, max_examples: int = 8) -> dict[str, Any]:
                 groups.append(group[:max_examples])
         return groups
 
+    def exact_side_report(candidate_rows: list[dict[str, Any]], *, key_name: str, other_key: str) -> dict[str, Any]:
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in candidate_rows:
+            key = row.get(key_name)
+            if isinstance(key, str) and key:
+                grouped[key].append(row)
+        dup_groups = [g for g in grouped.values() if len(g) > 1 and len({r.get(other_key) for r in g}) > 1]
+        source_rows: Counter[str] = Counter()
+        source_groups: Counter[str] = Counter()
+        size_hist: Counter[str] = Counter()
+        examples_out: list[dict[str, Any]] = []
+        for group in dup_groups:
+            size_hist[str(len(group))] += 1
+            sources = {str(r.get("source") or "<missing>") for r in group}
+            for source in sources:
+                source_groups[source] += 1
+            for row in group:
+                source_rows[str(row.get("source") or "<missing>")] += 1
+            if len(examples_out) < max_examples:
+                examples_out.append({
+                    "group_size": len(group),
+                    "sources": sorted(sources),
+                    "examples": [
+                        {k: row.get(k) for k in ("file", "line", "pair_id", "source")}
+                        for row in group[:max_examples]
+                    ],
+                })
+        return {
+            "groups": len(dup_groups),
+            "rows_in_groups": sum(len(g) for g in dup_groups),
+            "group_size_histogram": dict(size_hist),
+            "top_sources_by_rows": dict(source_rows.most_common(12)),
+            "top_sources_by_groups": dict(source_groups.most_common(12)),
+            "examples": examples_out,
+        }
+
+    def near_report(candidate_rows: list[dict[str, Any]], threshold: float) -> dict[str, Any]:
+        idx_groups = near_duplicate_groups(candidate_rows, threshold=threshold)
+        source_rows: Counter[str] = Counter()
+        source_groups: Counter[str] = Counter()
+        size_hist: Counter[str] = Counter()
+        examples_out: list[dict[str, Any]] = []
+        for group in idx_groups:
+            size_hist[str(len(group))] += 1
+            sources = {str(candidate_rows[idx].get("source") or "<missing>") for idx in group}
+            for source in sources:
+                source_groups[source] += 1
+            for idx in group:
+                source_rows[str(candidate_rows[idx].get("source") or "<missing>")] += 1
+            if len(examples_out) < max_examples:
+                examples_out.append({
+                    "group_size": len(group),
+                    "sources": sorted(sources),
+                    "examples": [
+                        {k: candidate_rows[idx].get(k) for k in ("file", "line", "pair_id", "source")}
+                        for idx in group[:max_examples]
+                    ],
+                })
+        return {
+            "threshold": threshold,
+            "groups": len(idx_groups),
+            "rows_in_groups": sum(len(g) for g in idx_groups),
+            "group_size_histogram": dict(size_hist),
+            "top_sources_by_rows": dict(source_rows.most_common(12)),
+            "top_sources_by_groups": dict(source_groups.most_common(12)),
+            "examples": examples_out,
+        }
+
     raw_exact_pair_groups = cross_source_groups(raw_pair_index)
     deduped_rows, cross_source_dedup = collapse_pair_hash_duplicates(dedup_rows)
-    for row in deduped_rows:
+    en_capped_rows, exact_en_cap = cap_exact_en(deduped_rows, max_per_key=EXACT_SIDE_MAX_PER_KEY)
+    haw_capped_rows, exact_haw_cap = cap_exact_haw(en_capped_rows, max_per_key=EXACT_SIDE_MAX_PER_KEY)
+    post_policy_rows, near_dupe_collapse = collapse_near_dupes(haw_capped_rows, threshold=NEAR_DUPE_THRESHOLD)
+    for row in post_policy_rows:
         key = row.get("sha256_pair")
         if isinstance(key, str) and key:
             pair_index[key].append({k: row.get(k) for k in ("file", "line", "pair_id", "source")})
@@ -193,6 +280,12 @@ def audit(paths: list[Path], *, max_examples: int = 8) -> dict[str, Any]:
     exact_pair_groups = cross_source_groups(pair_index)
     exact_en_groups = cross_source_groups(en_index)
     exact_haw_groups = cross_source_groups(haw_index)
+    exact_en_only = exact_side_report(deduped_rows, key_name="sha256_en_clean", other_key="sha256_haw_clean")
+    exact_haw_only = exact_side_report(deduped_rows, key_name="sha256_haw_clean", other_key="sha256_en_clean")
+    post_policy_exact_en_only = exact_side_report(post_policy_rows, key_name="sha256_en_clean", other_key="sha256_haw_clean")
+    post_policy_exact_haw_only = exact_side_report(post_policy_rows, key_name="sha256_haw_clean", other_key="sha256_en_clean")
+    near_duplicate_report = near_report(deduped_rows, NEAR_DUPE_THRESHOLD)
+    post_policy_near_duplicate_report = near_report(post_policy_rows, NEAR_DUPE_THRESHOLD)
 
     near_dupes: list[dict[str, Any]] = []
     for group in en_text_index.values():
@@ -243,6 +336,15 @@ def audit(paths: list[Path], *, max_examples: int = 8) -> dict[str, Any]:
             "cross_source_pair_dedup": cross_source_dedup,
             "cross_source_exact_en_hash_groups": len(exact_en_groups),
             "cross_source_exact_haw_hash_groups": len(exact_haw_groups),
+            "exact_en_only_duplicate_groups": exact_en_only,
+            "exact_haw_only_duplicate_groups": exact_haw_only,
+            "near_duplicate_groups": near_duplicate_report,
+            "post_policy_exact_en_only_duplicate_groups": post_policy_exact_en_only,
+            "post_policy_exact_haw_only_duplicate_groups": post_policy_exact_haw_only,
+            "post_policy_near_duplicate_groups": post_policy_near_duplicate_report,
+            "exact_en_cap": exact_en_cap,
+            "exact_haw_cap": exact_haw_cap,
+            "near_duplicate_collapse": near_dupe_collapse,
             "near_duplicate_examples": near_dupes,
             "exact_pair_examples": exact_pair_groups[:max_examples],
             "exact_en_examples": exact_en_groups[:max_examples],

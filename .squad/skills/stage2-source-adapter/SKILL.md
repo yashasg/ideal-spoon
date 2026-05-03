@@ -454,3 +454,22 @@ PYTHONPATH=code python3 -m unittest discover -s code/tests -p 'test_stage2_dedup
 ```
 
 The audit reports both raw exact-pair groups and post-dedup exact-pair groups; the latter should be `0` before promotion/cap work proceeds.
+
+---
+
+## Stage-2 duplicate hygiene before manifest promotion (Round 5)
+
+Before proposing a new adapter as train-promotable, run the manifest/audit pair and inspect duplicate pressure:
+
+```bash
+python3 scripts/320_build_stage2_manifest.py --dry-run
+python3 scripts/340_audit_stage2_candidate_normalization.py --strict
+```
+
+Reusable thresholds now encoded in `code/llm_hawaii/stage2_dedup.py`:
+
+- exact EN variants cap at **3** rows per `sha256_en_clean` when the HAW side differs;
+- exact HAW variants cap at **3** rows per `sha256_haw_clean` when the EN side differs;
+- cross-source near-dupes collapse at **0.92** normalized text/token-set similarity on both EN and HAW sides.
+
+Adapter authors should avoid emitting large numbers of generic repeated phrases (e.g., many rows whose EN side is just "yes", "hello", or "the same") unless the variants carry meaningful source/provenance value. The manifest pass will keep the richest-source/longest variants deterministically and drop overflow.

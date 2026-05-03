@@ -3,6 +3,9 @@ from __future__ import annotations
 import unittest
 
 from llm_hawaii.stage2_dedup import (
+    cap_exact_en,
+    cap_exact_haw,
+    collapse_near_dupes,
     collapse_pair_hash_duplicates,
     select_preferred,
     source_family,
@@ -64,6 +67,47 @@ class TestStage2CrossSourceDedupPolicy(unittest.TestCase):
         self.assertEqual(stats["dropped_rows"], 1)
         self.assertEqual(stats["drop_reasons"], {"tatoeba-over-opus-tatoeba": 1})
         self.assertEqual(source_family(kept[0]), "tatoeba")
+
+    def test_cap_exact_en_keeps_three_best_variants(self):
+        rows = [
+            {**row("opus-haw-subsets", "opus", "p1"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h1", "text_en": "Hello", "text_haw": "A"},
+            {**row("ia-hawaiian-phrase-book-1881", "phrase", "p2"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h2", "text_en": "Hello", "text_haw": "Aloha kakahiaka"},
+            {**row("hooilina", "hoo", "p3"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h3", "text_en": "Hello", "text_haw": "Aloha nui loa"},
+            {**row("tatoeba", "tat", "p4"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h4", "text_en": "Hello", "text_haw": "Aloha"},
+        ]
+        kept, stats = cap_exact_en(rows, max_per_key=3)
+        kept_sources = {r["source"] for r in kept}
+        self.assertEqual(len(kept), 3)
+        self.assertEqual(stats["capped_groups"], 1)
+        self.assertEqual(stats["dropped_rows"], 1)
+        self.assertIn("hooilina", kept_sources)
+        self.assertNotIn("opus-haw-subsets", kept_sources)
+
+    def test_cap_exact_haw_keeps_three_best_variants(self):
+        rows = [
+            {**row("opus-haw-subsets", "opus", "p1"), "sha256_en_clean": "e1", "sha256_haw_clean": "same-haw", "text_en": "Hi", "text_haw": "Aloha"},
+            {**row("ia-hawaiian-phrase-book-1881", "phrase", "p2"), "sha256_en_clean": "e2", "sha256_haw_clean": "same-haw", "text_en": "Greetings", "text_haw": "Aloha"},
+            {**row("hooilina", "hoo", "p3"), "sha256_en_clean": "e3", "sha256_haw_clean": "same-haw", "text_en": "A warm greeting", "text_haw": "Aloha"},
+            {**row("tatoeba", "tat", "p4"), "sha256_en_clean": "e4", "sha256_haw_clean": "same-haw", "text_en": "Hello", "text_haw": "Aloha"},
+        ]
+        kept, stats = cap_exact_haw(rows, max_per_key=3)
+        self.assertEqual(len(kept), 3)
+        self.assertEqual(stats["capped_groups"], 1)
+        self.assertEqual(stats["dropped_rows"], 1)
+        self.assertNotIn("opus-haw-subsets", {r["source"] for r in kept})
+
+    def test_collapse_near_dupes_prefers_richer_source(self):
+        rows = [
+            {**row("ia-hawaiian-phrase-book-1881", "phrase", "p1"), "text_en": "In the beginning God made the heaven", "text_haw": "I kinohi hana ke Akua i ka lani"},
+            {**row("hooilina", "hoo", "p2"), "text_en": "In the beginning God made the heavens", "text_haw": "I kinohi hana ke Akua i ka lani"},
+            {**row("tatoeba", "tat", "p3"), "text_en": "This is different", "text_haw": "He ʻokoʻa kēia"},
+        ]
+        kept, stats = collapse_near_dupes(rows, threshold=0.92)
+        self.assertEqual(len(kept), 2)
+        self.assertEqual(stats["near_duplicate_groups"], 1)
+        self.assertEqual(stats["dropped_rows"], 1)
+        self.assertIn("hooilina", {r["source"] for r in kept})
+        self.assertNotIn("ia-hawaiian-phrase-book-1881", {r["source"] for r in kept})
 
 
 if __name__ == "__main__":
