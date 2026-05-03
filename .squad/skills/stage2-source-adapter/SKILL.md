@@ -387,3 +387,22 @@ For comparable sources aligned by embeddings, keep manifest enum fields generic 
 - Put the specific algorithm/threshold policy in `policy_version`, `manual_review_reasons`, and `alignment_score_components`.
 - New comparable-source rows should remain `prototype_only=True`, `release_eligible=False`, `split="review-pending"`, and `alignment_review_required=True` until a final cap/rights pass promotes or excludes them.
 - Extract mutual-nearest selection into a pure function that accepts a score matrix; unit tests can verify schema/hash invariants without loading LaBSE or touching the network.
+
+---
+
+## Reference instance: candidate normalization/dedup audit (2026-05-03)
+
+Before rebuilding the Stage-2 manifest after multiple adapter changes, run the dry-run audit:
+
+```bash
+python3 scripts/340_audit_stage2_candidate_normalization.py --max-examples 8
+```
+
+Use it to catch four adapter regressions before they enter cap math:
+
+1. **HAW-side ʻokina drift:** NFC-normalize and fold ASCII apostrophe, U+2018, and U+2019 to U+02BB before `sha256_haw_clean` / `sha256_pair`.
+2. **EN apostrophe preservation:** do not apply HAW ʻokina folding to English text; contractions/possessives remain literal EN punctuation.
+3. **Schema drift:** compare raw candidate rows and post-`320.apply_policy()` rows; older adapters may rely on policy fill-ins, but enum/license/hash violations still need adapter fixes.
+4. **Cross-source duplicates:** exact pair/en/haw hash groups and near-dupes should be handled in adapters or manifest dedup, not manually edited under `data/`.
+
+The audit is intentionally read-only and writes no files under `data/`.
