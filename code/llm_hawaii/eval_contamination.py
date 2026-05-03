@@ -94,9 +94,17 @@ def _candidate_hashes(text_pair: Any) -> set[str]:
     return hashes
 
 
-def load_eval_hashes(ledger_path: str | Path) -> set[str]:
+class EvalHashSet(set[str]):
+    """Set of full eval hashes plus flagged Bible-overlap side hashes."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.bible_overlap_side_hashes: set[str] = set()
+
+
+def load_eval_hashes(ledger_path: str | Path) -> EvalHashSet:
     path = Path(ledger_path)
-    hashes: set[str] = set()
+    hashes = EvalHashSet()
     if not path.exists():
         return hashes
     with path.open("r", encoding="utf-8") as fh:
@@ -105,15 +113,35 @@ def load_eval_hashes(ledger_path: str | Path) -> set[str]:
             if not line:
                 continue
             row = json.loads(line)
+            row_hashes: list[str] = []
             for key in ("content_sha256", "sha256_normalized", "sha256_clean", "sha256_text", "sha256_pair", "sha256_en_clean", "sha256_haw_clean"):
                 value = row.get(key)
                 if isinstance(value, str) and value:
                     hashes.add(value)
+                    row_hashes.append(value)
+            if row.get("bible_overlap_candidate") is True:
+                hashes.bible_overlap_side_hashes.update(row_hashes)
+    return hashes
+
+
+def _side_hashes(text_pair: Any) -> set[str]:
+    hashes: set[str] = set()
+    if isinstance(text_pair, Mapping):
+        haw = text_pair.get("text_haw") or text_pair.get("haw") or text_pair.get("target_text")
+        en = text_pair.get("text_en") or text_pair.get("en") or text_pair.get("source_text")
+        if haw:
+            hashes.add(canonical_content_sha256(str(haw)))
+        if en:
+            hashes.add(sha256_text(normalize_en(str(en))))
     return hashes
 
 
 def is_contaminated(text_pair: Any, eval_hashes: set[str]) -> bool:
-    return bool(_candidate_hashes(text_pair) & eval_hashes)
+    candidate_hashes = _candidate_hashes(text_pair)
+    if candidate_hashes & eval_hashes:
+        return True
+    bible_side_hashes = getattr(eval_hashes, "bible_overlap_side_hashes", set())
+    return bool(bible_side_hashes and (_side_hashes(text_pair) & bible_side_hashes))
 
 
 def filter_candidates(rows_iter: Iterable[dict[str, Any]], eval_hashes: set[str]) -> tuple[Iterator[dict[str, Any]], int]:

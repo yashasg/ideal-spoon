@@ -203,7 +203,8 @@
       "prototype_notes": [
         "Hundreds (low-thousands) of pairs at most; small but clean signal.",
         "Hash all pairs into eval_hashes.jsonl decision space before splitting train vs dev (per docs/data-pipeline.md §Stage 2 contamination & eval guards).",
-        "alignment_method='tatoeba-link-id' (deterministic via the haw-eng_links.tsv table)."
+        "alignment_method='tatoeba-link-id' (deterministic via the haw-eng_links.tsv table).",
+        "Round 13: scripts/349_refresh_tatoeba_candidates.py is ready for a gated new-edition refresh; default threshold is >=5% pair delta or >=500 Hawaiian sentences."
       ],
       "acquisition_plan": {
         "tool": "requests_tenacity",
@@ -213,7 +214,8 @@
         "steps": [
           "Dry-run: HEAD all three .tsv.bz2 endpoints, record content_length.",
           "On --execute: download all three, persist raw bytes + provenance.",
-          "Decompress and join sentences ↔ links to materialize haw↔eng pairs with tatoeba_sentence_id and contributor preserved."
+          "Decompress and join sentences ↔ links to materialize haw↔eng pairs with tatoeba_sentence_id and contributor preserved.",
+          "[READY R13] Refresh adapter writes data/stage2/candidates/tatoeba_refresh_{date}.jsonl only under --execute with edition date, CC-BY-2.0-FR confirmation, local ToS snapshot, polite UA, and >=2s sleeps."
         ]
       },
       "expected_artifact_shape": {
@@ -225,7 +227,7 @@
       "verification_status": "verified_endpoint",
       "exclusions_or_risks": ["Volume too small to support both train and dev — likely train+held-out only.", "Per-sentence attribution must survive into the final manifest; license flow-down obligation."],
       "expected_pair_yield_estimate": "500-2000",
-      "adapter_status": "ready"
+      "adapter_status": "refresh adapter ready, awaiting --execute"
     },
     {
       "source_id": "opus-haw-subsets",
@@ -423,7 +425,8 @@
       "prototype_notes": [
         "Diagnostic only — its Bible/classification shape biases toward religious register, so it is not a primary anchor.",
         "Useful as a sanity-check signal alongside global-piqa-parallel and held-out Tatoeba.",
-        "Hash any selected rows into eval_hashes.jsonl before anything else."
+        "Hash any selected rows into eval_hashes.jsonl before anything else.",
+        "Round 13: scripts/348_ingest_taxi1500_haw.py writes only eval_hashes.jsonl with bible_overlap_candidate=true; no data/stage2/candidates writes permitted."
       ],
       "acquisition_plan": {
         "tool": "requests_tenacity",
@@ -432,7 +435,8 @@
         "rate_limit": "GitHub raw: ≤1 req/sec.",
         "steps": [
           "Dry-run: identify the haw_Latn split file path in the repo, record commit SHA.",
-          "On --execute: pin to a commit SHA, fetch the haw_Latn split, persist raw bytes + provenance, hash rows."
+          "On --execute: pin to a commit SHA, fetch the haw_Latn split, persist raw bytes + provenance, hash rows.",
+          "[READY R13] Run scripts/348_ingest_taxi1500_haw.py --execute only with org/repo/<40hex> dataset pin, Apache-2.0 confirmation, local ToS snapshot, and local split file; no live fetch in ingester."
         ]
       },
       "expected_artifact_shape": {
@@ -441,13 +445,13 @@
         "manifest_alignment_method": "row-id",
         "register": "religious|classification-derived"
       },
-      "verification_status": "pending_endpoint_check",
+      "verification_status": "verified_metadata_eval_only",
       "exclusions_or_risks": [
         "Register skew (Bible-derived) — do not let it dominate eval reporting.",
         "Classification framing differs from translation framing — keep diagnostic-only, not a translation-quality anchor."
       ],
       "expected_pair_yield_estimate": "0 (eval only)",
-      "adapter_status": "none"
+      "adapter_status": "eval-ledger ingester ready, awaiting --execute"
     },
     {
       "source_id": "weblate-en-haw",

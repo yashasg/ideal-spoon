@@ -50,6 +50,17 @@ class TestEvalContamination(unittest.TestCase):
         self.assertEqual(dropped, 1)
         self.assertEqual([r["pair_id"] for r in kept], ["keep"])
 
+    def test_bible_overlap_candidate_matches_single_side(self):
+        haw = "Ua aloha ke Akua i ko ke ao nei."
+        ledger = self.work / "eval_hashes.jsonl"
+        ledger.write_text(
+            json.dumps({"content_sha256": ec.canonical_content_sha256(haw), "bible_overlap_candidate": True}) + "\n",
+            encoding="utf-8",
+        )
+        hashes = ec.load_eval_hashes(ledger)
+        candidate = {"text_en": "For God loved the world.", "text_haw": haw}
+        self.assertTrue(ec.is_contaminated(candidate, hashes))
+
 
 if __name__ == "__main__":
     unittest.main()
