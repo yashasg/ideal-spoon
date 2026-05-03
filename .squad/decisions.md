@@ -1,7 +1,54 @@
 # Decisions
 
-> Updated 2026-05-03T1100Z: Merged R7 linus-stage2-paraphrase-grouping (161 EN/32 HAW exact groups accepted as lexical diversity, 395 rows annotated, zero drops, copilot user directive captured). Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
+> Updated 2026-05-03T20:33:14Z: Merged R14 linus-stage2-r14-contamination-wired (train-side eval-contamination filter now enforcing gate; `--eval-hashes` loads explicit eval ledgers before dedup, drops matches before cross-source/side/near-duplicate dedup, missing ledger hard error, writes contamination_report.json sidecar, all regression suites green). Prior 2026-05-03T1100Z: Merged R7 linus-stage2-paraphrase-grouping (161 EN/32 HAW exact groups accepted as lexical diversity, 395 rows annotated, zero drops, copilot user directive captured). Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
 >
+
+---
+
+# Stage-2 Train-Side Eval-Contamination Filter (Round 14)
+
+**Owner:** Linus  
+**Date:** 2026-05-03  
+**Status:** Implemented  
+**Commit:** 934c0f2
+
+## Decision
+
+`--eval-hashes` is now an enforcing train-side gate in `scripts/320_build_stage2_manifest.py`, not a cosmetic output-time filter. Explicit eval ledgers are loaded before dedup; matching candidate rows are dropped before cross-source/side/near-duplicate dedup runs. Missing explicit ledgers are hard errors.
+
+## Reporting Contract
+
+Manifest builds with `--eval-hashes` write `data/stage2/contamination_report.json` with:
+
+- `ledger_path`
+- `ledger_size`
+- `total_dropped`
+- `per_source_dropped`
+- `per_match_type` (`full_pair`, `single_side_haw`, `single_side_en`)
+- `drop_reasons` using `contamination:{source}`
+- dropped row IDs/source/match type examples
+
+The build manifest also embeds the contamination filter stats under `ingest.contamination_filter`.
+
+## Audit Contract
+
+`scripts/340_audit_stage2_candidate_normalization.py --eval-hashes <ledger>` reports how many candidate rows would be dropped without mutating inputs. `--strict` treats any contamination as an error and lists row IDs in the JSON report.
+
+## Verification
+
+No network fetches or new sources were used. Regression results:
+
+- `test_eval_contamination.py`: 5/5 ✓
+- `test_manifest_contamination_filter.py`: 2/2 ✓
+- `test_stage2_dedup.py`: 13/13 ✓
+- `test_taxi1500_ingester.py`: 6/6 ✓
+- `test_global_piqa_ingester.py`: 5/5 ✓
+- `scripts/320_build_stage2_manifest.py --dry-run`: 37,084 rows
+- `scripts/340_audit_stage2_candidate_normalization.py --strict`: pass
+
+## Round 15 Recommendation
+
+Dedup edge-case shoring up is the best next infra piece: add focused tests around interaction order between contamination filtering, exact-side caps, near-dupe collapse, and historical-orthography caps.
 
 ---
 
