@@ -21,7 +21,6 @@ from typing import Any, Iterable
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CANDIDATES = REPO_ROOT / "data" / "stage2" / "candidates"
-OKINA_FOLD = str.maketrans({"'": "ʻ", "‘": "ʻ", "’": "ʻ", "`": "ʻ"})
 REGISTER_MAP = {
     "phrase-book": "educational",
     "legal": "unknown",
@@ -60,6 +59,7 @@ def _load_manifest_builder():
 
 
 _manifest = _load_manifest_builder()
+from llm_hawaii.stage2_canonical import canonical_haw, sha256_text as stage2_sha256_text  # noqa: E402
 
 
 def nfc(text: str) -> str:
@@ -67,11 +67,11 @@ def nfc(text: str) -> str:
 
 
 def normalize_haw(text: str) -> str:
-    return nfc(text).translate(OKINA_FOLD)
+    return canonical_haw(text)
 
 
 def sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return stage2_sha256_text(text)
 
 
 def length_ratio(haw: str, en: str) -> float:

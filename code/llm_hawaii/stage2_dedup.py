@@ -12,6 +12,8 @@ import difflib
 import hashlib
 import re
 import unicodedata
+
+from llm_hawaii.stage2_canonical import HAW_OKINA_FOLD
 from collections import Counter, defaultdict
 from typing import Any
 
@@ -23,7 +25,7 @@ SHORT_EXACT_OTHER_SIDE_MIN_TOKENS = 4
 SOFTWARE_L10N_SHORT_VARIANT_TOKEN_MAX = 6
 NEAR_DUPE_THRESHOLD = 0.92
 _TOKEN_RE = re.compile(r"[\wʻ'-]+", re.UNICODE)
-_OKINA_FOLD = str.maketrans({"'": "ʻ", "‘": "ʻ", "’": "ʻ", "`": "ʻ"})
+_OKINA_FOLD = HAW_OKINA_FOLD
 _INVISIBLE_FORMAT_CONTROLS = str.maketrans("", "", "\u00ad\u200b\u200c\u200d\ufeff")
 WEBLATE_SOURCES = {"weblate", "weblate-en-haw"}
 

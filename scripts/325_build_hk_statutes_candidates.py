@@ -42,6 +42,15 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+CODE_ROOT = REPO_ROOT / "code"
+if str(CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CODE_ROOT))
+from llm_hawaii.stage2_canonical import (  # noqa: E402
+    canonical_en as stage2_canonical_en,
+    canonical_haw as stage2_canonical_haw,
+    compute_pair_hash as stage2_compute_pair_hash,
+    sha256_text as stage2_sha256_text,
+)
 RAW_DIR = REPO_ROOT / "data" / "raw" / "hawaiian-kingdom-statutes-paired-imprints" / "20260501"
 MANIFEST_COMPLETE = RAW_DIR / "manifest_complete.jsonl"
 OUT_DIR = REPO_ROOT / "data" / "stage2" / "candidates"
@@ -65,7 +74,6 @@ RIGHTS_NOTE = (
 
 # ʻokina canonicalization (mirrors stage2_quality.py and 322 convention)
 OKINA = "\u02bb"
-OKINA_MISENCODINGS = ("\u2018", "\u2019", "'")
 MIN_WORDS = 5
 
 _PAGE_NOISE_RE = re.compile(r"^[A-ZÀ-Ö\s\-–—'.]+\s+\d+\s*$", re.MULTILINE)
@@ -235,23 +243,19 @@ def fetch_url(
 
 
 def normalize_haw(text: str) -> str:
-    nfc = unicodedata.normalize("NFC", text)
-    for bad in OKINA_MISENCODINGS:
-        nfc = nfc.replace(bad, OKINA)
-    return nfc.strip()
+    return stage2_canonical_haw(text)
 
 
 def normalize_en(text: str) -> str:
-    return unicodedata.normalize("NFC", text).strip()
+    return stage2_canonical_en(text)
 
 
-def sha256_text(t: str) -> str:
-    return hashlib.sha256(t.encode("utf-8")).hexdigest()
+def sha256_text(text: str) -> str:
+    return stage2_sha256_text(text)
 
 
 def compute_pair_hash(sha256_en_clean: str, sha256_haw_clean: str) -> str:
-    combined = (sha256_en_clean + "\u2016" + sha256_haw_clean).encode("utf-8")
-    return hashlib.sha256(combined).hexdigest()
+    return stage2_compute_pair_hash(sha256_en_clean, sha256_haw_clean)
 
 
 def _join_hyphenated_lines(text: str) -> str:

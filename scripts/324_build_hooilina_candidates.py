@@ -35,6 +35,15 @@ from pathlib import Path
 from typing import Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+CODE_ROOT = REPO_ROOT / "code"
+if str(CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CODE_ROOT))
+from llm_hawaii.stage2_canonical import (  # noqa: E402
+    canonical_en as stage2_canonical_en,
+    canonical_haw as stage2_canonical_haw,
+    compute_pair_hash as stage2_compute_pair_hash,
+    sha256_text as stage2_sha256_text,
+)
 RAW_ROOT = REPO_ROOT / "data" / "raw" / "hooilina-stage2" / "20260501"
 SECTIONS_EN = RAW_ROOT / "sections" / "en"
 SECTIONS_HAW = RAW_ROOT / "sections" / "haw_modern"
@@ -50,7 +59,6 @@ E_DOC = "d-0journal--00-0-0-004-Document---0-1--1haw-50---20-frameset---ka--001-
 
 # Canonical ʻokina and common mis-encodings (mirrors stage2_quality.py).
 OKINA = "\u02bb"
-OKINA_MISENCODINGS = ("\u2018", "\u2019", "\u02bc", "`", "'")
 
 # Boilerplate signal: if the stripped paragraph text starts with this phrase,
 # the section contains only the Greenstone site footer (not real content).
@@ -65,29 +73,19 @@ MIN_WORDS = 5
 # ---------------------------------------------------------------------------
 
 def normalize_haw(text: str) -> str:
-    """html.unescape → NFC → ʻokina canonicalization → strip."""
-    t = html_mod.unescape(text)
-    t = unicodedata.normalize("NFC", t)
-    for bad in OKINA_MISENCODINGS:
-        t = t.replace(bad, OKINA)
-    return t.strip()
+    return stage2_canonical_haw(html_mod.unescape(text))
 
 
 def normalize_en(text: str) -> str:
-    """html.unescape → NFC → strip."""
-    t = html_mod.unescape(text)
-    return unicodedata.normalize("NFC", t).strip()
+    return stage2_canonical_en(html_mod.unescape(text))
 
 
-def sha256_text(t: str) -> str:
-    return hashlib.sha256(t.encode("utf-8")).hexdigest()
+def sha256_text(text: str) -> str:
+    return stage2_sha256_text(text)
 
 
 def compute_pair_hash(sha256_en_clean: str, sha256_haw_clean: str) -> str:
-    """Primary Stage-2 contamination key: sha256(en_clean ‖ haw_clean)."""
-    return hashlib.sha256(
-        (sha256_en_clean + "\u2016" + sha256_haw_clean).encode("utf-8")
-    ).hexdigest()
+    return stage2_compute_pair_hash(sha256_en_clean, sha256_haw_clean)
 
 
 # ---------------------------------------------------------------------------

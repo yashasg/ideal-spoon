@@ -15,7 +15,8 @@ Rejection history honored:
     requirement that shares hold against T_final_train.
 
 Fixed-point solution (this script):
-  Let N = non-Bible non-HK train tokens (Kaikki+Tatoeba accept+promoted).
+  Let N = non-Bible non-HK train tokens (Kaikki+Tatoeba plus uncapped
+          promoted sources such as Hoʻoilina sentences and Phrase Book).
   Let H = HK selected tokens, B = Bible selected tokens, T = N + H + B.
   Constraints (against T):
     B / T <= 0.30   <=>   B <= (3/7) * (N + H)
@@ -53,13 +54,25 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import re
+import sys
+import unicodedata
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+CODE_ROOT = REPO_ROOT / "code"
+if str(CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CODE_ROOT))
+from llm_hawaii.stage2_canonical import (  # noqa: E402
+    canonical_en as stage2_canonical_en,
+    canonical_haw as stage2_canonical_haw,
+    compute_pair_hash,
+    sha256_text,
+)
 DATA_STAGE2 = REPO_ROOT / "data" / "stage2"
 
 MANIFEST_IN = DATA_STAGE2 / "stage2_manifest.jsonl"
@@ -74,18 +87,33 @@ CANDIDATES = {
     "hooilina":           DATA_STAGE2 / "candidates" / "hooilina.jsonl",
     "hooilina_sentences": DATA_STAGE2 / "candidates" / "hooilina_sentences.jsonl",
     "phrase_book_1881":   DATA_STAGE2 / "candidates" / "phrase_book_1881.jsonl",
+    "opus_haw_subsets":   DATA_STAGE2 / "candidates" / "opus_haw_subsets.jsonl",
+    "wikimedia_cx_en_haw": DATA_STAGE2 / "candidates" / "wikimedia_cx_en_haw.jsonl",
+    "weblate_en_haw":     DATA_STAGE2 / "candidates" / "weblate_en_haw.jsonl",
+}
+
+SCORED = {
+    "opus_haw_subsets": DATA_STAGE2 / "_scored" / "opus_haw_subsets.jsonl",
+    "wikimedia_cx_en_haw": DATA_STAGE2 / "_scored" / "wikimedia_cx_en_haw.jsonl",
+}
+
+SOURCE_BLOCKER_REPORTS = {
+    "nllb-mined-haw-eng": DATA_STAGE2 / "reports" / "nllb_mined_haw_eng_probe_report.json",
+    "wiki-haw-en-langlinks": DATA_STAGE2 / "reports" / "wiki_haw_en_langlinks_probe_report.json",
+    "sanitary-instructions-1881": DATA_STAGE2 / "reports" / "sanitary_instructions_1881_probe_report.json",
+    "wikisource-haw-en-comparable": DATA_STAGE2 / "reports" / "wikisource_haw_en_comparable_probe_report.json",
 }
 
 BIBLE_SHARE_MAX = 0.30
 HK_LEGAL_SHARE_MAX = 0.15
+SOFTWARE_L10N_SHARE_MAX = 0.15
 BIBLE_SOURCES = frozenset({"baibala-hemolele-1839", "baibala-hemolele-1868", "gospel_john_1854"})
 HK_LEGAL_SOURCES = frozenset({"hk_statutes_1897", "hk_constitution_1852"})
+SOFTWARE_L10N_SOURCES = frozenset({"weblate-en-haw"})
 
 SECTION_STUB_ONLY_RE = re.compile(r'^\$\d+\.?\s*$|^S\d+\.?\s*$')
 MIN_TOKENS_JOHN = 4  # minimum tokens per side for Gospel of John verses
 HAW_LETTER_INV = set("aehiklmnopuwbdfgjqrstvxyz\u02bb")
-
-
 def tok(text: str) -> int:
     return len(text.split()) if text else 0
 
@@ -109,6 +137,174 @@ def has_section_stub_only(text: str) -> bool:
     return bool(SECTION_STUB_ONLY_RE.match(text.strip()))
 
 
+def nfc(text: str | None) -> str:
+    return unicodedata.normalize("NFC", text or "")
+
+
+def canonical_haw(text: str | None) -> str:
+    return stage2_canonical_haw(text)
+
+
+def canonical_dedup_text(text: str | None, *, haw: bool = False) -> str:
+    return canonical_haw(text) if haw else stage2_canonical_en(text)
+
+
+def scored_or_candidate_rows(candidate_key: str) -> list[dict]:
+    scored = SCORED.get(candidate_key)
+    if scored and scored.exists():
+        return load_jsonl(scored)
+    return load_jsonl(CANDIDATES[candidate_key])
+
+
+def append_reason(row: dict, reason: str) -> None:
+    reasons = row.get("manual_review_reasons")
+    if not isinstance(reasons, list):
+        reasons = []
+    reasons.append(reason)
+    row["manual_review_reasons"] = reasons
+
+
+def mark_hard_holdout(row: dict, reason: str) -> dict:
+    r = copy.deepcopy(row)
+    r["split"] = "review-pending"
+    r["prototype_only"] = True
+    r["release_eligible"] = False
+    r.setdefault("manifest_schema_version", r.get("schema_version") or "stage2.v0")
+    r.setdefault("alignment_confidence_tier", "review")
+    r.setdefault("alignment_review_required", True)
+    r.setdefault("quality_flags", [])
+    r.setdefault("alignment_score_components", {})
+    r.setdefault("policy_version", "stage2-hard-source-verdicts-v1")
+    append_reason(r, reason)
+    return r
+
+
+def weblate_to_manifest_row(row: dict) -> dict:
+    text_en = stage2_canonical_en(row.get("text_en"))
+    text_haw = canonical_haw(row.get("text_haw"))
+    sha_en = sha256_text(text_en)
+    sha_haw = sha256_text(text_haw)
+    sha_pair = compute_pair_hash(sha_en, sha_haw)
+    unit_id = row.get("tm_unit_id") or sha_pair[:16]
+    source_url = row.get("source_url") or ""
+    license_observed = row.get("license_observed") or "unknown"
+    project = row.get("project_slug") or "unknown-project"
+    component = row.get("component_slug") or "unknown-component"
+    return {
+        **row,
+        "pair_id": f"weblate:{unit_id}",
+        "source": "weblate-en-haw",
+        "source_url_en": source_url,
+        "source_url_haw": source_url,
+        "fetch_date": row.get("fetch_date") or "",
+        "sha256_en_raw": row.get("text_en_sha256") or sha_en,
+        "sha256_haw_raw": row.get("text_haw_sha256") or sha_haw,
+        "sha256_en_clean": sha_en,
+        "sha256_haw_clean": sha_haw,
+        "sha256_pair": sha_pair,
+        "record_id_en": f"{unit_id}:en",
+        "record_id_haw": f"{unit_id}:haw",
+        "text_en": text_en,
+        "text_haw": text_haw,
+        "alignment_type": row.get("alignment_type") or "parallel-sentence",
+        "alignment_method": row.get("alignment_method") or "tmx-line",
+        "alignment_model": None,
+        "alignment_score": None,
+        "alignment_review_required": True,
+        "length_ratio_haw_over_en": tok(text_haw) / max(tok(text_en), 1),
+        "lang_id_en": "en",
+        "lang_id_en_confidence": 1.0,
+        "lang_id_haw": "haw",
+        "lang_id_haw_confidence": 1.0,
+        "direction_original": row.get("direction_original") or "en->haw",
+        "register": "software-l10n",
+        "edition_or_version": f"{project}/{component}",
+        "synthetic": False,
+        "synthetic_source_model": None,
+        "license_observed_en": license_observed,
+        "license_observed_haw": license_observed,
+        "license_inferred": None,
+        "tos_snapshot_id": None,
+        "prototype_only": True,
+        "release_eligible": False,
+        "dedup_cluster_id": f"weblate:{project}:{component}:{sha_pair[:16]}",
+        "crosslink_stage1_overlap": False,
+        "split": "review-pending",
+        "notes": row.get("notes"),
+        "manifest_schema_version": "stage2.v0",
+        "alignment_confidence_tier": "review",
+        "quality_flags": list(row.get("quality_flags") or []),
+        "manual_review_reasons": [],
+        "alignment_score_components": {},
+        "policy_version": "stage2-hard-source-verdicts-v1",
+    }
+
+
+def weblate_quality_reasons(row: dict) -> list[str]:
+    """Defense-in-depth gate for permissive Weblate software-l10n rows."""
+    reasons: list[str] = []
+    haw_text = row.get("text_haw", "")
+    en_text = row.get("text_en", "")
+    haw_t = tok(haw_text)
+    en_t = tok(en_text)
+    ratio = row.get("length_ratio_haw_over_en") or 0
+    nhs = nonhaw_letter_share(haw_text)
+
+    if row.get("alignment_type") != "parallel-sentence":
+        reasons.append("weblate-alignment-type-not-parallel-sentence")
+    if row.get("alignment_method") != "tmx-line":
+        reasons.append("weblate-alignment-method-not-tmx-line")
+    if haw_t < 1:
+        reasons.append("weblate-haw-too-short")
+    elif haw_t > 80:
+        reasons.append("weblate-haw-too-long")
+    if en_t < 2:
+        reasons.append("weblate-en-too-short")
+    elif en_t > 80:
+        reasons.append("weblate-en-too-long")
+    if not (0.10 <= ratio <= 8.0):
+        reasons.append("weblate-ratio-out-of-band")
+    if nhs > 0.35:
+        reasons.append("weblate-nonhaw-letters-high")
+    if canonical_dedup_text(en_text).casefold() == canonical_dedup_text(haw_text, haw=True).casefold():
+        reasons.append("weblate-identical-sides")
+    return reasons
+
+
+def _cx_note_float(row: dict, key: str, default: float = 0.0) -> float:
+    match = re.search(rf"{re.escape(key)}=([0-9.]+)", row.get("notes") or "")
+    if not match:
+        return default
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return default
+
+
+def cx_train_ready(row: dict) -> bool:
+    """Conservative CX published-translation gate for rows already scored accept."""
+    return (
+        row.get("alignment_confidence_tier") == "accept"
+        and not row.get("quality_flags")
+        and row.get("alignment_type") == "parallel-sentence"
+        and row.get("alignment_method") == "filename-pair"
+        and _cx_note_float(row, "stats.human") >= 0.75
+        and _cx_note_float(row, "stats.mt", 1.0) <= 0.05
+    )
+
+
+def opus_wikimedia_train_ready(row: dict) -> bool:
+    """Promote only source-line-aligned OPUS Wikimedia rows already scored accept."""
+    return (
+        row.get("opus_corpus") == "wikimedia"
+        and row.get("language_id_check_status") == "ok"
+        and row.get("alignment_confidence_tier") == "accept"
+        and not row.get("quality_flags")
+        and row.get("alignment_type") == "parallel-sentence"
+        and row.get("alignment_method") == "tmx-line"
+    )
+
+
 def promote(row: dict, rule_id: str) -> dict:
     r = copy.deepcopy(row)
     r["split"] = "train"
@@ -120,6 +316,47 @@ def promote(row: dict, rule_id: str) -> dict:
 def load_jsonl(path: Path) -> list[dict]:
     with open(path) as f:
         return [json.loads(l) for l in f if l.strip()]
+
+
+def load_source_blocker_reports() -> dict[str, dict]:
+    blockers: dict[str, dict] = {}
+    def first_present(*values):
+        for value in values:
+            if value is not None:
+                return value
+        return None
+
+    for source_id, path in SOURCE_BLOCKER_REPORTS.items():
+        if not path.exists():
+            continue
+        with path.open(encoding="utf-8") as f:
+            data = json.load(f)
+        stage2_impact = data.get("stage2_impact") or {}
+        blockers[source_id] = {
+            "report_path": str(path),
+            "verdict": data.get("verdict"),
+            "candidate_rows_emitted": first_present(
+                data.get("candidate_rows_emitted"),
+                stage2_impact.get("candidates_emitted"),
+                0,
+            ),
+            "train_ready_rows_added": first_present(
+                data.get("train_ready_rows_added"),
+                stage2_impact.get("train_ready_rows_added"),
+                0,
+            ),
+            "manifest_mutation": first_present(
+                data.get("manifest_mutation"),
+                stage2_impact.get("manifest_modified"),
+                "none",
+            ),
+            "blockers": data.get("blockers")
+            or ([data["alignment_feasibility"]["blocker"]]
+                if isinstance(data.get("alignment_feasibility"), dict)
+                and data["alignment_feasibility"].get("blocker")
+                else []),
+        }
+    return blockers
 
 
 def cap_select(pool: list[dict], target_tokens: float) -> tuple[list[dict], list[dict], int]:
@@ -175,11 +412,18 @@ def main(dry_run: bool = False) -> None:
                 haw_t = tok(row.get("text_haw", ""))
                 en_t = tok(row.get("text_en", ""))
                 ratio = row.get("length_ratio_haw_over_en") or 0
-                if (haw_t >= 3 and en_t >= 3 and 0.5 <= ratio <= 2.5
+                if (row.get("alignment_type") == "dictionary-example"
+                        and haw_t >= 1 and en_t >= 1 and 0.2 <= ratio <= 5.0
                         and not has_flag(row, "haw_nonhaw_letters_high")
                         and not has_flag(row, "haw_no_diacritics")
                         and row.get("sha256_pair") not in kaikki_accept_hashes):
-                    r = promote(row, "kaikki-short-sentence-v1")
+                    r = promote(row, "kaikki-dictionary-example-relaxed-v1")
+                    r["manual_review_reasons"] = (r.get("manual_review_reasons") or []) + [
+                        "kaikki-dictionary-example-relaxed-v1: explicit Wiktionary "
+                        "example translation; dictionary examples permit 1-token "
+                        "sides and ratio[0.2,5.0]; stale side_too_short/ratio flags "
+                        "do not block if the relaxed gate passes."
+                    ]
                     kaikki_accept_hashes.add(r.get("sha256_pair", ""))
                     output_rows.append(r)
                     stats[src]["promoted_to_train"] += 1
@@ -202,9 +446,15 @@ def main(dry_run: bool = False) -> None:
                 haw_t = tok(row.get("text_haw", ""))
                 en_t = tok(row.get("text_en", ""))
                 ratio = row.get("length_ratio_haw_over_en") or 0
-                if (haw_t >= 2 and en_t >= 2 and 0.5 <= ratio <= 2.5
+                if (haw_t >= 1 and en_t >= 1 and 0.25 <= ratio <= 4.0
                         and not has_flag(row, "haw_nonhaw_letters_high")):
-                    output_rows.append(promote(row, "tatoeba-conversational-v1"))
+                    r = promote(row, "tatoeba-conversational-short-v2")
+                    r["manual_review_reasons"] = (r.get("manual_review_reasons") or []) + [
+                        "tatoeba-conversational-short-v2: manually verified Tatoeba "
+                        "conversational pair; allows one-token greetings/thanks with "
+                        "ratio[0.25,4.0] if no Hawaiian non-Hawaiian-letter flag."
+                    ]
+                    output_rows.append(r)
                     stats[src]["promoted_to_train"] += 1
                 else:
                     output_rows.append(copy.deepcopy(row))
@@ -382,7 +632,7 @@ def main(dry_run: bool = False) -> None:
 
     # -------- Phrase Book 1881: PD, train-only after quality gate --------
     # Source: ia-hawaiian-phrase-book-1881 (Bishop 4th ed., U.S. PD pre-1928).
-    # Adapter: scripts/326_build_phrase_book_candidates.py.
+    # Adapter: scripts/328_build_phrase_book_candidates.py.
     # Promotion rule: phrase-book-1881-clean-v1 — emitter already enforced
     #   single-line block, sentence-terminator end, language morphology,
     #   token bands, ratio bounds, and pair dedup. Re-confirm here as a
@@ -446,6 +696,187 @@ def main(dry_run: bool = False) -> None:
         print(f"  WARNING: {pb_path} not found — skipping phrase book promotion")
     print(f"  Phrase Book 1881 promoted to train: {pb_promoted}")
     print(f"  Phrase Book 1881 rejected/dedup:    {pb_rejected}")
+
+    # -------- Remaining processed source candidates: hard hold-out verdict path --------
+    # These sources have receipts/candidate rows, but do not meet the current
+    # train-ready standard. They are merged so script 334 can assign concrete
+    # final held-out verdicts; none may survive as review-pending in the final
+    # artifact.
+    hard_source_summary: dict[str, Counter] = defaultdict(Counter)
+
+    # OPUS: promote only the clean, source-line-aligned Wikimedia subset already
+    # accepted by the Stage-2 scorer; keep known-bad and duplicate corpora held out.
+    opus_path = CANDIDATES["opus_haw_subsets"]
+    opus_wikimedia_promoted = 0
+    if opus_path.exists():
+        print(f"\nFiltering OPUS haw subsets: {opus_path}")
+        upstream_tatoeba_keys: set[tuple[str, str]] = set()
+        tatoeba_path = DATA_STAGE2 / "candidates" / "tatoeba.jsonl"
+        if tatoeba_path.exists():
+            for tr in load_jsonl(tatoeba_path):
+                upstream_tatoeba_keys.add((
+                    canonical_dedup_text(tr.get("text_en")),
+                    canonical_dedup_text(tr.get("text_haw"), haw=True),
+                ))
+
+        seen_train_hashes = {
+            r.get("sha256_pair")
+            for r in output_rows
+            if r.get("split") == "train" and r.get("sha256_pair")
+        }
+        for row in scored_or_candidate_rows("opus_haw_subsets"):
+            corpus = row.get("opus_corpus") or "unknown"
+            reason: str
+            if corpus == "QED":
+                reason = (
+                    "opus-qed-hard-reject: QED v2.0a haw slice is language-mislabeled "
+                    "(EN column is Russian/Cyrillic; HAW column is Danish). No training use."
+                )
+            elif corpus == "Ubuntu":
+                reason = (
+                    "opus-ubuntu-hard-reject: Ubuntu v14.10 rows are loan-heavy and "
+                    "row-misaligned software strings; no reliable Hawaiian parallel signal."
+                )
+            elif corpus == "Tatoeba":
+                key = (
+                    canonical_dedup_text(row.get("text_en")),
+                    canonical_dedup_text(row.get("text_haw"), haw=True),
+                )
+                if key in upstream_tatoeba_keys:
+                    reason = (
+                        "opus-tatoeba-dedup-holdout: normalized text pair duplicates the "
+                        "upstream Tatoeba lane; upstream Tatoeba is the canonical source."
+                    )
+                else:
+                    reason = (
+                        "opus-tatoeba-reexport-holdout: OPUS-Tatoeba is a re-export of "
+                        "the upstream Tatoeba lane; cluster-isolated dedup leaves no "
+                        "standalone train contribution in this cut."
+                    )
+            elif corpus == "wikimedia":
+                if row.get("language_id_check_status") == "language_mismatch":
+                    reason = (
+                        "opus-wikimedia-language-hard-reject: row failed OPUS language-id "
+                        "sanity checks; held out."
+                    )
+                elif (
+                    opus_wikimedia_train_ready(row)
+                    and row.get("sha256_pair")
+                    and row.get("sha256_pair") not in seen_train_hashes
+                ):
+                    r = promote(row, "opus-wikimedia-tmx-clean-v1")
+                    r["prototype_only"] = True
+                    r["release_eligible"] = False
+                    r["alignment_review_required"] = True
+                    r["manual_review_reasons"] = (r.get("manual_review_reasons") or []) + [
+                        "opus-wikimedia-tmx-clean-v1: OPUS source-provided Moses "
+                        "line alignment; alignment_confidence_tier=accept; language_ok; "
+                        "no quality flags; exact pair hash not already in train. "
+                        "Prototype-only CC BY-SA/GFDL provenance retained; no dev/test."
+                    ]
+                    output_rows.append(r)
+                    seen_train_hashes.add(r.get("sha256_pair"))
+                    hard_source_summary["opus-haw-subsets"][f"{corpus}_train"] += 1
+                    opus_wikimedia_promoted += 1
+                    continue
+                else:
+                    reason = (
+                        "opus-wikimedia-scorer-quality-heldout: OPUS-wikimedia row was "
+                        "not a scorer-accepted, language-ok, source-line-aligned pair "
+                        "with a unique train hash."
+                    )
+            else:
+                reason = (
+                    "opus-unknown-corpus-heldout: OPUS corpus not covered by the hard "
+                    "Stage-2 source policy."
+                )
+            output_rows.append(mark_hard_holdout(row, reason))
+            hard_source_summary["opus-haw-subsets"][f"{corpus}_held_out"] += 1
+        opus_held = sum(
+            v for k, v in hard_source_summary["opus-haw-subsets"].items()
+            if k.endswith("_held_out")
+        )
+        print(f"  OPUS Wikimedia promoted to train: {opus_wikimedia_promoted}")
+        print(f"  OPUS rows held out: {opus_held}")
+    else:
+        print("  [skip] opus_haw_subsets candidates not found")
+
+    # Wikimedia CX: promote only the already-scored, high-human/no-MT subset.
+    # The rest stays held out with a concrete verdict; no embedding score is
+    # invented and no borderline lead-only rows are accepted.
+    cx_promoted = 0
+    cx_held_out = 0
+    cx_path = CANDIDATES["wikimedia_cx_en_haw"]
+    if cx_path.exists():
+        print(f"\nFiltering Wikimedia CX rows: {cx_path}")
+        for row in scored_or_candidate_rows("wikimedia_cx_en_haw"):
+            if cx_train_ready(row):
+                r = promote(row, "wikimedia-cx-high-human-low-mt-v1")
+                r["prototype_only"] = True
+                r["release_eligible"] = False
+                r["alignment_review_required"] = True
+                r["manual_review_reasons"] = (r.get("manual_review_reasons") or []) + [
+                    "wikimedia-cx-high-human-low-mt-v1: CX-published EN→HAW row; "
+                    "alignment_confidence_tier=accept; no quality flags; "
+                    "stats.human>=0.75 and stats.mt<=0.05; prototype-only "
+                    "CC BY-SA/GFDL provenance retained; no dev/test."
+                ]
+                output_rows.append(r)
+                cx_promoted += 1
+                stats["wikimedia-cx-en-haw"]["train"] += 1
+                continue
+
+            reason = (
+                "wikimedia-cx-heldout: Content Translation row failed the conservative "
+                "train gate (requires scored accept, no quality flags, stats.human>=0.75, "
+                "stats.mt<=0.05). Held out rather than weakening the alignment policy."
+            )
+            output_rows.append(mark_hard_holdout(row, reason))
+            hard_source_summary["wikimedia-cx-en-haw"]["held_out"] += 1
+            cx_held_out += 1
+        print(f"  Wikimedia CX promoted to train: {cx_promoted}")
+        print(f"  Wikimedia CX rows held out: {cx_held_out}")
+    else:
+        print("  [skip] wikimedia_cx_en_haw candidates not found")
+
+    # Weblate: receipts are good and permissive-license components are filtered.
+    # Route clean rows through a bounded software-l10n pool instead of leaving
+    # the entire lane permanently held out; final inclusion is capped below.
+    software_pool: list[dict] = []
+    weblate_quality_rejected = 0
+    weblate_path = CANDIDATES["weblate_en_haw"]
+    if weblate_path.exists():
+        print(f"\nFiltering Weblate software-l10n candidates: {weblate_path}")
+        for row in load_jsonl(weblate_path):
+            manifest_row = weblate_to_manifest_row(row)
+            reasons = weblate_quality_reasons(manifest_row)
+            if reasons:
+                manifest_row["split"] = "review-pending"
+                manifest_row["manual_review_reasons"] = (
+                    manifest_row.get("manual_review_reasons") or []
+                ) + [
+                    "weblate-software-l10n-quality-reject: "
+                    + ", ".join(reasons)
+                ]
+                output_rows.append(manifest_row)
+                hard_source_summary["weblate-en-haw"]["quality_rejected"] += 1
+                weblate_quality_rejected += 1
+                continue
+
+            manifest_row["promotion_rule_id"] = "weblate-software-l10n-clean-v1"
+            manifest_row["manual_review_reasons"] = (
+                manifest_row.get("manual_review_reasons") or []
+            ) + [
+                "Eligible under weblate-software-l10n-clean-v1: permissive-license "
+                "component; tmx-line PO alignment; haw_tok[1,80], en_tok[2,80], "
+                "ratio[0.10,8.0], nonhaw<=35%, non-identical sides. Final inclusion "
+                "subject to software-l10n <=15% cap against final train tokens."
+            ]
+            software_pool.append(manifest_row)
+        print(f"  Weblate eligible pool: {len(software_pool)} rows")
+        print(f"  Weblate quality rejected: {weblate_quality_rejected}")
+    else:
+        print("  [skip] weblate_en_haw candidates not found")
 
     # -------- Bible 1868: dedup vs 1839, internal dedup, basic quality --------
     print(f"\nLoading Bible 1868 candidates: {CANDIDATES['bible_1868']}")
@@ -529,43 +960,63 @@ def main(dry_run: bool = False) -> None:
           f"{sum(pair_tokens(r) for r in bible_pool):,} tokens")
 
     # -------- FIXED-POINT CAPS --------
-    # N = non-Bible non-HK train tokens currently in output_rows.
-    # This includes Kaikki, Tatoeba, and any Hoʻoilina sentence train rows.
+    # N = uncapped train tokens currently in output_rows.
+    # This includes Kaikki, Tatoeba, Hoʻoilina sentence, Phrase Book, and any
+    # future uncapped non-Bible/non-HK/non-software train rows. Capped pools
+    # (Bible, HK legal, software-l10n) are selected below and verified against
+    # the final artifact denominator.
     N = sum(pair_tokens(r) for r in output_rows
             if r.get("split") == "train"
             and r.get("source") not in BIBLE_SOURCES
-            and r.get("source") not in HK_LEGAL_SOURCES)
+            and r.get("source") not in HK_LEGAL_SOURCES
+            and r.get("source") not in SOFTWARE_L10N_SOURCES)
     print(f"\n=== FIXED-POINT CAP TARGETS ===")
-    print(f"  N (Kaikki+Tatoeba+Hooilina-sent train tokens): {N:,}")
+    print(f"  N (uncapped train tokens): {N:,}")
 
-    # Closed-form: H_max = 3N/11, B_max = 6N/11 (when pools not binding)
-    H_target = (3.0 / 11.0) * N
-    B_target = (6.0 / 11.0) * N
-    print(f"  Closed-form H_target = 3N/11 = {H_target:.2f}")
-    print(f"  Closed-form B_target = 6N/11 = {B_target:.2f}")
+    # With software-l10n capped at 15% alongside HK (15%) and Bible (30%),
+    # the all-caps-active solution is S_max=3N/8. If the software pool is
+    # smaller than that, its selected tokens increase the denominator for the
+    # Bible/HK fixed-point targets below.
+    S_target = (
+        SOFTWARE_L10N_SHARE_MAX
+        / (1.0 - SOFTWARE_L10N_SHARE_MAX - BIBLE_SHARE_MAX - HK_LEGAL_SHARE_MAX)
+    ) * N
+    software_kept, software_dropped, software_tokens = cap_select(software_pool, S_target)
+    capped_base_tokens = N + software_tokens
+
+    # Closed-form for remaining caps after software selection:
+    # H_max = 3M/11, B_max = 6M/11, where M = N + S.
+    H_target = (3.0 / 11.0) * capped_base_tokens
+    B_target = (6.0 / 11.0) * capped_base_tokens
+    print(f"  Closed-form S_target = 3N/8 = {S_target:.2f}")
+    print(f"  Closed-form H_target = 3(N+S)/11 = {H_target:.2f}")
+    print(f"  Closed-form B_target = 6(N+S)/11 = {B_target:.2f}")
 
     # Cap pools deterministically
     hk_kept, hk_dropped, hk_tokens = cap_select(hk_pool, H_target)
     bible_kept, bible_dropped, bible_tokens = cap_select(bible_pool, B_target)
 
+    print(f"  Software-l10n kept: {len(software_kept)} rows, {software_tokens:,} tokens "
+          f"(dropped {len(software_dropped)})")
     print(f"  HK kept: {len(hk_kept)} rows, {hk_tokens:,} tokens "
           f"(dropped {len(hk_dropped)})")
     print(f"  Bible kept: {len(bible_kept)} rows, {bible_tokens:,} tokens "
           f"(dropped {len(bible_dropped)})")
 
     # Verification + iterative fix-up against ACTUAL final shares
-    def shares(N_, H_, B_):
-        T = N_ + H_ + B_
+    def shares(N_, S_, H_, B_):
+        T = N_ + S_ + H_ + B_
         if T == 0:
-            return 0.0, 0.0, 0
-        return B_ / T, H_ / T, T
+            return 0.0, 0.0, 0.0, 0
+        return B_ / T, H_ / T, S_ / T, T
 
     iters = 0
     while True:
-        b_share, h_share, T = shares(N, hk_tokens, bible_tokens)
+        b_share, h_share, s_share, T = shares(N, software_tokens, hk_tokens, bible_tokens)
         b_ok = b_share <= BIBLE_SHARE_MAX + 1e-9
         h_ok = h_share <= HK_LEGAL_SHARE_MAX + 1e-9
-        if b_ok and h_ok:
+        s_ok = s_share <= SOFTWARE_L10N_SHARE_MAX + 1e-9
+        if b_ok and h_ok and s_ok:
             break
         iters += 1
         if not b_ok and bible_kept:
@@ -577,18 +1028,36 @@ def main(dry_run: bool = False) -> None:
             r = hk_kept.pop()
             hk_tokens -= pair_tokens(r)
             hk_dropped.append(r)
+        elif not s_ok and software_kept:
+            r = software_kept.pop()
+            software_tokens -= pair_tokens(r)
+            software_dropped.append(r)
         else:
             break  # cannot reduce further
 
-    final_b_share, final_h_share, T_final = shares(N, hk_tokens, bible_tokens)
+    final_b_share, final_h_share, final_s_share, T_final = shares(N, software_tokens, hk_tokens, bible_tokens)
     print(f"\n  Verification iterations: {iters}")
     print(f"  T_final_train = {T_final:,} tokens")
     print(f"  Bible share = {final_b_share:.4%}  (cap <=30%) "
           f"{'PASS' if final_b_share <= BIBLE_SHARE_MAX + 1e-9 else 'FAIL'}")
     print(f"  HK    share = {final_h_share:.4%}  (cap <=15%) "
           f"{'PASS' if final_h_share <= HK_LEGAL_SHARE_MAX + 1e-9 else 'FAIL'}")
+    print(f"  Soft  share = {final_s_share:.4%}  (cap <=15%) "
+          f"{'PASS' if final_s_share <= SOFTWARE_L10N_SHARE_MAX + 1e-9 else 'FAIL'}")
 
     # -------- Stitch final output --------
+    for r in software_kept:
+        rr = copy.deepcopy(r)
+        rr["split"] = "train"
+        output_rows.append(rr)
+    for r in software_dropped:
+        rr = copy.deepcopy(r)
+        rr["split"] = "review-pending"
+        rr["manual_review_reasons"] = (rr.get("manual_review_reasons") or []) + [
+            "dropped-by-software-l10n-cap-v1"
+        ]
+        output_rows.append(rr)
+
     # Bible kept -> train
     b1839_train = b1839_capped = 0
     b1868_train = b1868_capped = 0
@@ -661,13 +1130,18 @@ def main(dry_run: bool = False) -> None:
     out_hk_tokens = sum(pair_tokens(r) for r in output_rows
                         if r.get("split") == "train"
                         and r.get("source") in HK_LEGAL_SOURCES)
+    out_software_tokens = sum(pair_tokens(r) for r in output_rows
+                              if r.get("split") == "train"
+                              and r.get("source") in SOFTWARE_L10N_SOURCES)
     out_bible_share = out_bible_tokens / max(out_train_tokens, 1)
     out_hk_share = out_hk_tokens / max(out_train_tokens, 1)
+    out_software_share = out_software_tokens / max(out_train_tokens, 1)
 
     print(f"\n=== ARTIFACT-VERIFIED SHARES ===")
     print(f"  total_train_tokens (from artifact): {out_train_tokens:,}")
     print(f"  bible_train_tokens: {out_bible_tokens:,} = {out_bible_share:.4%}")
     print(f"  hk_train_tokens:    {out_hk_tokens:,} = {out_hk_share:.4%}")
+    print(f"  software_l10n_train_tokens: {out_software_tokens:,} = {out_software_share:.4%}")
 
     if dry_run:
         print("\n[dry-run: no files written]")
@@ -713,8 +1187,9 @@ def main(dry_run: bool = False) -> None:
             },
         },
         "fixed_point_solution": {
-            "derivation": "B/T<=0.30 and H/T<=0.15 with T=N+H+B yields H_max=3N/11, B_max=6N/11, T=20N/11",
-            "N_nonbible_nonhk_tokens": N,
+            "derivation": "S/T<=0.15, B/T<=0.30, H/T<=0.15. Select software-l10n first with S_max=3N/8, then set M=N+S and solve H_max=3M/11, B_max=6M/11.",
+            "N_uncapped_tokens": N,
+            "S_target_tokens": round(S_target, 2),
             "H_target_tokens": round(H_target, 2),
             "B_target_tokens": round(B_target, 2),
             "verification_iterations": iters,
@@ -753,6 +1228,16 @@ def main(dry_run: bool = False) -> None:
             "hk_actual_share": round(out_hk_share, 6),
             "cap_satisfied": out_hk_share <= HK_LEGAL_SHARE_MAX + 1e-9,
         },
+        "software_l10n_cap": {
+            "algorithm": "Filter permissive-license Weblate PO rows; sort sha256_pair asc; greedy <= S_target; verify against artifact",
+            "software_l10n_eligible_pool": len(software_pool),
+            "software_l10n_train_kept": len(software_kept),
+            "software_l10n_capped_to_review": len(software_dropped),
+            "software_l10n_quality_rejected": weblate_quality_rejected,
+            "software_l10n_train_tokens": out_software_tokens,
+            "software_l10n_actual_share": round(out_software_share, 6),
+            "cap_satisfied": out_software_share <= SOFTWARE_L10N_SHARE_MAX + 1e-9,
+        },
         "promotion_summary": {
             "tatoeba_promoted_to_train": stats["tatoeba"].get("promoted_to_train", 0),
             "kaikki_promoted_to_train": stats["kaikki-haw-en-wiktionary"].get("promoted_to_train", 0),
@@ -762,9 +1247,18 @@ def main(dry_run: bool = False) -> None:
             "hooilina_para_deferred": stats["hooilina"].get("review-pending_para", 0),
             "phrase_book_1881_train": pb_promoted,
             "phrase_book_1881_rejected": pb_rejected,
+            "opus_wikimedia_tmx_train": opus_wikimedia_promoted,
             "hk1897_train": len(hk_kept),
             "bible1868_new_train": b1868_train,
+            "weblate_software_l10n_train": len(software_kept),
+            "weblate_software_l10n_rejected": weblate_quality_rejected,
+            "wikimedia_cx_high_human_train": cx_promoted,
+            "wikimedia_cx_held_out": cx_held_out,
         },
+        "remaining_source_hard_finalization": {
+            src: dict(counter) for src, counter in sorted(hard_source_summary.items())
+        },
+        "source_level_hard_blockers": load_source_blocker_reports(),
         "counts_by_source": {
             src: dict(c) for src, c in sorted(final_by_source.items())
         },
@@ -779,9 +1273,11 @@ def main(dry_run: bool = False) -> None:
             "total_train_tokens": out_train_tokens,
             "bible_train_tokens": out_bible_tokens,
             "hk_train_tokens": out_hk_tokens,
-            "nonbible_nonhk_train_tokens": N,
+            "software_l10n_train_tokens": out_software_tokens,
+            "uncapped_train_tokens": N,
             "bible_actual_share": round(out_bible_share, 6),
             "hk_actual_share": round(out_hk_share, 6),
+            "software_l10n_actual_share": round(out_software_share, 6),
         },
         "notes": [
             "Caps verified directly against the emitted artifact, not a reference denominator.",
@@ -791,11 +1287,14 @@ def main(dry_run: bool = False) -> None:
             "68 paragraph-level rows remain deferred (future-work-native-review).",
             f"Phrase Book 1881 (Bishop 4th ed., U.S. PD): {pb_promoted} phrase-pair rows promoted to train "
             "(release-eligible, NOT prototype-only); uncapped non-Bible/non-HK contributor to N. "
-            "Adapter at scripts/326_build_phrase_book_candidates.py.",
+            "Adapter at scripts/328_build_phrase_book_candidates.py.",
             "1850/1869 HK pair stays inventory-only per Linus year-mismatch flag.",
             "Bible 1839 historical-orthography accepted rows that exceed cap are quarantined to review-pending with 'dropped-by-bible-cap-v2-fixedpoint'; the canonical manifest is unchanged.",
             "SFT emitter requires --allow-review-required because HK 1897 and Hoʻoilina sentence rows carry alignment_review_required=true at ingestion despite passing their promotion rules.",
             "N denominator now includes Hoʻoilina sentence + Phrase Book 1881 train tokens, slightly increasing Bible/HK cap budgets.",
+            f"Weblate permissive-license software-l10n rows: {len(software_kept)} promoted under a <=15% software-l10n token cap; {len(software_dropped)} cap-held and {weblate_quality_rejected} quality-held.",
+            f"OPUS Wikimedia source-line-aligned rows: {opus_wikimedia_promoted} scorer-accepted rows promoted; remaining OPUS rows hard-held with concrete verdicts.",
+            f"Wikimedia CX high-human/no-MT rows: {cx_promoted} promoted; {cx_held_out} held out under the conservative CX train gate.",
             "This is NOT a path to 80k by review-pending promotion alone; NLLB-mined and synthetic BT remain required (per Rusty §4 and Linus ulukau-sft-vetting).",
         ],
     }

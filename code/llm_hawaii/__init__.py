@@ -7,4 +7,4 @@ not a production pipeline and is not wired to any real corpus.
 See `code/README.md` for the suggested implementation order.
 """
 
-__all__ = ["config", "data", "model", "train", "evaluate", "metrics", "stage2_quality", "stage2_eval", "eval_contamination"]
+__all__ = ["config", "data", "model", "train", "evaluate", "metrics", "stage2_quality", "stage2_eval", "eval_contamination", "stage2_canonical"]

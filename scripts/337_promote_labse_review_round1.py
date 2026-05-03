@@ -44,34 +44,27 @@ LENGTH_RATIO_MIN = 0.5
 LENGTH_RATIO_MAX = 2.0
 MIN_TOKENS = 3
 
+from llm_hawaii.stage2_canonical import canonical_en, canonical_haw, compute_pair_hash, sha256_text  # noqa: E402
+
 # Hawaiian orthography pattern: ʻokina or vowel-cluster
 OKINA_CHAR = "\u02bb"
 VOWEL_CLUSTER_PATTERN = re.compile(r"[aeioāēīōū]{2,}", re.IGNORECASE)
 
 
 def canonicalize_okina(text: str) -> str:
-    """Replace common ʻokina variants with U+02BB (per repo convention)."""
-    return text.replace("'", OKINA_CHAR).replace("`", OKINA_CHAR).replace("'", OKINA_CHAR)
+    return canonical_haw(text)
 
 
 def normalize_nfc(text: str) -> str:
-    """NFC normalization for consistent hashing."""
-    return unicodedata.normalize("NFC", text)
-
-
-def compute_pair_hash(sha256_en_clean: str, sha256_haw_clean: str) -> str:
-    """Primary Stage-2 contamination key: hash(en_clean ‖ haw_clean)."""
-    return hashlib.sha256(
-        (sha256_en_clean + "\u2016" + sha256_haw_clean).encode("utf-8")
-    ).hexdigest()
+    return canonical_haw(text)
 
 
 def compute_row_pair_hash(row: dict[str, Any]) -> str:
     """Compute pair_hash for a candidate row using 320's logic."""
-    en_clean = normalize_nfc(canonicalize_okina(row.get("text_en", "")))
-    haw_clean = normalize_nfc(canonicalize_okina(row.get("text_haw", "")))
-    sha_en = hashlib.sha256(en_clean.encode("utf-8")).hexdigest()
-    sha_haw = hashlib.sha256(haw_clean.encode("utf-8")).hexdigest()
+    en_clean = canonical_en(row.get("text_en", ""))
+    haw_clean = canonical_haw(row.get("text_haw", ""))
+    sha_en = sha256_text(en_clean)
+    sha_haw = sha256_text(haw_clean)
     return compute_pair_hash(sha_en, sha_haw)
 
 

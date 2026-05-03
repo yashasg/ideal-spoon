@@ -91,6 +91,11 @@ from llm_hawaii.stage2_dedup import (  # noqa: E402
     collapse_pair_hash_duplicates,
 )
 from llm_hawaii import eval_contamination  # noqa: E402
+from llm_hawaii.stage2_canonical import (  # noqa: E402
+    canonicalize_clean_text,
+    compute_pair_hash,
+    sha256_text,
+)
 from llm_hawaii.stage2_quality import (  # noqa: E402
     POLICY_VERSION,
     BAIBALA_1839_SOURCE_ID,
@@ -190,62 +195,6 @@ def _utcnow_iso() -> str:
 
 
 _INVISIBLE_FORMAT_CONTROLS = str.maketrans("", "", "\u00ad\u200b\u200c\u200d\ufeff")
-_EN_PUNCT_FOLD = str.maketrans({
-    "\u2018": "'",
-    "\u2019": "'",
-    "\u201c": '"',
-    "\u201d": '"',
-    "\u2010": "-",
-    "\u2011": "-",
-})
-_HAW_OKINA_FOLD = str.maketrans({"'": "ʻ", "‘": "ʻ", "’": "ʻ", "`": "ʻ", "\u02bc": "ʻ"})
-
-
-def canonicalize_clean_text(text: str, *, lang: str = "en") -> str:
-    """Return the Stage-2 clean-text canonical form used before side hashing.
-
-    Contract:
-    - all text is NFC-normalized;
-    - soft hyphen, zero-width joiners/non-joiners/spaces, and BOM are removed;
-    - leading/trailing whitespace is stripped and every internal whitespace run,
-      including tabs and non-ASCII spaces, becomes one ASCII space;
-    - casing is preserved;
-    - EN folds typographic single/double quotes to ASCII and U+2010/U+2011 to
-      hyphen-minus, but does not fold modifier-letter apostrophe U+02BC or
-      Hawaiian ʻokina U+02BB;
-    - HAW folds ASCII/curly/backtick/U+02BC apostrophe-like marks to U+02BB
-      ʻokina.
-    Em/en dashes, double hyphen, and spaced hyphen are intentionally distinct.
-    """
-    s = unicodedata.normalize("NFC", str(text or "")).translate(_INVISIBLE_FORMAT_CONTROLS)
-    if lang == "en":
-        s = s.translate(_EN_PUNCT_FOLD)
-    elif lang == "haw":
-        s = s.translate(_HAW_OKINA_FOLD)
-    else:
-        raise ValueError(f"unsupported Stage-2 hash language: {lang!r}")
-    return " ".join(s.split())
-
-
-def sha256_text(t: str, *, lang: str | None = None) -> str:
-    """SHA-256 of UTF-8 text; pass lang='en'/'haw' for Stage-2 clean canonicalization."""
-    if lang is not None:
-        t = canonicalize_clean_text(t, lang=lang)
-    return hashlib.sha256(t.encode("utf-8")).hexdigest()
-
-
-def compute_pair_hash(sha256_en_clean: str, sha256_haw_clean: str) -> str:
-    """Primary Stage-2 contamination key.
-
-    Inputs must be side hashes computed from ``canonicalize_clean_text(text_en,
-    lang="en")`` and ``canonicalize_clean_text(text_haw, lang="haw")``.  The
-    pair key is ``SHA256(sha256_en_clean + U+2016 DOUBLE VERTICAL LINE +
-    sha256_haw_clean)``; it never re-normalizes text itself.
-    """
-    return hashlib.sha256(
-        (sha256_en_clean + "\u2016" + sha256_haw_clean).encode("utf-8")
-    ).hexdigest()
-
 
 
 

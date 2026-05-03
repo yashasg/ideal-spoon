@@ -23,6 +23,15 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+CODE_ROOT = REPO_ROOT / "code"
+if str(CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CODE_ROOT))
+from llm_hawaii.stage2_canonical import (  # noqa: E402
+    canonical_en as stage2_canonical_en,
+    canonical_haw as stage2_canonical_haw,
+    compute_pair_hash as stage2_compute_pair_hash,
+    sha256_text as stage2_sha256_text,
+)
 
 SOURCE_ID = "sanitary-instructions-1881"
 EDITION_ID = "sanitary-instructions-1881-ia-nlm-paired"
@@ -59,11 +68,10 @@ MAX_RATIO = 2.50
 MAX_PARAGRAPH_INDEX_DELTA = 500
 
 OKINA = "\u02bb"
-OKINA_VARIANTS = ("\u2018", "\u2019", "'", "`")
 
 
 def sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return stage2_sha256_text(text)
 
 
 def sha256_file(path: Path) -> str:
@@ -75,23 +83,21 @@ def sha256_file(path: Path) -> str:
 
 
 def pair_hash(sha_en: str, sha_haw: str) -> str:
-    # Keep byte-for-byte compatible with scripts/320_build_stage2_manifest.py.
-    return hashlib.sha256((sha_en + "\u2016" + sha_haw).encode("utf-8")).hexdigest()
+    return stage2_compute_pair_hash(sha_en, sha_haw)
 
 
-def normalize_text(text: str) -> str:
-    text = unicodedata.normalize("NFC", text)
-    for variant in OKINA_VARIANTS:
-        text = text.replace(variant, OKINA)
+def normalize_text(text: str, *, lang: str = "haw") -> str:
     text = re.sub(r"(?m)^\s*\d+\s*$", "", text)
-    return re.sub(r"\s+", " ", text).strip()
+    if lang == "en":
+        return stage2_canonical_en(text)
+    return stage2_canonical_haw(text)
 
 
-def paragraph_records(path: Path) -> list[dict[str, Any]]:
+def paragraph_records(path: Path, *, lang: str) -> list[dict[str, Any]]:
     raw = path.read_text(encoding="utf-8", errors="replace")
     records: list[dict[str, Any]] = []
     for idx, block in enumerate(re.split(r"\n\s*\n", raw)):
-        text = normalize_text(block)
+        text = normalize_text(block, lang=lang)
         if not (MIN_CHARS <= len(text) <= MAX_CHARS):
             continue
         words = text.split()
@@ -315,8 +321,8 @@ def build_rows(
             "or run from the temporary aligner venv used for this pass."
         ) from exc
 
-    en_records = paragraph_records(en_path)
-    haw_records = paragraph_records(haw_path)
+    en_records = paragraph_records(en_path, lang="en")
+    haw_records = paragraph_records(haw_path, lang="haw")
     model = SentenceTransformer(model_id)
 
     en_emb = model.encode(

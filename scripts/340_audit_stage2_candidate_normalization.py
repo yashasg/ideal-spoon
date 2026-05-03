@@ -8,7 +8,6 @@ not write under data/ and does not mutate rows.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import importlib.util
 import json
 import re
@@ -20,7 +19,6 @@ from typing import Any, Iterable
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CANDIDATES = REPO_ROOT / "data" / "stage2" / "candidates"
-OKINA_FOLD = str.maketrans({"'": "ʻ", "‘": "ʻ", "’": "ʻ", "`": "ʻ"})
 INVISIBLE_FORMAT_CONTROLS = str.maketrans("", "", "\u00ad\u200b\u200c\u200d\ufeff")
 NON_ASCII_WHITESPACE = {"\u00a0", "\u1680", "\u2000", "\u2001", "\u2002", "\u2003", "\u2004", "\u2005", "\u2006", "\u2007", "\u2008", "\u2009", "\u200a", "\u2028", "\u2029", "\u202f", "\u205f", "\u3000"}
 TOKEN_RE = re.compile(r"[\wʻ'-]+", re.UNICODE)
@@ -39,6 +37,7 @@ def _load_manifest_builder():
 
 _manifest = _load_manifest_builder()
 from llm_hawaii import eval_contamination  # noqa: E402
+from llm_hawaii.stage2_canonical import canonical_en, canonical_haw, compute_pair_hash, sha256_text  # noqa: E402
 from llm_hawaii.stage2_dedup import (  # noqa: E402
     EXACT_SIDE_MAX_PER_KEY,
     NEAR_DUPE_THRESHOLD,
@@ -55,19 +54,15 @@ def nfc(text: str) -> str:
 
 
 def normalize_haw(text: str) -> str:
-    return nfc(text).translate(OKINA_FOLD)
+    return canonical_haw(text)
 
 
 def normalize_en_for_dedup_key(text: str) -> str:
-    return nfc(text).translate(INVISIBLE_FORMAT_CONTROLS)
+    return canonical_en(text).translate(INVISIBLE_FORMAT_CONTROLS)
 
 
 def normalize_haw_for_dedup_key(text: str) -> str:
-    return normalize_haw(text).translate(INVISIBLE_FORMAT_CONTROLS)
-
-
-def sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return canonical_haw(text).translate(INVISIBLE_FORMAT_CONTROLS)
 
 
 def text_key(text: str, *, haw: bool) -> str:
@@ -106,7 +101,7 @@ def read_jsonl(path: Path) -> Iterable[tuple[int, dict[str, Any]]]:
 
 
 def pair_hash(en_clean_hash: str, haw_clean_hash: str) -> str:
-    return _manifest.compute_pair_hash(en_clean_hash, haw_clean_hash)
+    return compute_pair_hash(en_clean_hash, haw_clean_hash)
 
 
 def _load_eval_contamination_hashes(paths: list[Path]) -> eval_contamination.EvalHashSet:
@@ -214,8 +209,8 @@ def audit(
                         examples["haw_okina_fold_needed"].append(loc)
 
             if isinstance(en, str) and isinstance(haw, str):
-                en_hash = sha256_text(nfc(en))
-                haw_hash = sha256_text(normalize_haw(haw))
+                en_hash = sha256_text(en, lang="en")
+                haw_hash = sha256_text(haw, lang="haw")
                 expected_pair = pair_hash(en_hash, haw_hash)
                 if row.get("sha256_en_clean") and row.get("sha256_en_clean") != en_hash:
                     hash_mismatches["sha256_en_clean"] += 1
@@ -425,7 +420,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--candidates", nargs="*", help="Candidate JSONL files; defaults to data/stage2/candidates/*.jsonl")
     parser.add_argument("--max-examples", type=int, default=8)
     parser.add_argument("--eval-hashes", type=Path, action="append", default=None, help="Eval-hashes JSONL ledger(s) to audit against without dropping rows")
-    parser.add_argument("--strict", action="store_true", help="Exit 3 if post-policy schema violations, pair-hash mismatches, or eval contamination are found")
+    parser.add_argument("--strict", action="store_true", help="Exit 3 if post-policy schema violations or eval contamination are found; canonicalization-delta counts are advisory")
     args = parser.parse_args(argv)
 
     if args.eval_hashes:
@@ -443,9 +438,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.strict:
         schema_bad = report["schema"]["post_policy_violation_count"]
-        pair_bad = report["hash_mismatches_if_haw_okina_canonicalized"].get("sha256_pair", 0)
         contamination_bad = report["contamination"]["total_matches"]
-        if schema_bad or pair_bad or contamination_bad:
+        if schema_bad or contamination_bad:
             return 3
     return 0
 

@@ -30,6 +30,15 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+CODE_ROOT = REPO_ROOT / "code"
+if str(CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CODE_ROOT))
+from llm_hawaii.stage2_canonical import (  # noqa: E402
+    canonical_en as stage2_canonical_en,
+    canonical_haw as stage2_canonical_haw,
+    compute_pair_hash as stage2_compute_pair_hash,
+    sha256_text as stage2_sha256_text,
+)
 EXISTING_TATOEBA = REPO_ROOT / "data" / "stage2" / "candidates" / "tatoeba.jsonl"
 OUT_TEMPLATE = REPO_ROOT / "data" / "stage2" / "candidates" / "tatoeba_refresh_{date}.jsonl"
 PINNED_DUMP = REPO_ROOT / "data-sources" / "tatoeba" / "PINNED_DUMP.json"
@@ -43,7 +52,6 @@ DEFAULT_SLEEP_SECONDS = 2.0
 DEFAULT_MIN_PAIR_DELTA_PCT = 0.05
 DEFAULT_MIN_NEW_SENTENCES = 500
 OKINA = "\u02bb"
-OKINA_MISENCODINGS = ("\u2018", "\u2019", "'")
 
 HAW_SENTENCES_URL = "https://downloads.tatoeba.org/exports/per_language/haw/haw_sentences_detailed.tsv.bz2"
 LINKS_URL = "https://downloads.tatoeba.org/exports/per_language/haw/haw-eng_links.tsv.bz2"
@@ -71,14 +79,11 @@ def current_pinned_edition() -> str:
 
 
 def normalize_en(text: str) -> str:
-    return " ".join(unicodedata.normalize("NFC", text).split())
+    return stage2_canonical_en(text)
 
 
 def normalize_haw(text: str) -> str:
-    out = unicodedata.normalize("NFC", text)
-    for bad in OKINA_MISENCODINGS:
-        out = out.replace(bad, OKINA)
-    return " ".join(unicodedata.normalize("NFC", out).split())
+    return stage2_canonical_haw(text)
 
 
 def length_ratio(haw: str, en: str) -> float:

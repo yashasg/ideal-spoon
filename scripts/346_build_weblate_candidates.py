@@ -24,6 +24,15 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+CODE_ROOT = REPO_ROOT / "code"
+if str(CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CODE_ROOT))
+from llm_hawaii.stage2_canonical import (  # noqa: E402
+    canonical_en as stage2_canonical_en,
+    canonical_haw as stage2_canonical_haw,
+    compute_pair_hash as stage2_compute_pair_hash,
+    sha256_text as stage2_sha256_text,
+)
 OUT_PATH = REPO_ROOT / "data" / "stage2" / "candidates" / "weblate.jsonl"
 ALLOWLIST_SPDX_RE = r"^(MIT|Apache-2\.0|BSD-2-Clause|BSD-3-Clause|MPL-2\.0|CC0-1\.0|CC-BY-4\.0)$"
 ALLOWLIST_SPDX = re.compile(ALLOWLIST_SPDX_RE)
@@ -34,7 +43,6 @@ USER_AGENT = "ideal-spoon/0.1.0 (stage2 Weblate TMX adapter; contact via github.
 DEFAULT_SLEEP_SECONDS = 2.0
 DEFAULT_MAX_REQUESTS_PER_MINUTE = 30
 OKINA = "\u02bb"
-OKINA_MISENCODINGS = ("\u2018", "\u2019", "'")
 
 
 def _load_stage2_manifest() -> Any:
@@ -51,14 +59,11 @@ sha256_text = _STAGE2.sha256_text
 
 
 def normalize_en(text: str) -> str:
-    return " ".join(unicodedata.normalize("NFC", text).split())
+    return stage2_canonical_en(text)
 
 
 def normalize_haw(text: str) -> str:
-    out = unicodedata.normalize("NFC", text)
-    for bad in OKINA_MISENCODINGS:
-        out = out.replace(bad, OKINA)
-    return " ".join(unicodedata.normalize("NFC", out).split())
+    return stage2_canonical_haw(text)
 
 
 def length_ratio(haw: str, en: str) -> float:
