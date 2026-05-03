@@ -2622,3 +2622,49 @@ Round 3 should fix adapters and regenerate candidate JSONL via each adapter's `-
 - `python3 code/tests/test_stage2_candidate_normalization_audit.py`
 - `python3 scripts/340_audit_stage2_candidate_normalization.py --max-examples 4`
 - `python3 scripts/320_build_stage2_manifest.py --dry-run`
+
+---
+
+# Linus — Stage-2 Legacy Candidate Normalization (Round 3)
+
+**Date:** 2026-05-03  
+**Status:** Implemented; verified dry-run—37,761 clean rows, all violations fixed.
+
+## Decision
+
+Build a one-shot legacy candidate normalizer to canonicalize generated candidate JSONLs under `data/stage2/candidates/` before proceeding with dedup and cap policy work. Normalizer uses `--apply` (not `--execute`) for local artifact patching; never touches `data/raw/`.
+
+## Why
+
+Round 2 audit identified highest-leverage blockers as schema drift in older/probe adapters plus HAW ʻokina hash drift. These are mechanical generated-artifact issues, not raw-source issues. Re-emitting through the canonical `320_build_stage2_manifest.py` contract removes schema noise before dedup/cap policy work.
+
+## Implemented Behavior
+
+`scripts/341_normalize_legacy_candidates.py`:
+
+- Folds HAW ASCII/right/left quote/backtick ʻokina variants → U+02BB before `sha256_haw_clean` and `sha256_pair`
+- Preserves English apostrophes/right quotes
+- Maps legacy enum values → schema-compatible values (e.g., `phrase-pair` → `parallel-sentence`, coordinate pairing → `manual`) while preserving legacy detail in `notes`
+- Renames probe fields (`source_id`, `source_pair_id`, `schema_version`) → canonical manifest fields
+- Fills required provenance defaults for legacy rows
+- Sets `license_inferred = null` and enforces `prototype_only=true => release_eligible=false`
+- Recomputes clean and pair hashes; applies Stage-2 quality policy fields
+
+## Verification (Before → After)
+
+| Metric | Before | After | Status |
+|--------|--------|-------|--------|
+| Schema drift cases | 206,670 | 0 | ✓ Fixed |
+| Post-policy violations | 21,118 | 0 | ✓ Fixed |
+| HAW ʻokina-fold rows | 311 | 0 | ✓ Fixed |
+| Pair-hash mismatches | 693 | 0 | ✓ Fixed |
+| Manifest dry-run rows | — | 37,761 | ✓ Clean |
+| Manifest skipped (violations) | — | 0 | ✓ All valid |
+
+Cross-source exact pair-hash dup groups: 91 → 100 (canonical hashing surfaced more duplicates).
+
+## Follow-up
+
+Round 4: Codify dedup preference policy—OPUS-Tatoeba vs upstream Tatoeba (Tatoeba canonical), Bible cross-edition overlaps.
+
+**Artifact:** Commit `2efacb6` — "Normalize legacy stage2 candidates"

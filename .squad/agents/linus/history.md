@@ -1,5 +1,11 @@
 # Linus — History
 
+## 2026-05-03 — Stage-2 Legacy Candidate Normalization (Round 3)
+
+**Task:** Built `scripts/341_normalize_legacy_candidates.py` + test. One-shot normalizer canonicalizes all generated candidate JSONLs under `data/stage2/candidates/` before dedup/cap policy work. Normalizer uses `--apply` for local artifact patching; never touches `data/raw/`. **Result:** All schema violations and HAW ʻokina hash drift fixed. Verified: `scripts/340_audit_stage2_candidate_normalization.py --strict` reports 0 violations; `scripts/320_build_stage2_manifest.py --dry-run` emits 37,761 clean rows. **Metrics before→after:** Schema drift 206,670→0, post-policy 21,118→0, hash drift 693→0, ʻokina rows 311→0. Cross-source dup groups 91→100 (canonical recompute surfaced more). Dry-run 320 script: clean at 37,761 rows. Commit `2efacb6`. Decision documented in `.squad/decisions.md`. **Next:** Round 4 dedup policy (Tatoeba canonical, Bible cross-editions).
+
+---
+
 ## 2026-05-03 — Sanitary Instructions 1881 adapter implementation (decision formalized)
 
 **Task:** Built scripts/335_build_sanitary_instructions_candidates.py + code/tests/test_sanitary_instructions_adapter.py. Commit eae312b. **Key Decision:** Sanitary Instructions 1881 candidates are comparable-aligned LaBSE rows (not deterministic paragraph-parallel). Adapter must emit schema-compatible generic enums: `alignment_type="comparable-aligned"`, `alignment_method="labse"`, policy details in `policy_version`/`manual_review_reasons`/`alignment_score_components`. Rows stay `split="review-pending"`, `alignment_review_required=true`, `prototype_only=true`, `release_eligible=false` until rights/cap finalization; `license_inferred` null per schema. `--execute` requires `--confirm-edition sanitary-instructions-1881-ia-nlm-paired` + existing `--tos-snapshot` path. Why: validator accepts only fixed enums; encoding policy in enum fields breaks schema validation and blocks manifest builds. Keeping rows prototype-only matches Stage-2 policy for non-finalized candidates. Decision documented in `.squad/decisions.md`.
