@@ -9,12 +9,13 @@ can be applied with deterministic source preference.
 from __future__ import annotations
 
 import difflib
+import hashlib
 import re
 import unicodedata
 from collections import Counter, defaultdict
 from typing import Any
 
-POLICY_VERSION = "stage2-cross-source-dedup-v0.3"
+POLICY_VERSION = "stage2-cross-source-dedup-v0.4"
 EXACT_SIDE_MAX_PER_KEY = 3
 SHORT_EXACT_SIDE_MAX_PER_KEY = 2
 SHORT_EXACT_SIDE_TOKEN_MAX = 3
@@ -518,5 +519,88 @@ def collapse_near_dupes(rows: list[dict[str, Any]], threshold: float = NEAR_DUPE
         "near_duplicate_groups": len(groups),
         "dropped_rows": len(drop_ids),
         "drop_sources": dict(source_counts),
+        "examples": examples,
+    }
+
+
+def annotate_paraphrase_groups(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Annotate remaining one-sided exact-text groups without dropping rows.
+
+    Rows connected by a shared English-clean hash with multiple Hawaiian variants,
+    or a shared Hawaiian-clean hash with multiple English variants, receive the
+    same deterministic ``paraphrase_group_id``. The field lets SFT sampling see
+    retained lexical diversity after hard dedup/cap passes have finished.
+    """
+    parent = list(range(len(rows)))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    def mark_side(key_name: str, other_key_name: str) -> tuple[int, int]:
+        groups: dict[str, list[int]] = defaultdict(list)
+        for idx, row in enumerate(rows):
+            key = row.get(key_name)
+            if isinstance(key, str) and key:
+                groups[key].append(idx)
+        group_count = 0
+        row_hits: set[int] = set()
+        for idxs in groups.values():
+            other_values = {rows[idx].get(other_key_name) for idx in idxs}
+            if len(other_values) <= 1:
+                continue
+            group_count += 1
+            first = idxs[0]
+            for idx in idxs[1:]:
+                union(first, idx)
+            row_hits.update(idxs)
+        return group_count, len(row_hits)
+
+    exact_en_groups, exact_en_rows = mark_side("sha256_en_clean", "sha256_haw_clean")
+    exact_haw_groups, exact_haw_rows = mark_side("sha256_haw_clean", "sha256_en_clean")
+
+    components: dict[int, list[int]] = defaultdict(list)
+    for idx in range(len(rows)):
+        components[find(idx)].append(idx)
+
+    annotated_rows = 0
+    examples: list[dict[str, Any]] = []
+    for idxs in components.values():
+        if len(idxs) <= 1:
+            rows[idxs[0]].pop("paraphrase_group_id", None)
+            continue
+        identity_parts = []
+        for idx in sorted(idxs, key=lambda i: _stable_row_key(rows[i])):
+            row = rows[idx]
+            identity_parts.append("|".join(_stable_row_key(row)))
+        digest = hashlib.sha256("\n".join(identity_parts).encode("utf-8")).hexdigest()[:16]
+        group_id = f"stage2-paraphrase-{digest}"
+        for idx in idxs:
+            rows[idx]["paraphrase_group_id"] = group_id
+        annotated_rows += len(idxs)
+        if len(examples) < 12:
+            examples.append({
+                "paraphrase_group_id": group_id,
+                "group_size": len(idxs),
+                "sources": sorted({str(rows[idx].get("source") or "<missing>") for idx in idxs}),
+                "pair_ids": [rows[idx].get("pair_id") for idx in sorted(idxs, key=lambda i: _stable_row_key(rows[i]))[:5]],
+            })
+
+    return {
+        "policy_version": POLICY_VERSION,
+        "input_rows": len(rows),
+        "exact_en_groups": exact_en_groups,
+        "exact_en_rows": exact_en_rows,
+        "exact_haw_groups": exact_haw_groups,
+        "exact_haw_rows": exact_haw_rows,
+        "paraphrase_components": sum(1 for idxs in components.values() if len(idxs) > 1),
+        "annotated_rows": annotated_rows,
         "examples": examples,
     }

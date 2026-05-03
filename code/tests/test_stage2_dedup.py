@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from llm_hawaii.stage2_dedup import (
+    annotate_paraphrase_groups,
     cap_exact_en,
     cap_exact_haw,
     collapse_near_dupes,
@@ -144,6 +145,24 @@ class TestStage2CrossSourceDedupPolicy(unittest.TestCase):
         self.assertEqual(stats["dropped_rows"], 1)
         self.assertIn("hooilina", {r["source"] for r in kept})
         self.assertNotIn("ia-hawaiian-phrase-book-1881", {r["source"] for r in kept})
+
+    def test_annotate_paraphrase_groups_marks_remaining_one_sided_groups(self):
+        rows = [
+            {**row("baibala-hemolele-1868", "a", "p1"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h1"},
+            {**row("baibala-hemolele-1868", "b", "p2"), "sha256_en_clean": "same-en", "sha256_haw_clean": "h2"},
+            {**row("tatoeba", "c", "p3"), "sha256_en_clean": "e3", "sha256_haw_clean": "same-haw"},
+            {**row("tatoeba", "d", "p4"), "sha256_en_clean": "e4", "sha256_haw_clean": "same-haw"},
+            {**row("kaikki", "unique", "p5"), "sha256_en_clean": "e5", "sha256_haw_clean": "h5", "paraphrase_group_id": "stale"},
+        ]
+        stats = annotate_paraphrase_groups(rows)
+        self.assertEqual(stats["exact_en_groups"], 1)
+        self.assertEqual(stats["exact_haw_groups"], 1)
+        self.assertEqual(stats["paraphrase_components"], 2)
+        self.assertEqual(stats["annotated_rows"], 4)
+        self.assertEqual(rows[0]["paraphrase_group_id"], rows[1]["paraphrase_group_id"])
+        self.assertEqual(rows[2]["paraphrase_group_id"], rows[3]["paraphrase_group_id"])
+        self.assertNotEqual(rows[0]["paraphrase_group_id"], rows[2]["paraphrase_group_id"])
+        self.assertNotIn("paraphrase_group_id", rows[4])
 
 
 if __name__ == "__main__":

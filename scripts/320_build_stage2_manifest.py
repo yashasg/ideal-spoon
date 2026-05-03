@@ -82,6 +82,7 @@ if str(_CODE_DIR) not in sys.path:
 from llm_hawaii.stage2_dedup import (  # noqa: E402
     EXACT_SIDE_MAX_PER_KEY,
     NEAR_DUPE_THRESHOLD,
+    annotate_paraphrase_groups,
     cap_exact_en,
     cap_exact_haw,
     collapse_near_dupes,
@@ -612,6 +613,7 @@ def ingest_candidates(
     rows, exact_en_cap_stats = cap_exact_en(rows, max_per_key=EXACT_SIDE_MAX_PER_KEY)
     rows, exact_haw_cap_stats = cap_exact_haw(rows, max_per_key=EXACT_SIDE_MAX_PER_KEY)
     rows, near_dupe_stats = collapse_near_dupes(rows, threshold=NEAR_DUPE_THRESHOLD)
+    paraphrase_group_stats = annotate_paraphrase_groups(rows)
 
     per_source: dict[str, int] = {}
     for row in rows:
@@ -636,6 +638,7 @@ def ingest_candidates(
         "exact_en_cap": exact_en_cap_stats,
         "exact_haw_cap": exact_haw_cap_stats,
         "near_duplicate_collapse": near_dupe_stats,
+        "paraphrase_grouping": paraphrase_group_stats,
         "historical_orthography": hist_orth_cap_stats,
     }
     return rows, per_row_violations, provenance
