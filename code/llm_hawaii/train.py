@@ -491,6 +491,43 @@ def build_trainer_kwargs(
     return kwargs
 
 
+def _allowlist_checkpoint_globals() -> None:
+    """Allowlist numpy globals for torch.load weights_only=True (PyTorch 2.6+).
+
+    HF Trainer calls torch.load(rng_file, weights_only=True) when resuming.
+    Checkpoints saved with older torch contain numpy reconstructors that the
+    new safe-unpickler rejects. We trust our own checkpoints, so allowlist
+    the common numpy globals before resume.
+    """
+    try:
+        import torch
+    except ImportError:
+        return
+    add_safe_globals = getattr(torch.serialization, "add_safe_globals", None)
+    if add_safe_globals is None:
+        return  # torch < 2.6, no allowlist needed
+    safe = []
+    try:
+        import numpy as np
+        safe.append(np.core.multiarray._reconstruct)
+        safe.append(np.ndarray)
+        safe.append(np.dtype)
+        for name in ("Float64DType", "Int64DType", "UInt32DType", "BoolDType"):
+            t = getattr(np.dtypes, name, None)
+            if t is not None:
+                safe.append(t)
+        scalar = getattr(np.core.multiarray, "scalar", None)
+        if scalar is not None:
+            safe.append(scalar)
+    except Exception as e:
+        warnings.warn(f"Could not allowlist numpy globals for torch.load: {e}")
+    if safe:
+        try:
+            add_safe_globals(safe)
+        except Exception as e:
+            warnings.warn(f"add_safe_globals failed: {e}")
+
+
 def run_training(
     cfg: TrainConfig,
     config_path: str = "",
@@ -584,6 +621,8 @@ def run_training(
     cfg.to_json(out / "resolved_config.json")
 
     # 5. Train (with optional resume from a prior checkpoint).
+    if resume_from_checkpoint is not None:
+        _allowlist_checkpoint_globals()
     trainer.train(resume_from_checkpoint=resume_from_checkpoint)
 
     # 6. Save the LoRA adapter (small) + tokenizer.
