@@ -36,6 +36,7 @@ def _load_manifest_builder():
 
 
 _manifest = _load_manifest_builder()
+from llm_hawaii.stage2_dedup import collapse_pair_hash_duplicates  # noqa: E402
 
 
 def nfc(text: str) -> str:
@@ -102,7 +103,9 @@ def audit(paths: list[Path], *, max_examples: int = 8) -> dict[str, Any]:
     en_apostrophe_rows = 0
     examples: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
+    raw_pair_index: dict[str, list[dict[str, Any]]] = defaultdict(list)
     pair_index: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    dedup_rows: list[dict[str, Any]] = []
     en_index: dict[str, list[dict[str, Any]]] = defaultdict(list)
     haw_index: dict[str, list[dict[str, Any]]] = defaultdict(list)
     en_text_index: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -163,9 +166,12 @@ def audit(paths: list[Path], *, max_examples: int = 8) -> dict[str, Any]:
                     hash_mismatches["sha256_pair"] += 1
                     if len(examples["pair_hash_mismatch"]) < max_examples:
                         examples["pair_hash_mismatch"].append(loc)
-                rows.append({**loc, "source": source, "en_tokens": token_set(en, haw=False), "haw_tokens": token_set(haw, haw=True), "text_en": en, "text_haw": haw})
+                row_for_dupes = {**loc, "source": source, "sha256_pair": expected_pair, "text_en": en, "text_haw": haw}
+                rows.append({**row_for_dupes, "en_tokens": token_set(en, haw=False), "haw_tokens": token_set(haw, haw=True)})
+                dedup_rows.append(row_for_dupes)
+                raw_pair_index[expected_pair].append({**loc, "source": source})
 
-            for key, idx in ((row.get("sha256_pair"), pair_index), (row.get("sha256_en_clean"), en_index), (row.get("sha256_haw_clean"), haw_index)):
+            for key, idx in ((row.get("sha256_en_clean"), en_index), (row.get("sha256_haw_clean"), haw_index)):
                 if isinstance(key, str) and key:
                     idx[key].append({**loc, "source": source})
         counts_by_file[str(path.relative_to(REPO_ROOT))] = file_count
@@ -176,6 +182,13 @@ def audit(paths: list[Path], *, max_examples: int = 8) -> dict[str, Any]:
             if len({g["source"] for g in group}) > 1:
                 groups.append(group[:max_examples])
         return groups
+
+    raw_exact_pair_groups = cross_source_groups(raw_pair_index)
+    deduped_rows, cross_source_dedup = collapse_pair_hash_duplicates(dedup_rows)
+    for row in deduped_rows:
+        key = row.get("sha256_pair")
+        if isinstance(key, str) and key:
+            pair_index[key].append({k: row.get(k) for k in ("file", "line", "pair_id", "source")})
 
     exact_pair_groups = cross_source_groups(pair_index)
     exact_en_groups = cross_source_groups(en_index)
@@ -226,6 +239,8 @@ def audit(paths: list[Path], *, max_examples: int = 8) -> dict[str, Any]:
         },
         "duplicates": {
             "cross_source_exact_pair_hash_groups": len(exact_pair_groups),
+            "raw_cross_source_exact_pair_hash_groups": len(raw_exact_pair_groups),
+            "cross_source_pair_dedup": cross_source_dedup,
             "cross_source_exact_en_hash_groups": len(exact_en_groups),
             "cross_source_exact_haw_hash_groups": len(exact_haw_groups),
             "near_duplicate_examples": near_dupes,

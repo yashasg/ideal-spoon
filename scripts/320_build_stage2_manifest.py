@@ -79,6 +79,7 @@ _CODE_DIR = REPO_ROOT / "code"
 if str(_CODE_DIR) not in sys.path:
     sys.path.insert(0, str(_CODE_DIR))
 
+from llm_hawaii.stage2_dedup import collapse_pair_hash_duplicates  # noqa: E402
 from llm_hawaii.stage2_quality import (  # noqa: E402
     POLICY_VERSION,
     BAIBALA_1839_SOURCE_ID,
@@ -546,7 +547,7 @@ def ingest_candidates(
     """
     rows: list[dict[str, Any]] = []
     per_row_violations: list[tuple[str, list[str]]] = []
-    per_source: dict[str, int] = {}
+    per_source_raw: dict[str, int] = {}
     candidate_file_shas: dict[str, str] = {}
     tier_counts: Counter[str] = Counter()
 
@@ -595,22 +596,32 @@ def ingest_candidates(
             rows.append(row)
             file_row_count += 1
             src = row.get("source", "<unknown>")
-            per_source[src] = per_source.get(src, 0) + 1
+            per_source_raw[src] = per_source_raw.get(src, 0) + 1
 
         if file_row_count == 0:
             print(f"warn: {cpath} yielded no rows", file=sys.stderr)
 
-    # Apply historical-orthography sub-cap after all rows are scored and split.
+    rows, cross_source_dedup_stats = collapse_pair_hash_duplicates(rows)
+    per_source: dict[str, int] = {}
+    for row in rows:
+        src = row.get("source", "<unknown>")
+        per_source[src] = per_source.get(src, 0) + 1
+
+    # Apply historical-orthography sub-cap after all rows are scored, split,
+    # and exact cross-source pair duplicates have been collapsed.
     hist_orth_cap_stats = _apply_historical_orthography_cap(rows, policy_config)
 
     provenance: dict[str, Any] = {
         "candidate_files": candidate_file_shas,
         "per_source_row_counts": per_source,
+        "per_source_row_counts_before_cross_source_dedup": per_source_raw,
+        "total_candidates_before_cross_source_dedup": cross_source_dedup_stats["input_rows"],
         "total_candidates_ingested": len(rows),
         "total_violations": len(per_row_violations),
         "dev_modulus": dev_modulus,
         "policy_version": POLICY_VERSION,
         "tier_counts": dict(tier_counts),
+        "cross_source_dedup": cross_source_dedup_stats,
         "historical_orthography": hist_orth_cap_stats,
     }
     return rows, per_row_violations, provenance

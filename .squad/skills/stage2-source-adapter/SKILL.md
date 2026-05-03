@@ -430,3 +430,27 @@ Reusable rules from `341_normalize_legacy_candidates.py`:
 6. Recompute `sha256_en_clean`, `sha256_haw_clean`, and `sha256_pair` together; never update one hash in isolation.
 7. Null `license_inferred` and enforce `prototype_only=true => release_eligible=false` before validation.
 8. Re-run both audit strict mode and manifest dry-run before considering the patch complete.
+
+---
+
+## Reference instance: cross-source exact-pair dedup policy (2026-05-03)
+
+Manifest-level exact-pair dedup belongs after candidate normalization/scoring and before cap math. Do not hand-delete duplicate rows under `data/`; codify source preference in `code/llm_hawaii/stage2_dedup.py` and let `scripts/320_build_stage2_manifest.py` collapse exact `sha256_pair` groups.
+
+Current ordered preference rules:
+
+1. Hoʻoilina over Bible-family exact overlaps (`hooilina-over-bible`).
+2. Wikimedia CX over OPUS-Wikimedia mirrors (`wikimedia-cx-over-opus-wikimedia`).
+3. Canonical Tatoeba over OPUS-Tatoeba mirrors (`tatoeba-over-opus-tatoeba`).
+4. Baibala Hemolele 1868 over other Bible-family exact overlaps (`bible-1868-over-other-bible-editions`).
+5. Deterministic fallback only for unexpected cross-source groups; fallback hits should trigger a decision-log update.
+
+Verification pattern after changing adapters or dedup rules:
+
+```bash
+python3 scripts/320_build_stage2_manifest.py --dry-run
+python3 scripts/340_audit_stage2_candidate_normalization.py --strict
+PYTHONPATH=code python3 -m unittest discover -s code/tests -p 'test_stage2_dedup.py'
+```
+
+The audit reports both raw exact-pair groups and post-dedup exact-pair groups; the latter should be `0` before promotion/cap work proceeds.
