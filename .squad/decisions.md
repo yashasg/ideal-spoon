@@ -1,7 +1,49 @@
 # Decisions
 
-> Updated 2026-05-03T20:33:14Z: Merged R14 linus-stage2-r14-contamination-wired (train-side eval-contamination filter now enforcing gate; `--eval-hashes` loads explicit eval ledgers before dedup, drops matches before cross-source/side/near-duplicate dedup, missing ledger hard error, writes contamination_report.json sidecar, all regression suites green). Prior 2026-05-03T1100Z: Merged R7 linus-stage2-paraphrase-grouping (161 EN/32 HAW exact groups accepted as lexical diversity, 395 rows annotated, zero drops, copilot user directive captured). Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
+> Updated 2026-05-03T20:38:30Z: Merged R15 linus-stage2-r15-dedup-edge-fixes (fallback exact-pair ordering uses canonical source priority not alphabetical; near-dupe matching strips invisible controls U+00AD/U+200B/U+200C/U+200D/U+FEFF; manifest validation rejects whitespace/invisible-only refs; audit reports 7 invisible-control rows, 3 NBSP rows, 37,084 rows stable, all suites green). Prior 2026-05-03T20:33:14Z: Merged R14 linus-stage2-r14-contamination-wired (train-side eval-contamination filter now enforcing gate; `--eval-hashes` loads explicit eval ledgers before dedup, drops matches before cross-source/side/near-duplicate dedup, missing ledger hard error, writes contamination_report.json sidecar, all regression suites green). Prior 2026-05-03T1100Z: Merged R7 linus-stage2-paraphrase-grouping (161 EN/32 HAW exact groups accepted as lexical diversity, 395 rows annotated, zero drops, copilot user directive captured). Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
 >
+
+---
+
+# Stage-2 Dedup/Normalization Edge-Case Fixes (Round 15)
+
+**Owner:** Linus  
+**Date:** 2026-05-03  
+**Status:** Implemented  
+**Commit:** 2ea6615
+
+## Decision
+
+Keep Stage-2 clean hashes byte-preserving under the existing candidate artifacts, but make dedup/audit matching robust to default-ignorable Unicode format controls. English-side apostrophe and ʻokina remain distinct for dedup keys; Hawaiian-side ʻokina folding remains Hawaiian-only.
+
+## Findings
+
+- Candidate audit rows: 37,761
+- NFC drift: 0 EN / 0 HAW
+- HAW ʻokina hash drift: 0
+- EN apostrophe/right-quote rows: 2,119; preserved by policy
+- Invisible format-control rows: 7 (soft hyphen, zero-width, BOM)
+- Non-ASCII whitespace rows: 3 (NBSP in Tatoeba HAW strings)
+- Whitespace-only rows after normalization: 0
+- Raw trailing-punctuation token variants: 98; existing token-based near-dupe policy already collapses final cross-source token-pair duplicates to 0
+- Short rows appear in several sources beyond Phrase Book/Andrews/Weblate, but the cap is length-aware and source-independent except Weblate's software-l10n threshold; no missing-source cap change is needed
+
+## Policy Implications
+
+- `stage2-cross-source-dedup-v0.6` changes fallback exact-pair ordering to canonical source priority + length + stable IDs, avoiding accidental alphabetical-source wins when no explicit preference rule exists
+- Near-dupe comparisons remove U+00AD, U+200B, U+200C, U+200D, and U+FEFF before token comparison
+- Manifest validation treats inline text/path refs containing only whitespace and default-ignorable controls as missing
+- Audit reports invisible controls and non-ASCII whitespace but does not make them strict failures unless they also create schema/hash/contamination failures
+
+## Verification
+
+- Dedup tests: 13/13 ✓
+- Audit tests: 4/4 ✓
+- Manifest validation: 2/2 ✓ (new)
+- Strict passes: 340 ✓
+- Manifest dry-run: 37,084 rows (unchanged) ✓
+
+Row drops stable: exact-pair 100, exact-EN cap 199, exact-HAW cap 75, near-dupe 303.
 
 ---
 
