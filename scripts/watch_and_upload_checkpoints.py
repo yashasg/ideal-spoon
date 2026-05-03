@@ -124,7 +124,13 @@ def main() -> int:
     )
 
     if not args.token:
-        log.error("HF token required: pass --token or set HF_TOKEN")
+        try:
+            from huggingface_hub import HfFolder
+            args.token = HfFolder.get_token()
+        except Exception:
+            args.token = None
+    if not args.token:
+        log.error("HF token required: pass --token, set HF_TOKEN, or run `hf auth login`")
         return 2
     if not args.watch_dir.is_dir():
         log.error("Watch dir does not exist: %s", args.watch_dir)
