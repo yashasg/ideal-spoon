@@ -1,7 +1,68 @@
 # Decisions
 
-> Updated 2026-05-03T20:45:08Z: Merged R16 linus-stage2-r16-hash-determinism-policy (EN-side hash canonicalization contract locked: NFC normalize, strip invisibles, collapse whitespace, preserve case, fold EN curly quotes/hyphens to ASCII, keep U+02BC/U+02BB/em-en-dashes, HAW ʻokina folding HAW-only; 7 determinism tests added; FLORES+ and Common Voice probed RED/SKIP for Hawaiian; 37,084 rows stable, all suites green, commit 85ba2e5). Prior 2026-05-03T20:38:30Z: Merged R15 linus-stage2-r15-dedup-edge-fixes (fallback exact-pair ordering uses canonical source priority not alphabetical; near-dupe matching strips invisible controls U+00AD/U+200B/U+200C/U+200D/U+FEFF; manifest validation rejects whitespace/invisible-only refs; audit reports 7 invisible-control rows, 3 NBSP rows, 37,084 rows stable, all suites green). Prior 2026-05-03T20:33:14Z: Merged R14 linus-stage2-r14-contamination-wired (train-side eval-contamination filter now enforcing gate; `--eval-hashes` loads explicit eval ledgers before dedup, drops matches before cross-source/side/near-duplicate dedup, missing ledger hard error, writes contamination_report.json sidecar, all regression suites green). Prior 2026-05-03T1100Z: Merged R7 linus-stage2-paraphrase-grouping (161 EN/32 HAW exact groups accepted as lexical diversity, 395 rows annotated, zero drops, copilot user directive captured). Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
+> Updated 2026-05-03T20:55:00Z: Merged R17 linus-stage2-r17-canonical-consolidation (canonical helpers consolidated to single source of truth in `code/llm_hawaii/stage2_canonical.py`: canonical_en, canonical_haw, canonical_pair; 25 files refactored (adapters, audit, dedup, legacy normalizer); NFC normalize, strip invisibles, collapse whitespace, preserve case, EN folds curly quotes/hyphens, HAW ʻokina folding; 60/60 tests pass, 37,084 rows stable, strict audit pass, commit bf4b57e; future adapters MUST import from stage2_canonical, no local canonicalization helpers). Prior 2026-05-03T20:45:08Z: Merged R16 linus-stage2-r16-hash-determinism-policy (EN-side hash canonicalization contract locked: NFC normalize, strip invisibles, collapse whitespace, preserve case, fold EN curly quotes/hyphens to ASCII, keep U+02BC/U+02BB/em-en-dashes, HAW ʻokina folding HAW-only; 7 determinism tests added; FLORES+ and Common Voice probed RED/SKIP for Hawaiian; 37,084 rows stable, all suites green, commit 85ba2e5). Prior 2026-05-03T20:38:30Z: Merged R15 linus-stage2-r15-dedup-edge-fixes (fallback exact-pair ordering uses canonical source priority not alphabetical; near-dupe matching strips invisible controls U+00AD/U+200B/U+200C/U+200D/U+FEFF; manifest validation rejects whitespace/invisible-only refs; audit reports 7 invisible-control rows, 3 NBSP rows, 37,084 rows stable, all suites green). Prior 2026-05-03T20:33:14Z: Merged R14 linus-stage2-r14-contamination-wired (train-side eval-contamination filter now enforcing gate; `--eval-hashes` loads explicit eval ledgers before dedup, drops matches before cross-source/side/near-duplicate dedup, missing ledger hard error, writes contamination_report.json sidecar, all regression suites green). Prior 2026-05-03T1100Z: Merged R7 linus-stage2-paraphrase-grouping (161 EN/32 HAW exact groups accepted as lexical diversity, 395 rows annotated, zero drops, copilot user directive captured). Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
 >
+
+---
+
+# Stage-2 Canonical Helper Consolidation (Round 17)
+
+**Owner:** Linus  
+**Date:** 2026-05-03  
+**Status:** Implemented  
+**Commit:** bf4b57e
+
+## Decision
+
+`code/llm_hawaii/stage2_canonical.py` is the locked Stage-2 canonicalization surface.
+Future Stage-2 adapters, audit tools, contamination ledgers, and manifest code MUST import from it for candidate clean text and pair-hash canonicalization.
+
+Required public helpers:
+
+- `canonical_en(s)` — English clean side canonical form.
+- `canonical_haw(s)` — Hawaiian clean side canonical form.
+- `canonical_pair(en, haw)` — eval-ledger pair text, `canonical_en(en) + U+2016 + canonical_haw(haw)`.
+
+The module also owns `canonicalize_clean_text`, `sha256_text`, and `compute_pair_hash` so legacy manifest wrapper APIs can remain compatible without duplicating rules.
+
+## Contract
+
+- NFC normalize all text.
+- Remove soft hyphen, zero-width controls, and BOM.
+- Collapse all whitespace runs to one ASCII space and trim ends.
+- Preserve case.
+- English folds curly single/double quotes and U+2010/U+2011 hyphen variants, but does not fold U+02BC or U+02BB.
+- Hawaiian folds ASCII/curly/backtick/U+02BC apostrophe-like marks to U+02BB ʻokina.
+- Pair hashes remain `SHA256(sha256_en_clean + U+2016 + sha256_haw_clean)`.
+
+## Rationale
+
+Before R17, the manifest builder, eval contamination helper, candidate adapters, and audit scripts had multiple local normalizers. Those could drift on EN punctuation, HAW ʻokina, invisible controls, or whitespace. A single module keeps future hash determinism testable and prevents adapters from silently creating incompatible ledger keys.
+
+## Implementation notes
+
+- `scripts/320_build_stage2_manifest.py` imports/re-exports the central helper for backward-compatible tests and callers.
+- `code/llm_hawaii/eval_contamination.py` now uses `canonical_pair` for Stage-2 pair content and the same `sha256_text` primitive.
+- Stage-2 builders/audits delegate clean candidate text to `stage2_canonical` rather than open-coding `.replace()`/`.strip()` folds.
+- `scripts/340_audit_stage2_candidate_normalization.py --strict` treats canonicalization-delta counts as advisory and still fails on post-policy schema errors or eval contamination.
+
+## Verification
+
+- `python3 code/tests/test_stage2_canonical.py -v` — 4/4
+- `python3 code/tests/test_stage2_dedup.py -v` — 17/17
+- `python3 code/tests/test_hash_determinism.py -v` — 7/7
+- `python3 code/tests/test_eval_contamination.py -v` — 5/5
+- `python3 code/tests/test_manifest_contamination_filter.py -v` — 2/2
+- `python3 code/tests/test_taxi1500_ingester.py -v` — 6/6
+- `python3 code/tests/test_global_piqa_ingester.py -v` — 5/5
+- `python3 code/tests/test_weblate_adapter.py -v` — 7/7
+- `python3 code/tests/test_tatoeba_refresh.py -v` — 7/7
+- `python3 scripts/320_build_stage2_manifest.py --dry-run` — 37,084 rows
+- `python3 scripts/340_audit_stage2_candidate_normalization.py --strict` — pass
+
+## Future rule
+
+New Stage-2 source work must not introduce local canonicalization helpers for candidate clean text. If a source needs pre-cleaning (HTML unescape, OCR page-number stripping, template removal), do that first, then call `canonical_en`/`canonical_haw` for final clean text and hashing.
 
 ---
 
