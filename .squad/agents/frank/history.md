@@ -8,6 +8,22 @@
 - **Joined:** 2026-04-29T05:38:40Z
 - **Tech stack:** Python raw-data tooling installed through `scripts/setup.sh` / `requirements.txt`; current stack includes `requests`, `tenacity`, `warcio`, `trafilatura`, `selectolax`, `scrapy`, `scrapy-warc`, `internetarchive`, `wayback`, `cdx_toolkit`, `yt-dlp`, and `datasketch`.
 
+## Cross-Agent Update: 2026-05-03T10-40-47Z — Linus Stage-2 Cross-Source Dedup Policy Finalized
+
+**From:** Scribe (Orchestration)
+
+**Relevant to you:** Source hierarchy preference rules are now codified for Stage 2 exact-pair dedup. When Stage 2 sources are fetched and normalized, these rules apply deterministically:
+
+1. **Hoʻoilina > Bible** (diversity): Hoʻoilina newspaper/periodical rows win over Bible editions on exact overlaps.
+2. **Wikimedia CX > OPUS-Wikimedia** (provenance): Keep canonical CX rows with article/revision IDs; drop OPUS mirrors.
+3. **Tatoeba (canonical) > OPUS-Tatoeba** (provenance): Keep Tatoeba rows with link IDs; drop OPUS mirrors.
+4. **Baibala 1868 > other Bible editions** (standardization): Newer, more standardized orthography wins on exact overlaps.
+5. **Deterministic fallback** (auditability): Unexpected cross-source pairs are resolved by source/ID minimum and logged for review.
+
+**Details:** `.squad/decisions.md` → "Linus — Stage-2 cross-source exact-pair dedup policy" (Commit e7cacea).
+
+These rules will constrain how future Stage 2 candidates collapse in manifest build and SFT emission. No changes to your fetch plans; this is a manifest-time normalization step.
+
 ## 2026-04-29T10:13:35Z — Manual Micro-Eval Planning Complete (Independent of FineWeb Fetch)
 
 W1 manual micro-eval TSV spec finalized and repo scaffold committed. **Planning does not block on or depend on your FineWeb-2 raw fetch.** Eval planning is independent; row authoring can start in parallel. Manual eval is a separate eval-only source using hand-authored Hawaiian content, not web-sourced.
