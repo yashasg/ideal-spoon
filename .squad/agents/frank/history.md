@@ -2832,3 +2832,10 @@ Awaiting coordinator decision on:
 **Recommendation:** Do NOT pursue without Linus confirmation (rights + CDP automation + effort justification). Higher-yield alternatives: NLLB-mined (32k budget), Hoʻoilina fix, Wikisource/OPUS.
 
 **Orchestration log:** `.squad/orchestration-log/2026-05-03T05-32-26Z-frank-ulukau-nupepa-blocked.md`
+
+## Cross-Agent Update: 2026-05-03T10-50-51Z — Linus R5 Bible-Gospel-John Overlap Signal
+
+**From:** Scribe (Orchestration)
+
+**Relevant to you:** Linus's Round 5 near-duplicate collapse (306 groups, threshold 0.92) revealed strong Bible-vs-Gospel-John overlap signal. Majority of collapsed near-dupes are Bible family text variants (particularly Gospel of John). May impact source-priority ranking, prototype validation scope, or rights-alignment strategy for future rounds.
+
