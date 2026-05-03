@@ -88,6 +88,7 @@ from llm_hawaii.stage2_dedup import (  # noqa: E402
     collapse_near_dupes,
     collapse_pair_hash_duplicates,
 )
+from llm_hawaii import eval_contamination  # noqa: E402
 from llm_hawaii.stage2_quality import (  # noqa: E402
     POLICY_VERSION,
     BAIBALA_1839_SOURCE_ID,
@@ -346,7 +347,7 @@ def load_eval_hashes(eval_hashes_paths: list[Path]) -> set[str]:
         if not path.exists():
             continue
         for row in read_jsonl(path):
-            for k in ("sha256_text", "sha256_en_clean", "sha256_haw_clean",
+            for k in ("content_sha256", "sha256_text", "sha256_en_clean", "sha256_haw_clean",
                       "sha256_pair", "sha256_normalized", "sha256_clean"):
                 v = row.get(k)
                 if isinstance(v, str) and v:
@@ -904,6 +905,19 @@ def main(argv: list[str] | None = None) -> int:
         resolved, dev_modulus=args.dev_modulus, strict=args.strict,
     )
 
+    eval_contamination_dropped = 0
+    if args.eval_hashes:
+        contamination_hashes: set[str] = set()
+        for path in args.eval_hashes:
+            contamination_hashes.update(eval_contamination.load_eval_hashes(path))
+        kept_iter, eval_contamination_dropped = eval_contamination.filter_candidates(rows, contamination_hashes)
+        rows = list(kept_iter)
+        if eval_contamination_dropped:
+            print(
+                f"info: dropped {eval_contamination_dropped} eval-contaminated candidate rows via --eval-hashes",
+                file=sys.stderr,
+            )
+
     eval_hashes = load_eval_hashes(eval_hash_paths)
     report = run_checks(rows, eval_hashes)
 
@@ -917,6 +931,7 @@ def main(argv: list[str] | None = None) -> int:
         "finished_utc": _utcnow_iso(),
         "rows_emitted": len(rows),
         "rows_skipped_violations": len(per_row_violations),
+        "eval_contamination_dropped": eval_contamination_dropped,
         "eval_hash_ledgers": [str(p) for p in eval_hash_paths],
         "eval_hashes_loaded": len(eval_hashes),
         "ingest": ingest_provenance,

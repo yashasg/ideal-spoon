@@ -382,7 +382,8 @@
         "Held-out non-Bible eval anchor candidate (per docs/data-pipeline.md §Stage 2 immediate next steps and frank's W1 Stage-0 shortlist).",
         "Hash all selected rows into data/evals/eval_hashes.jsonl BEFORE any Stage-1 / Stage-2 train ingest re-runs.",
         "NEVER train on this source.",
-        "Lands under the evals division (data/evals/global_piqa_haw/), not stage2/."
+        "Lands under the evals division (data/evals/global_piqa_haw/), not stage2/.",
+        "Round 11: scripts/347_ingest_global_piqa_haw.py writes only data/evals/eval_hashes.jsonl with content_sha256; no data/stage2/candidates writes permitted."
       ],
       "acquisition_plan": {
         "tool": "requests_tenacity",
@@ -391,7 +392,8 @@
         "rate_limit": "HF: --rate-limit-seconds 3.0 sustained for /rows; resolve/main is a single static file.",
         "steps": [
           "Dry-run: HEAD parallel_haw_latn.tsv, record content_length and ETag.",
-          "On --execute: download TSV, persist raw bytes + provenance, hash every row into data/evals/eval_hashes.jsonl."
+          "On --execute: download TSV, persist raw bytes + provenance, hash every row into data/evals/eval_hashes.jsonl.",
+          "[READY R11] Run scripts/347_ingest_global_piqa_haw.py --execute only with exact dataset pin, CC-BY-SA-4.0 confirmation, local ToS snapshot, and local TSV; no live fetch in ingester."
         ]
       },
       "expected_artifact_shape": {
@@ -400,13 +402,13 @@
         "manifest_alignment_method": "tsv-row-id",
         "register": "encyclopedic|commonsense"
       },
-      "verification_status": "pending_endpoint_check",
+      "verification_status": "verified_metadata_eval_only",
       "exclusions_or_risks": [
         "Eval contamination if any row leaks into Stage-1 or Stage-2 train (the eval_hashes.jsonl ledger is the backstop).",
         "Coverage may be small; do not over-rely as the sole eval anchor — pair with held-out Tatoeba and Bible-anchored verse pairs."
       ],
       "expected_pair_yield_estimate": "0 (eval only)",
-      "adapter_status": "none"
+      "adapter_status": "eval-ledger ingester ready, awaiting --execute"
     },
     {
       "source_id": "taxi1500-haw",
