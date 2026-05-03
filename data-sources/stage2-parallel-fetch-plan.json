@@ -811,8 +811,14 @@
         "Register skew toward legal/archaic; do not let this dominate the parallel-train mix even if alignment yields are high — propose a Bible-style cap (≤15% of parallel-train tokens) before any bulk ingest.",
         "Section numbering between 19th-century editions does not always match modern republications — pair the EN and HAW imprints from the SAME promulgation year/legislature, not across years."
       ],
-      "expected_pair_yield_estimate": "3000-6000 (all four code pairs)",
-      "adapter_status": "none"
+      "expected_pair_yield_estimate": "1103 executable now; 1869/1859/1846 edition pins added but candidate emission remains dry-run/blocker-gated pending alignment review",
+      "adapter_status": "partial_1897_done_1869_1859_1846_pinned_dryrun_only",
+      "source_registry_path": "data-sources/hk-statutes/source_registry.json",
+      "blocker_notes_2026_05_03": [
+        "Round 8 legal/TOS check: all additional editions use same host as 1897 (archive.org) and inherit IA ToS snapshot ia_terms captured 2026-05-01T21:14:22Z; no live fetch performed.",
+        "Adapter scripts/325_build_hk_statutes_candidates.py now has edition pins for 1869/1859/1846 plus dry-run parsers and mocked-HTTP fetch helper tests; --execute remains blocked for non-1897 editions.",
+        "1869 remains blocked due HAW-side 1850.002 filename/content mismatch; 1859 remains dry-run-only pending Civil Code Pauku range mapping; 1846 remains dry-run-only pending act/chapter segmentation for repeated section numbers."
+      ]
     },
     {
       "source_id": "bt-stage1-monolingual-haw",

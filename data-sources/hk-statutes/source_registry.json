@@ -1,0 +1,137 @@
+{
+  "schema_version": "0.1.0",
+  "artifact_id": "stage2-hk-statutes-source-registry",
+  "owner": "linus (Data Engineer)",
+  "purpose": "Pinned Stage-2 source registry for Hawaiian Kingdom bilingual statutes/code imprints hosted by Internet Archive. Records legal/TOS status, edition pins, source URLs, local raw sha256 values, and adapter gates.",
+  "legal_directive": {
+    "license_tos_check_before_fetch": true,
+    "no_auth_or_paywall_bypass": true,
+    "robots_and_rate_limits": "Respect archive.org robots.txt/ToS and default to >=1s between requests; adapter fetch helper uses ideal-spoon User-Agent and explicit sleep.",
+    "when_in_doubt": "Stop and write a TOS-review note before fetching."
+  },
+  "collection": {
+    "source_id": "hawaiian-kingdom-statutes-paired-imprints",
+    "name": "Hawaiian Kingdom statutes — bilingual paired imprints (1846/1859/1869/1897)",
+    "host": "archive.org",
+    "homepage": "https://archive.org/details/texts",
+    "tos_url": "https://archive.org/about/terms.php",
+    "tos_snapshot_id": "ia_terms",
+    "tos_snapshot_path": "data/raw/hawaiian-kingdom-statutes-paired-imprints/20260501/_tos/ia_terms.html",
+    "tos_snapshot_sha256": "4bbba9062696abf26a594e0c9fb3e84101cf05321f557b9d8baf862f863ada7b",
+    "tos_snapshot_fetched_at_utc": "2026-05-01T21:14:22Z",
+    "rights_status": "public_domain",
+    "license_observed": "Hawaiian Kingdom government works, 1846-1897 imprints. US public domain by copyright term (pre-1929) and additionally by sovereign-edicts doctrine for the legal text itself. archive.org redistributes scans + OCR; IA ToS governs the bytes only.",
+    "license_citations": [
+      "data/raw/hawaiian-kingdom-statutes-paired-imprints/20260501/manifest_complete.jsonl kind=tos sha256=4bbba9062696abf26a594e0c9fb3e84101cf05321f557b9d8baf862f863ada7b",
+      "scripts/_frank_pull_hk_complete.py rights_summary",
+      "scripts/208_fetch_hk_statutes_djvu.py LICENSE_OBSERVED"
+    ],
+    "adapter": "scripts/325_build_hk_statutes_candidates.py",
+    "fetcher_user_agent": "ideal-spoon/0.1.0 (stage2 HK-statutes adapter; contact via github.com/yashasg/ideal-spoon; prototype-only)",
+    "polite_rate_limit_seconds": 1.0,
+    "prototype_only": true,
+    "release_eligible": false
+  },
+  "edition_pins": [
+    {
+      "edition": "1897",
+      "pair_label": "1897-penal-laws",
+      "code_name": "Penal Laws",
+      "status": "candidate-ready",
+      "adapter_source": "hk_statutes_1897",
+      "execute_allowed": true,
+      "en": {
+        "ia_item_id": "esrp641724381",
+        "source_url": "https://archive.org/details/esrp641724381",
+        "download_url": "https://archive.org/download/esrp641724381/1897.001_djvu.txt",
+        "local_path": "data/raw/hawaiian-kingdom-statutes-paired-imprints/20260501/esrp641724381__1897.001_djvu.txt",
+        "sha256": "f7c84fc55b8fe1d743ea0a4298dac16e11262e4b985f29ecd4568d739bb0e611",
+        "access_timestamp_utc": "2026-05-01T00:38Z"
+      },
+      "haw": {
+        "ia_item_id": "esrp641728581",
+        "source_url": "https://archive.org/details/esrp641728581",
+        "download_url": "https://archive.org/download/esrp641728581/1897.002_djvu.txt",
+        "local_path": "data/raw/hawaiian-kingdom-statutes-paired-imprints/20260501/esrp641728581__1897.002_djvu.txt",
+        "sha256": "7541498292b153111db1629c044d3a35be46ed77736700b3d763439be1458293",
+        "access_timestamp_utc": "2026-05-01T00:38Z"
+      },
+      "notes": "Clean same-edition pair; adapter may emit section-id rows."
+    },
+    {
+      "edition": "1869",
+      "pair_label": "1869-penal-code",
+      "code_name": "Penal Code",
+      "status": "blocked-content-mismatch",
+      "adapter_source": "hk_statutes_1869",
+      "execute_allowed": false,
+      "en": {
+        "ia_item_id": "esrp475081650",
+        "source_url": "https://archive.org/details/esrp475081650",
+        "download_url": "https://archive.org/download/esrp475081650/1869.001_djvu.txt",
+        "local_path": "data/raw/hawaiian-kingdom-statutes-paired-imprints/20260501/esrp475081650__1869.001_djvu.txt",
+        "sha256": "27a211c3f8735f1fcd1cf75771d39f2b8f3b52443e47b36f6dd68b3ff16ea3af",
+        "access_timestamp_utc": "2026-05-01T00:38Z"
+      },
+      "haw": {
+        "ia_item_id": "esrp468790723",
+        "source_url": "https://archive.org/details/esrp468790723",
+        "download_url": "https://archive.org/download/esrp468790723/1850.002_djvu.txt",
+        "local_path": "data/raw/hawaiian-kingdom-statutes-paired-imprints/20260501/esrp468790723__1850.002_djvu.txt",
+        "sha256": "3ca128bb6e7e97abb250b8ce14fda5e5b3c2e1996e01664dc0f401595bb282c5",
+        "access_timestamp_utc": "2026-05-01T00:38Z"
+      },
+      "notes": "Legal/TOS clear, same host. Data alignment blocked because HAW item filename/imprint is 1850.002, not a verified 1869 counterpart."
+    },
+    {
+      "edition": "1859",
+      "pair_label": "1859-civil-code",
+      "code_name": "Civil Code",
+      "status": "in-progress-dryrun-only",
+      "adapter_source": "hk_statutes_1859",
+      "execute_allowed": false,
+      "en": {
+        "ia_item_id": "civilcodehawaii00armsgoog",
+        "source_url": "https://archive.org/details/civilcodehawaii00armsgoog",
+        "download_url": "https://archive.org/download/civilcodehawaii00armsgoog/civilcodehawaii00armsgoog_djvu.txt",
+        "local_path": "data/raw/hawaiian-kingdom-statutes-paired-imprints/20260501/civilcodehawaii00armsgoog__civilcodehawaii00armsgoog_djvu.txt",
+        "sha256": "dcf73ea379fb7fdea9d31e339fba5fa4c468b381d63b8f39f8446b99f8b9e4df",
+        "access_timestamp_utc": "2026-05-01T00:38Z"
+      },
+      "haw": {
+        "ia_item_id": "hekumukanawaiam00hawagoog",
+        "source_url": "https://archive.org/details/hekumukanawaiam00hawagoog",
+        "download_url": "https://archive.org/download/hekumukanawaiam00hawagoog/hekumukanawaiam00hawagoog_djvu.txt",
+        "local_path": "data/raw/hawaiian-kingdom-statutes-paired-imprints/20260501/hekumukanawaiam00hawagoog__hekumukanawaiam00hawagoog_djvu.txt",
+        "sha256": "f239401826c1ac3ab43f5002129accde0e7ffb8a47bc68325fe9946720a10a4f",
+        "access_timestamp_utc": "2026-05-01T00:38Z"
+      },
+      "notes": "Legal/TOS clear, same host. Kept dry-run only until numeric Pauku ranges are manually mapped to English Civil Code sections."
+    },
+    {
+      "edition": "1846",
+      "pair_label": "1846-statute-laws",
+      "code_name": "Statute Laws",
+      "status": "in-progress-dryrun-only",
+      "adapter_source": "hk_statutes_1846",
+      "execute_allowed": false,
+      "en": {
+        "ia_item_id": "statutelawshism00ricogoog",
+        "source_url": "https://archive.org/details/statutelawshism00ricogoog",
+        "download_url": "https://archive.org/download/statutelawshism00ricogoog/statutelawshism00ricogoog_djvu.txt",
+        "local_path": "data/raw/hawaiian-kingdom-statutes-paired-imprints/20260501/statutelawshism00ricogoog__statutelawshism00ricogoog_djvu.txt",
+        "sha256": "6e053c78cc78e6110734e04551dcd29299a59a85571c75f9935fb99becaab83e",
+        "access_timestamp_utc": "2026-05-01T00:38Z"
+      },
+      "haw": {
+        "ia_item_id": "kanawaiikauiaek00ricogoog",
+        "source_url": "https://archive.org/details/kanawaiikauiaek00ricogoog",
+        "download_url": "https://archive.org/download/kanawaiikauiaek00ricogoog/kanawaiikauiaek00ricogoog_djvu.txt",
+        "local_path": "data/raw/hawaiian-kingdom-statutes-paired-imprints/20260501/kanawaiikauiaek00ricogoog__kanawaiikauiaek00ricogoog_djvu.txt",
+        "sha256": "eac630ea3687ba3be38005236031c80c531cd6764d8a08390e69b416b492048b",
+        "access_timestamp_utc": "2026-05-01T00:38Z"
+      },
+      "notes": "Legal/TOS clear, same host. Kept dry-run only because roman/numeric section numbers repeat per act; act/chapter segmentation is required before safe row emission."
+    }
+  ]
+}
