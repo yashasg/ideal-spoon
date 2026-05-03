@@ -1,7 +1,64 @@
 # Decisions
 
-> Updated 2026-05-02T00:56:01Z: Merged 9 inbox files from Stage 2 final review verdicts session. Three primary decisions: (1) Danny final review verdict policy (closed enum, source-specific rules, 10 invariants), (2) Basher implementation complete (33,851 rows with verdict fields; Bible 29.92%, HK 14.59% caps verified; SFT 570 rows unchanged), (3) Basher Ulukau validation (hooilina.jsonl has HTML entity bugs; 6-check protocol established for all future candidates). Frank ready to plan NLLB/synthetic-BT yield using 32,756 re-promotion budget from stage2_final_review_verdicts_20260501.json. Linus HK statutes processing continues; Hoʻoilina adapter blocked on HTML decode fix.
+> Updated 2026-05-03T10:25:53Z: Merged 11 inbox files from Stage 2 autonomous work round. Five primary decisions: (1) Linus sanitary-schema-gate (comparable-aligned LaBSE rows, adapter enum requirements, prototype-only gating), (2) Basher stage1-loss-plateau (config audit, let A100 finish 2 epochs, no mid-run LR change), (3) Danny final review verdict policy (closed enum, source-specific rules, 10 invariants), (4) Basher implementation complete (33,851 rows with verdict fields; Bible 29.92%, HK 14.59% caps verified; SFT 570 rows unchanged), (5) Basher Ulukau validation (hooilina.jsonl has HTML entity bugs; 6-check protocol for future candidates). SFT 8,572 rows; gap to 40k: 31,428.
 >
+---
+
+# Sanitary Instructions 1881 — Comparable-Aligned Row Schema Gate
+
+**Owner:** Linus  
+**Date:** 2026-05-03  
+**Status:** Implemented in adapter/test seam
+
+## Decision
+
+Sanitary Instructions 1881 candidates are comparable-aligned LaBSE rows, not deterministic paragraph-parallel rows. The adapter must emit schema-compatible generic enums:
+
+- `alignment_type = "comparable-aligned"`
+- `alignment_method = "labse"`
+- adapter policy details in `policy_version`, `manual_review_reasons`, and `alignment_score_components`
+
+Rows remain `split="review-pending"`, `alignment_review_required=true`, `prototype_only=true`, and `release_eligible=false` until rights/cap finalization promotes or excludes them. `license_inferred` stays null per manifest schema. The adapter's `--execute` mode requires both `--confirm-edition sanitary-instructions-1881-ia-nlm-paired` and an existing `--tos-snapshot` path.
+
+## Why
+
+The manifest validator accepts only fixed enum values. Encoding the mutual-nearest paragraph policy in enum fields would make every emitted row schema-invalid and block later manifest builds. Keeping rows prototype-only also matches current Stage-2 policy for non-finalized source candidates.
+
+---
+
+# Stage-1 A100 Loss Plateau Diagnosis
+
+**Owner:** Basher
+**Status:** Finding / recommendation
+
+## Finding
+
+The reported telemetry near epoch 1 (`loss ~= 1.17-1.23`, `grad_norm ~= 0.35`, `learning_rate = 5e-05`) matches the checked Stage-1 A100 config:
+
+- `code/configs/stage1_fineweb2_haw.json`
+  - `stage`: `stage1-cpt`
+  - `learning_rate`: `0.00005`
+  - `lr_scheduler_type`: `constant_with_warmup`
+  - `warmup_ratio`: `0.01`
+  - `num_train_epochs`: `2.0`
+  - `per_device_train_batch_size`: `1`
+  - `gradient_accumulation_steps`: `16`
+  - `max_seq_len`: `2048`
+  - `lora_rank`: `32`, `lora_alpha`: `64`
+  - `bf16`: `true`, `fp16`: `false`
+
+Training code confirms Stage 1 is full-token CLM/CPT: `code/llm_hawaii/train.py` routes non-`stage2-sft` configs through `build_train_dataset()` and `make_collator()`, and `code/llm_hawaii/data.py` sets `labels = input_ids` for Stage-1 records. Stage 2 is the target-only masked SFT path.
+
+## Diagnosis
+
+This is not a proven plateau from five adjacent log points near the end of epoch 1. At this point warmup is long complete and the configured scheduler keeps LR constant at 5e-5, so small local movement in training loss is expected. Grad norms around 0.35 are below Trainer's default `max_grad_norm=1.0`, so clipping is not suppressing updates.
+
+However, the A100 config is materially more conservative than the documented Stage-1 recipe in `docs/training-pipeline.md`: docs call for LoRA r64/α128, LR 2e-4 cosine, warmup 3%, and ~64k-128k effective tokens/update. The checked config uses r32/α64, LR 5e-5, constant-with-warmup, and about 32k max tokens/update before padding/short-document effects.
+
+## Recommendation
+
+Do not switch to Stage 2 and do not change LR mid-run. Let the current run finish its configured 2 epochs, evaluate Stage-1 gates, then decide whether to rerun with the documented Stage-1 recipe (`2e-4` cosine, warmup `0.03`, LoRA `64/128`, larger effective token/update if memory allows). Stage 2 should wait for Stage-1 eval gates.
+
 ---
 
 # Stage 2 Final Review Verdict Policy — Closing the `split=review-pending` Ambiguity

@@ -1,7 +1,14 @@
 # Basher — History
 
+## 2026-05-03 — Stage-1 A100 Loss Plateau Diagnosis (decision formalized)
+
+**Summary:** Stage-1 A100 telemetry near epoch 1 (`loss ~= 1.17-1.23`, `grad_norm ~= 0.35`, `learning_rate = 5e-05`) is not a proven plateau. This is expected local movement with the configured `constant_with_warmup` scheduler at 5e-5 after warmup completes. Grad norms 0.35 < max_grad_norm 1.0, so clipping is not suppressing updates. However, config is more conservative than documented Stage-1 recipe (r64/α128, LR 2e-4 cosine, warmup 3%, ~64k-128k eff tokens/update vs current r32/α64, LR 5e-5, ~32k). **Recommendation:** Let current run finish 2 epochs, do not switch to Stage 2, do not change LR mid-run. Evaluate Stage-1 gates, then decide whether to rerun with documented recipe. Decision documented in `.squad/decisions.md`.
+
+---
+
 ## Learnings
 
+- **Stage-1 A100 loss telemetry diagnosis:** Llama-3.1-8B Stage-1 config is CPT/DAPT (`stage=stage1-cpt`) with full-token CLM loss, not SFT target masking. Current A100 config uses LR 5e-5 with `constant_with_warmup`, warmup 1%, LoRA r32/α64, bf16, batch 1 × grad_accum 16 × seq 2048, and 2 epochs; late-epoch train loss around 1.2 with grad_norm ~0.35 is not clipping-bound and is expected to flatten locally, but the config is more conservative than the documented Stage-1 recipe (2e-4 cosine, warmup 3%, LoRA r64/α128, ~64k-128k effective tokens/update).
 - **Shared-provider pip check:** Kaggle and other managed notebook environments pre-install packages that may already conflict before any project deps are added. `pip check` on `--no-venv` paths should default to non-fatal; expose `--strict-pip-check` / `STRICT_PIP_CHECK` to opt-in to hard failure.
 - **CLM collator + pre-tokenized labels:** `DataCollatorForLanguageModeling` calls `tokenizer.pad()` on all feature keys (including `labels`) before creating its own padded labels. If `labels` are variable-length lists (from `tokenize_example`), batch size > 1 raises `ValueError: expected sequence of length X at dim 1 (got Y)`. Fix: wrap the collator to strip `labels` before calling the inner HF collator; it then derives correct labels (-100 at pads) from the padded `input_ids`. Batch size 1 hides this because no padding/tensorization is attempted across sequences.
 - **Strictness default pattern:** `pip_check_strict = args.strict_pip_check or (not args.no_venv)` — this naturally makes venv installs strict and shared-env installs lenient without requiring two separate flags.
