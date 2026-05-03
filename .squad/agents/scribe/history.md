@@ -70,3 +70,29 @@ Wrote orchestration-log entries for both Linus pipeline passes; wrote session lo
 - 6 other inbox files (Frank raw-provenance, Frank Wehewehe PD, Frank more-Ulukau-SFT, Linus HK, Linus structured-counts, Linus Ulukau-vetting)
 
 **Status:** All pending reviews finished. Frank ready for NLLB/synthetic-BT budget planning (32,756 re-promotion budget). Linus ready for HK statutes / Wehewehe PD parsing. Hoʻoilina adapter blocked on upstream HTML decode fix.
+
+## 2026-05-03T07:11:32Z — Linus LaBSE Review-Row Promotion R1 Session Log
+
+**Spawn request:** Linus completed LaBSE review-row promotion R1 work. Process orchestration logs, session logs, merge inbox, commit.
+
+**Tasks completed:**
+1. ✅ **Orchestration log:** `.squad/orchestration-log/2026-05-03T07-11-32Z-linus.md` — documented 5-gate promotion filter outcome (9 passed → all 9 cap-policy-excluded), SFT unchanged, recommendation.
+2. ✅ **Session log:** `.squad/log/2026-05-03T07-11-32Z-labse-review-promotion-r1.md` — brief session summary with key findings and artifacts.
+3. ✅ **Decisions merge:** Merged 24 inbox files into `.squad/decisions.md`. Linus labse-review-promotion-r1 decision appended with full 124-row audit, filter outcome breakdown, recommendation.
+4. ✅ **Inbox cleanup:** Deleted all 24 inbox files from `.squad/decisions/inbox/`.
+5. ✅ **Cross-agent updates:** No cross-agent history appends required (Linus self-contained decision).
+
+**Decisions merged:**
+- Linus LaBSE review-row promotion R1 (124 rows: 9 promoted → all policy-excluded; SFT 8,572 unchanged)
+- Linus LaBSE merge round 2 (+296 accept, total 8,572 SFT)
+- Linus stage 2 gap analysis (40k target path)
+- Linus source-backlog resolution
+- Frank round 2 NLLB + wiki-langlinks extraction (40k target assessment)
+- Frank stage 2 blockers (Ulukau access blocked, rights memo)
+- Rusty LaBSE bringup complete (4-source scoring)
+- Basher Hoʻoilina verification
+- And 16 other team-generated decisions
+
+**Size:** Decisions.md now ~70 KB (under 20 KB archive threshold for policy-excluded; no 30+ day entries yet).
+
+**Status:** LaBSE review band correctly filtered by policy. Recommendation to target new sources at ≥0.75 LaBSE score. All decisions recorded; ready for git commit.

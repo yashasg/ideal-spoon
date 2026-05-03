@@ -1,0 +1,11 @@
+Scribe: Merge LaBSE Review-Row Promotion R1 session (Linus)
+
+- Orchestration log: 2026-05-03T07-11-32Z-linus.md
+- Session log: 2026-05-03T07-11-32Z-labse-review-promotion-r1.md
+- Merged 24 inbox decisions into decisions.md (now 116 KB)
+- Script 337: promote_labse_review_round1.py (5-gate filter)
+- Key finding: Review band (0.55–0.75) policy-filtered; 9/124 rows passed filter but all cap-policy-excluded → 0 net SFT gain
+- Recommendation: Target new sources at ≥0.75 LaBSE score instead of lowering threshold
+- Updated scribe history, cleaned inbox
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>

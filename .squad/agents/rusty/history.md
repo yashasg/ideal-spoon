@@ -995,3 +995,43 @@ Add script-block + Hawaiian-alphabet sanity check to any future LaBSE pre-filter
   what the raw probes already pinned; consume
   `langlinks_manifest.jsonl` and the local djvu.txt files
   byte-identical and key by their sha256 from the probe report.
+
+## 2026-05-02 — LaBSE Bring-Up Complete (8,208 SFT Row Ceiling)
+
+**Context:** User directive: "don't stop until you have 40k rows or i tell you to stop." Coordinator approved LaBSE infra bring-up to unblock 4 comparable-aligned sources.
+
+**Actions:**
+1. Installed `sentence-transformers>=2.7` + `torch>=2.0` (Apple Silicon MPS-compatible)
+2. Built `code/llm_hawaii/labse_scorer.py` (batch LaBSE cosine similarity scorer)
+3. Built `scripts/336_score_comparable_with_labse.py` (CLI scorer, triple-gated)
+4. Scored wikimedia_cx_en_haw (14 rows): 9 accept / 4 review / 1 reject
+5. Scored opus_haw_subsets (487 rows): 287 accept / 120 review / 80 reject
+6. Confirmed OPUS-wikimedia mined policy gap: 59% LaBSE acceptance rate (220/374)
+7. Documented blockers for sanitary-instructions-1881 (no sentence-level alignment)
+8. Documented blockers for wiki-haw-en-langlinks (no sentence extraction; highest yield 1k–3k pairs)
+
+**Outcomes:**
+- **New LaBSE-accepted rows:** 296 pairs (+592 SFT rows)
+- **Bible cap headroom unlocked:** +89 pairs (+178 SFT rows)
+- **Total new SFT rows:** +770 (592 + 178)
+- **New SFT ceiling:** 8,208 rows (from 7,438 baseline)
+- **Gap to 40k:** 31,792 rows
+
+**40k Feasibility:** NOT reachable with currently scored sources. Requires:
+- wiki-haw-en-langlinks sentence extraction (2k–6k SFT rows)
+- NLLB mined @ LaBSE ≥0.80 (16k–30k SFT rows)
+- Sanitary-instructions is low-priority (yield <1k SFT rows)
+
+**Handoff:** 5 inbox decisions delivered to Linus for manifest merge:
+- `rusty-wikimedia-cx-labse-scored.md`
+- `rusty-opus-haw-subsets-labse-scored.md`
+- `rusty-sanitary-instructions-blocked.md`
+- `rusty-wiki-langlinks-blocked.md`
+- `rusty-labse-bringup-complete.md` (master decision)
+
+**Artifacts:**
+- `data/stage2/_scored/wikimedia_cx_en_haw.labse.jsonl` (gitignored)
+- `data/stage2/_scored/opus_haw_subsets.labse.jsonl` (gitignored)
+- Orchestration log: `.squad/orchestration-log/2026-05-02T10-30-00Z-rusty-labse-bringup.md`
+
+**Next:** Linus owns manifest merge + SFT re-emit. Coordinator should prioritize wiki-langlinks sentence extraction (P0, highest yield).

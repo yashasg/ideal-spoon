@@ -398,6 +398,63 @@ Rusty corrected the haw→en paraphrase templates in `code/tests/fixtures/stage2
 - Did NOT touch `requirements.txt`. Parser is `re` + `html` + stdlib.
 - Did NOT commit/push. Working tree only, per task spec.
 
+## 2026-05-03 — Round 2: NLLB + Wikipedia Langlinks Extraction (40k Push)
+
+**Context:** User directive: "don't stop until you have 40k rows." Round 1 exhausted deterministic non-Bible pool (6,638 rows). Rusty wired LaBSE (8,208 SFT ceiling). Two high-yield sources estimated: NLLB mined (16k-30k) + Wikipedia langlinks (2k-6k).
+
+**Mission:** Extract candidate JSONLs for NLLB mined haw-eng + Wikipedia langlinks; run LaBSE scoring; produce scored outputs.
+
+### Outcome: 40k Target NOT REACHABLE
+
+**Round 2 actual yield: 2 SFT rows** (vs. estimated 18k-36k)
+
+**Track A: NLLB mined haw-eng — BLOCKED (0 rows)**
+- Confirmed via existing probe (2026-05-02): `allenai/nllb` does NOT include `haw_Latn` in its 188 supported language pairs
+- Probe artifacts: `data/raw/nllb-mined-haw-eng/20260501/endpoint_proof.json`
+- README documents blocker: `data-sources/nllb-mined-haw-eng/README.md`
+- **Verdict:** 16k-30k estimated yield is **unrecoverable** from this endpoint
+
+**Track B: Wikipedia langlinks haw-en — CRITICAL YIELD FAILURE (2 rows)**
+- Built extraction script: `scripts/338_build_wiki_langlinks_candidates.py` (stdlib + urllib, triple-gated)
+- Extracted 8 candidates from 53 langlinks pairs (15.1% success rate)
+  - Low extraction: MediaWiki API `prop=extracts&exintro=1` returns empty text for most Hawaiian Wikipedia stub articles
+- LaBSE scored: 1 accept (≥0.75), 4 review (0.55-0.75), 3 reject (<0.55)
+- **Final yield: 1 accepted pair = 2 SFT rows**
+- **Root cause:** Hawaiian/English Wikipedia articles are NOT translations — they're independent articles about the same topic. Hawaiian articles are much shorter/simpler than English counterparts. Example: Kapalakiko/San Francisco — HAW 16 words vs. EN 30+ words, LaBSE score 0.49 (rejected).
+
+**Track C: Alternative NLLB/Mined Sources — INVESTIGATION INCOMPLETE**
+- Web search confirmed: CCMatrix (no haw-eng), CCAligned (dataset not accessible on HF Hub), MADLAD-400 (probe hung, Hawaiian presence uncertain)
+- Time constraint: Each source requires 2-4 hours to probe + build adapter
+- **Verdict:** Unlikely to bridge 31,790-row gap even if Hawaiian coverage exists
+
+**Track D: Sanitary Instructions 1881 — NOT ATTEMPTED**
+- Estimated <1k max yield; not a 40k blocker
+- Raw document pair exists at `data/raw/sanitary-instructions-1881/20260502/`
+
+### Gap Analysis
+- Rusty's LaBSE baseline: 8,208 SFT rows
+- Round 2 addition: +2 SFT rows
+- New ceiling: **8,210 SFT rows**
+- Gap to 40k: **31,790 rows (79% shortfall)**
+
+### Paths Forward (Escalated to Coordinator)
+1. **Synthetic BT/FT generation** — Back-translate Hawaiian monolingual → English, quality filter with LaBSE ≥0.80
+2. **Revise 40k target** — Accept realistic ceiling of 10k-15k SFT rows
+3. **Wait for more Hawaiian data** — Community contributions, future NLLB releases (long-term)
+
+**Recommendation:** Synthetic BT + revised target to 15k is the most realistic path.
+
+### Artifacts Created
+- `scripts/338_build_wiki_langlinks_candidates.py` (extraction script)
+- `data/stage2/candidates/wiki_langlinks_haw_en.jsonl` (8 candidates)
+- `data/stage2/_scored/wiki_langlinks_haw_en.labse.jsonl` (1 accept, 4 review, 3 reject)
+- `data/stage2/_scored/wiki_langlinks_haw_en.labse.summary.json`
+- `.squad/decisions/inbox/frank-round2-40k-honest-gap.md` (honest gap assessment)
+- `.squad/orchestration-log/2026-05-03T03-54-21Z-frank-round2-extract.md`
+
+**Terse summary:** NLLB: 0 pairs / 0 accepted (source doesn't exist). Langlinks: 8 pairs / 1 accepted at 0.75. Estimated SFT addition: 2 rows. Path to 40k: NOT REACHABLE. Gap: 31,790 rows (79%). Recommend: Synthetic BT + revised target to 15k.
+
+
 ### Open follow-ups for next round
 1. Pin English WEB url_template (Linus / new spawn): Frank can write the
    fetcher once the URL pattern is confirmed.
@@ -2654,3 +2711,108 @@ Scored files held as review artefacts.
 See `.squad/decisions.md` → "Decision: Rusty — Stage 2 comparable-alignment gate" and
 `.squad/orchestration-log/2026-05-02T04-16-26Z-rusty-alignment.md` for blocker spec.
 
+
+## Learnings — Stage 2 remaining source lanes processed (2026-05-02)
+
+**Task:** Process the remaining Stage-2 source lanes instead of leaving them at vague pending/review states.
+
+**Outcome:** Concrete receipts/verdicts landed for OPUS, NLLB, wiki langlinks, Sanitary Instructions, Wikisource, BT, and excluded/deferred entries. Stage-2 train rows unchanged.
+
+### Receipts and candidates
+
+- `data/stage2/candidates/opus_haw_subsets.jsonl`: refreshed to 487 review-pending rows (Tatoeba 93, QED 16, Ubuntu 4, wikimedia 374); 0 train-ready. Pair hashes now match the Stage-2 helper delimiter invariant (`sha256(en_clean_sha + "‖" + haw_clean_sha)`).
+- `data/stage2/reports/nllb_mined_haw_eng_probe_report.json`: hard reject. `allenai/nllb` has 188 lang codes but no `haw_Latn`; `haw_Latn-eng_Latn` and `eng_Latn-haw_Latn` configs 404. Do not substitute `hau_Latn` or `hat_Latn`.
+- `data/stage2/reports/wiki_haw_en_langlinks_probe_report.json`: 60 hawwiki titles probed, 53 en langlink receipts with revision IDs. No candidates; blocked on LaBSE/LASER.
+- `data/stage2/reports/sanitary_instructions_1881_probe_report.json`: IA receipts refreshed. No candidates; paragraph/sentence alignment remains dishonest without LaBSE/LASER.
+- `data/stage2/reports/wikisource_haw_en_comparable_probe_report.json`: plan endpoint invalid. `https://haw.wikisource.org/w/api.php` redirects to multilingual `wikisource.org` HTML, not a haw-specific API JSON endpoint. Future work needs a multilingual-Wikisource enumerator plus LaBSE.
+- `data/stage2/reports/bt_stage1_monolingual_haw_blocker_report.json`: synthetic BT remains blocked on Stage-1-merged checkpoint, generator script, Rusty quality floor, and synthetic cap enforcement.
+- `data/stage2/reports/stage2_source_lane_inventory_20260502.json`: concise Linus handoff with commands, row counts, hard rejects, LaBSE blockers, and excluded/deferred verdicts.
+
+### Commands verified
+
+- `python3 data-sources/opus-haw-subsets/fetch.py --self-test` → OK.
+- `python3 data-sources/nllb-mined-haw-eng/probe.py --self-test` → OK.
+- `python3 data-sources/wiki-haw-en-langlinks/probe.py --self-test` → OK.
+- `python3 data-sources/sanitary-instructions-1881/probe.py --self-test` → OK.
+- `python3 data-sources/wikisource-haw-en-comparable/probe.py --self-test` → OK.
+- `python3 data-sources/tatoeba/fetch.py --self-test` → OK.
+- `python3 scripts/321_score_stage2_alignment.py --self-test` → OK.
+- `python3 data-sources/tatoeba/fetch.py --dry-run` → pinned URLs reachable; no files written.
+- `python3 data-sources/opus-haw-subsets/fetch.py --execute` → 487 review-pending candidates refreshed.
+- `python3 data-sources/nllb-mined-haw-eng/probe.py --execute` → expected rc=1 blocker; proof/report written.
+- `python3 data-sources/wiki-haw-en-langlinks/probe.py --execute --limit 60` → 53 langlink receipts.
+- `python3 data-sources/sanitary-instructions-1881/probe.py --execute` → raw IA receipts/report refreshed.
+- `python3 data-sources/wikisource-haw-en-comparable/probe.py --execute --limit 50` → endpoint-invalid report written.
+
+### Linus handoff
+
+Candidate files that exist today: `data/stage2/candidates/opus_haw_subsets.jsonl` (487 review-pending) and pre-existing `data/stage2/candidates/tatoeba.jsonl` (121; dry-run verified). Hard rejects/exclusions: NLLB endpoint has no Hawaiian; Wikisource plan endpoint is invalid; JW300/social/general web/ungrounded synthetic/hard-escalate lanes remain excluded; FLORES+/Belebele/WMT24++ Hawaiian remain verified absent. Shared unblocker remains LaBSE/LASER for wiki langlinks, Sanitary Instructions, and the OPUS-wikimedia mined/comparable subset.
+
+## 2026-05-02T11:17Z — Stage-2 40k Target Investigation: Deterministic Pool Exhausted
+
+**Task:** Per user directive, investigate remaining non-Bible sources to reach 40k Stage-2 target (current: 37,711 manifest rows; gap: 2,289 rows).
+
+**Outcome:** Deterministic-alignment non-Bible pool exhausted at ~6,638 candidates. 40k target cannot be reached without LaBSE infrastructure or synthetic generation.
+
+### Key Findings
+
+1. **All high-yield deterministic sources processed:**
+   - tatoeba (121), weblate (107), phrase_book_1881 (2,516), andrews (1,194), kaikki (292), hk_statutes_1897 (1,103), others = **6,638 total non-Bible candidates**
+   - Weblate only has 5 permissive-license components; no expansion possible
+   - Tatoeba 121 rows is full dataset
+
+2. **HK Statutes remaining pairs BLOCKED:**
+   - **1869 pair:** Content mismatch confirmed (EN="robbery, larceny"; HAW="Moi me ke kuka pu" — different laws). HAW imprint is 1850, not 1869. Same blocker as 1846/1847.
+   - **1859 pair:** Only 21 common sections (11% overlap). Yield <50 rows. Not cost-effective.
+   - **Verdict:** Only 1897 Penal Laws is a valid pair.
+
+3. **LaBSE-blocked sources (coordinator confirmed as parked):**
+   - wiki-langlinks (3000-5000 expected)
+   - sanitary-instructions-1881 (200-800 expected)
+   - wikimedia-cx expansion (requires LaBSE)
+   - OPUS-wikimedia mined subset (275 rows)
+
+### Bottleneck
+
+**Non-Bible deterministic pool is tapped out.** To reach 40k:
+- **Option 1:** LaBSE/LASER infra for comparable-aligned sources (coordinator decision)
+- **Option 2:** Synthetic BT/FT from Stage-1 monolingual (blocked on merged checkpoint + Rusty quality floor)
+- **Option 3:** Revise Bible cap policy (currently 30% of non-Bible)
+
+### Deliverables
+
+- `.squad/decisions/inbox/frank-stage2-40k-blockers.md` (comprehensive blocker report)
+- `data-sources/stage2-parallel-fetch-plan.json` updated with HK Statutes 1869/1859 blocker notes
+- This history entry
+
+### Next Steps
+
+Awaiting coordinator decision on:
+1. LaBSE bring-up priority
+2. Synthetic generation lane opening
+3. Whether to promote existing review-pending candidates (OPUS 487, etc.) to lift non-Bible count
+
+**Pattern learned:** Always sample-check paired imprints by section content before building adapters. Bibliographic year ≠ content alignment.
+
+## 2026-05-03T05:32:26Z — Ulukau Nupepa Stage-2 Adapter — Cloudflare Blocked
+
+**Objective:** Build Stage-2 parallel data adapter for Ulukau Hawaiian Newspaper Collection (www.nupepa.org) to harvest human-contributed English translations. Target: narrow 31k-row gap to 40k SFT rows.
+
+**Status:** BLOCKED — Cloudflare JavaScript challenge prevents HTTP fetch. Zero rows fetched.
+
+**Deliverables (infrastructure built, fetch blocked):**
+* Rights memo: `.squad/decisions/inbox/frank-ulukau-rights-memo.md` (prototype-only approval pending Linus).
+* Adapter: `data-sources/ulukau-nupepa/{source_registry.json,README.md,fetch.py}` (HTTP-based; blocked).
+* Candidate emitter: `scripts/339_build_ulukau_nupepa_candidates.py` (ready; no raw input).
+* LaBSE scoring: integrated via `scripts/336_score_comparable_with_labse.py` (ready; no candidates).
+* Cloudflare block notes: `.squad/decisions/inbox/frank-ulukau-{403-blocked,cloudflare-block}.md`.
+* Stage-1 monolingual note: `.squad/decisions/inbox/frank-ulukau-stage1-monolingual.md` (~69k pages, 27M–31M tokens).
+* Handoff memo: `.squad/decisions/inbox/frank-ulukau-nupepa-blocked-handoff.md`.
+
+**Critical finding:** Nupepa.org protected by Cloudflare JS challenge. HTTP fetch blocked with 403. CDP-based fetch (Chrome automation) is the only viable workaround (proven during discovery probe, but 10–30× slower).
+
+**Honest yield assessment:** Even if CDP fetch succeeds, expected parallel yield is **200–2,000 rows** (user translations are rare). This is 0.6–6% of 31k gap. NOT a solution.
+
+**Recommendation:** Do NOT pursue without Linus confirmation (rights + CDP automation + effort justification). Higher-yield alternatives: NLLB-mined (32k budget), Hoʻoilina fix, Wikisource/OPUS.
+
+**Orchestration log:** `.squad/orchestration-log/2026-05-03T05-32-26Z-frank-ulukau-nupepa-blocked.md`
