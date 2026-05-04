@@ -1180,3 +1180,30 @@ Stage 2 SFT training data is now available at `data/stage2/stage2_sft.jsonl` fol
 
 All Stage 2 gates are satisfied. Proceed with loading into training pipeline when ready.
 
+
+---
+
+## 2026-05-04 — Frontier Baselines Now Available
+
+**From Scribe:**  
+Rusty has completed a frontier model eval harness using GitHub Models + Semantic Kernel. The harness uses the **frozen `stage0.v1` eval contract** (same as Stage 0/1 local evals), enabling direct comparison on:
+
+- human_fetch translation F1 (en↔haw char-bigram)
+- Orthography metrics (ʻokina, kahakō, diacritic density)
+- Prompt suite generations
+- W1 metadata/validation
+
+**What's available:**
+- Default models: `gpt-4o`, `claude-3.5-sonnet`, `claude-opus-4`
+- Usage: `./scripts/run_frontier_eval.sh` (after `gh auth status` verification)
+- Outputs: summaries under `docs/eval-runs/frontier/` (tracked)
+
+**Important:** Hawaiian PPL is marked `not_supported` for closed APIs (no logprobs). Focus comparisons on translation F1 + orthography metrics instead.
+
+**Stage 1 checkpoint-10100 blocker:** Still awaiting GPU + private HF repo access. Once you provide GPU eval target with HF read access, Rusty can run the frozen Stage 1 eval script and produce S0→S1 delta report.
+
+**Relevant files for future Stage 1 vs frontier comparisons:**
+- Frontier summaries: `docs/eval-runs/frontier/<stamp>__frontier_<provider>_<model>_eval_summary.json`
+- Stage 0 anchor: `docs/eval-runs/stage0/20260430T094425Z__stage0_base_eval_summary.json`
+- Stage 1 script: `scripts/run_stage1_eval.sh` (checkpoint-10100 default)
+

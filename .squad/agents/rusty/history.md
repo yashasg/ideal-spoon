@@ -1,5 +1,25 @@
 # Rusty — History
 
+## 2026-05-04T07:03:09Z — Stage 1 checkpoint-10100 eval blocked before inference
+
+Read `decisions.md` and prior Rusty eval history first. Corrected the Stage 1 eval target to **checkpoint-10100** and superseded the earlier checkpoint-10140 blocker; `scripts/run_stage1_eval.sh` now defaults to `CHECKPOINT=runs/llama31-8b-stage1-multisource/checkpoints/checkpoint-10100` and `RUN_NAME=checkpoint-10100`.
+
+Confirmed the comparable bundle is unchanged: `stage0_eval.v2`, frozen `stage0.v1` prompt suite (`suite_sha256=2683027f538ae8fb2910f758f2865596355893cc91c85dbdfe9ced130797bce6`), FineWeb-2 Hawaiian dev eval (`621` scored rows, sha256 `6e2595be89b9c9e5657477f2a008e92955dbedb838c61065f1225d10e8bb60db`), W1 metadata probe, and human_fetch translation probe. Stage 0 anchors remain PPL `7.9152`, wrong-ʻokina total `0`, kahakō total `34`, en→haw F1 `0.329114`, haw→en F1 `0.469799`.
+
+No local `checkpoint-10100` exists under `runs/` or `data/`; local Kaggle mirror dir is empty; no Lambda/Colab mirror found. HF API probes for `yashasg/llama31-8b-stage1-haw` and `RainbowMassacre/llama31-hawaii-checkpoints` returned 401, and local runtime has no torch/CUDA/HF CLI/token, so full 8B eval is blocked before inference. Also no local checkpoint-10000 eval artifact was found, so the +100-step delta cannot be computed locally. Blocker/compute drop written to `.squad/decisions/inbox/rusty-stage1-eval-10100.md`; do not update `eval_hashes.jsonl` or write the S0-vs-S1 report until a real checkpoint-10100 eval artifact exists.
+
+---
+
+## 2026-05-04T07:02:00Z — Stage 1 checkpoint-10140 eval blocked before inference
+
+Read `decisions.md` and the prior eval history before touching the Stage 1 request. Confirmed the comparable bundle is still `stage0_eval.v2` + frozen `stage0.v1` prompt suite (`suite_sha256=2683027f538ae8fb2910f758f2865596355893cc91c85dbdfe9ced130797bce6`) over `data/evals/fineweb2_haw/dev.jsonl` (`sha256=6e2595be89b9c9e5657477f2a008e92955dbedb838c61065f1225d10e8bb60db`, 621 scored rows), with W1 JSONL metadata-only and human_fetch translation probe present.
+
+No local `checkpoint-10140` exists under `runs/` or `data/`. Local runtime is not viable for the full 8B eval: no `torch`, no CUDA, no HF CLI, no HF token env. HF API probes for likely private repos (`yashasg/llama31-8b-stage1-haw` and `RainbowMassacre/llama31-hawaii-checkpoints`) returned 401, so checkpoint access requires an authenticated GPU runtime.
+
+Scaffolded and validated `scripts/run_stage1_eval.sh` as a near-duplicate of `run_stage0_eval.sh`, parameterized by `CHECKPOINT` and `RUN_NAME`, keeping the frozen Stage 0 eval bundle unchanged. Blocker/compute coordination drop written to `.squad/decisions/inbox/rusty-stage1-eval-10140.md`. Do not report S0→S1 learning deltas until the real checkpoint summary exists; Stage 0 anchor remains Hawaiian PPL 7.9152, wrong-ʻokina total 0, kahakō total 34, human_fetch en→haw F1 0.329114, haw→en F1 0.469799.
+
+---
+
 ## 2026-04-30T08:29:53Z — W1 Stage 0 JSONL-only review [APPROVED]
 
 **Subject:** W1 Stage 0 JSONL-only implementation (Linus).
@@ -1053,3 +1073,81 @@ Add script-block + Hawaiian-alphabet sanity check to any future LaBSE pre-filter
 **Recommendation:** Adopt policy **(b) keep LaBSE as a soft signal only for Hoʻoilina**: record a score if/when scoring infra is available, but never auto-reject Hoʻoilina rows solely on LaBSE. Promotion should depend on deterministic structural alignment, length/orthography/OCR filters, provenance, and release/prototype caps. A low LaBSE score may create a review note, not a hard drop.
 
 **Counterpoint against Yashas:** Source human quality does not guarantee extracted pair quality. OCR errors, boilerplate/footnotes, article headers, paragraph-mid splits, missing numbered paragraphs, and sentence-count mismatches can still produce bad training rows. Those are real risks, but the fix is structural extraction and conservative deterministic filtering, not trusting an uncalibrated Hawaiian embedding score as judge over human translators.
+
+---
+
+## 2026-05-04 — Frontier Eval Harness (GitHub Models + Semantic Kernel)
+
+**Trigger:** User request: "Build a script + small harness that runs the SAME Stage 0/1 rich-eval bundle against frontier chat models (OpenAI GPT, Anthropic Claude) using GitHub Copilot auth as the credential broker."
+
+**Context:** Project needs frontier baselines for comparison with Stage 0/1 local HF evals. Constraints: use `gh auth token` for auth (not separate API keys), emit same `stage0_eval.v2` schema, be honest about what's `not_supported` (Hawaiian PPL, eval set metadata).
+
+**Implementation:**
+- **Endpoint:** GitHub Models API (`https://models.inference.ai.azure.com`) via OpenAI-compatible chat-completions protocol.
+- **Auth:** `gh auth token` → `GITHUB_TOKEN` env → SK `api_key` param.
+- **Orchestration:** Semantic Kernel (Python) `OpenAIChatCompletion` connector with custom `endpoint` + `api_key`.
+- **Eval contract:** FROZEN `stage0.v1` prompt suite (hash `2683027f...`), W1 probe, human_fetch translation probe, orthography metrics.
+- **Schema:** Same `stage0_eval.v2` as `evaluate.py`, with `identity.provider/model_id/endpoint` populated and `hawaiian_ppl` marked `not_supported`.
+
+**Deliverables:**
+1. `requirements-eval-frontier.txt` — pinned: `semantic-kernel>=1.13.0`, `httpx>=0.27.0`, `tenacity>=8.0.0`
+2. `code/llm_hawaii/eval_frontier.py` — new module: `FrontierChatService`, `evaluate_frontier_model()`
+3. `scripts/run_frontier_eval.sh` — multi-model sweep, summary projection, ledger append
+4. `code/tests/test_eval_frontier.py` — 9 unit tests (all passing, all mocked, no live API calls)
+5. `docs/eval_pipeline.md` §9 — "Frontier Baselines via GitHub Models" section
+6. `.squad/decisions/inbox/rusty-frontier-eval-harness.md` — decision rationale
+
+**Default model sweep (curated for GitHub Models):**
+- `gpt-4o` — OpenAI flagship
+- `claude-3.5-sonnet` — Anthropic fast model
+- `claude-opus-4` — Anthropic reasoning model
+
+**Session constraints honored:**
+- ✅ No live API calls (mocked/dry-run only)
+- ✅ Do NOT modify `data/evals/eval_hashes.jsonl` (test only)
+- ✅ Do NOT regress `evaluate.py` behavior (no shared logic refactored)
+- ✅ Stage 0 contract FROZEN (no prompt changes, no schema bumps)
+- ✅ Honest about PPL gap in docs
+
+**Testing:**
+```bash
+PYTHONPATH=code python3 code/tests/test_eval_frontier.py -v
+# 9 tests passed
+```
+
+**What's NOT supported (honest assessment):**
+- **Hawaiian PPL:** Marked `not_supported` — chat-completions APIs do not expose token-level logprobs.
+- **Eval set metadata:** Marked `not_applicable` — frontier models are tokenizer-opaque.
+
+**What WORKS normally:**
+- **Generations:** Full prompt suite (7 samples: 1 English + 6 Hawaiian)
+- **Orthography:** ʻokina counts, kahakō counts, NFC integrity, diacritic density bins, tripwires
+- **Translation probe:** en→haw and haw→en char-bigram F1 scores on human_fetch parallel pair
+- **W1 probe:** Metadata/validation status
+
+**Comparison contract:**
+Frontier baselines are comparable to Stage 0/1 on translation F1, orthography, and generation quality (qualitative). NOT comparable on PPL (intrinsic limitation of closed APIs).
+
+**Honest statement (documented in eval_pipeline.md §9):**
+> The Hawaiian-modeling claim from frontier baselines is **"how do open-vocabulary frontier chat models perform on our generation/translation probes"**, NOT **"is our 8B model better at Hawaiian PPL than GPT-5"**. PPL is the wrong metric for closed APIs; focus on generation quality, orthography, and translation F1.
+
+**Next actions (user):**
+1. Verify token scope: `gh auth status` to confirm `copilot` or `models:read` scope.
+2. Verify model availability: Check GitHub Models marketplace (`https://github.com/marketplace/models`).
+3. Run dry-run: `DRY_RUN=1 ./scripts/run_frontier_eval.sh`
+4. Execute live: `./scripts/run_frontier_eval.sh` (will make real API calls).
+5. Compare results: Read tracked summaries under `docs/eval-runs/frontier/` and compare translation F1 + orthography vs Stage 0 anchor.
+
+**Durable learnings:**
+- **Auth pattern:** `gh auth token` → `GITHUB_TOKEN` env → SK `api_key` param → GitHub Models endpoint. Clean, no separate keys.
+- **SK connector shape:** `OpenAIChatCompletion(ai_model_id=..., api_key=..., endpoint=...)` works for GitHub Models without additional config. SK abstracts provider details.
+- **Eval contract reuse:** The frozen `stage0.v1` prompt suite + W1 + human_fetch + orthography stack is provider-agnostic; only the generation backend changed. This is the right abstraction boundary.
+- **PPL intrinsic limitation:** Chat-completions APIs will never expose logprobs; this is not a missing feature we can patch — it's an API design choice. Frontier baselines must focus on generation-quality metrics instead. Documented this limitation prominently in eval_pipeline.md to avoid false expectations.
+
+**Artifact status:**
+- Implementation complete (mock/dry-run only)
+- Tests pass (9/9)
+- Docs updated (eval_pipeline.md §9)
+- Decision written (.squad/decisions/inbox/rusty-frontier-eval-harness.md)
+- History updated (this entry)
+

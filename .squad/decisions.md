@@ -1,9 +1,149 @@
 # Decisions
 
-> Updated 2026-05-04T06:40:10Z: Merged decision inbox file: linus-stage2-resplit-stricter-v3-emit.md (strict Hoʻoilina resplit under v3 manifest, 861→725 children, 185 blank dropped, 0 new collisions, 6,136 final TRAIN pairs, Bible 26.18% / HK 13.45%, SFT emit 12,272 rows). Prior 2026-05-04T06:06:29Z: Merged decision inbox files: linus-stage2-hooilina-resplit-v3.md, copilot-directive-20260504-stage2-consolidate.md. Prior 2026-05-04T05:29:51Z: Merged decision inbox files: copilot-directive-2026-05-04T03-49-hooilina-paragraphs-only.md, linus-hooilina-paragraph-impl.md, linus-hooilina-paragraph-pairs.md, linus-stage2-common-voice-license-probe.md, linus-stage2-flores-plus-license-probe.md, linus-stage2-hk-statutes-extended.md, linus-stage2-tier-a-promotion.md, linus-stage3-paragraph-stage.md, rusty-hooilina-labse-policy.md. Prior 2026-05-03T20:55:00Z: Merged R17 linus-stage2-r17-canonical-consolidation (canonical helpers consolidated to single source of truth in `code/llm_hawaii/stage2_canonical.py`: canonical_en, canonical_haw, canonical_pair; 25 files refactored (adapters, audit, dedup, legacy normalizer); NFC normalize, strip invisibles, collapse whitespace, preserve case, EN folds curly quotes/hyphens, HAW ʻokina folding; 60/60 tests pass, 37,084 rows stable, strict audit pass, commit bf4b57e; future adapters MUST import from stage2_canonical, no local canonicalization helpers). Prior 2026-05-03T20:45:08Z: Merged R16 linus-stage2-r16-hash-determinism-policy (EN-side hash canonicalization contract locked: NFC normalize, strip invisibles, collapse whitespace, preserve case, fold EN curly quotes/hyphens to ASCII, keep U+02BC/U+02BB/em-en-dashes, HAW ʻokina folding HAW-only; 7 determinism tests added; FLORES+ and Common Voice probed RED/SKIP for Hawaiian; 37,084 rows stable, all suites green, commit 85ba2e5). Prior 2026-05-03T20:38:30Z: Merged R15 linus-stage2-r15-dedup-edge-fixes (fallback exact-pair ordering uses canonical source priority not alphabetical; near-dupe matching strips invisible controls U+00AD/U+200B/U+200C/U+200D/U+FEFF; manifest validation rejects whitespace/invisible-only refs; audit reports 7 invisible-control rows, 3 NBSP rows, 37,084 rows stable, all suites green). Prior 2026-05-03T20:33:14Z: Merged R14 linus-stage2-r14-contamination-wired (train-side eval-contamination filter now enforcing gate; `--eval-hashes` loads explicit eval ledgers before dedup, drops matches before cross-source/side/near-duplicate dedup, missing ledger hard error, writes contamination_report.json sidecar, all regression suites green). Prior 2026-05-03T1100Z: Merged R7 linus-stage2-paraphrase-grouping (161 EN/32 HAW exact groups accepted as lexical diversity, 395 rows annotated, zero drops, copilot user directive captured). Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
+> Updated 2026-05-04T07:17:38Z: Merged frontier eval harness (Semantic Kernel + GitHub Models, frozen stage0.v1 contract, 9/9 tests pass, no live API) + S1 checkpoint-10100 blocker (GPU + private repo access needed). Prior 2026-05-04T06:40:10Z: Merged linus-stage2-resplit-stricter-v3-emit.md (strict Hoʻoilina resplit, 861→725 children, 6,136 final TRAIN pairs, Bible 26.18% / HK 13.45%). Prior 2026-05-04T06:06:29Z: Merged linus-stage2-hooilina-resplit-v3.md, copilot-directive-20260504-stage2-consolidate.md. Prior 2026-05-04T05:29:51Z: Merged 9 inbox files (Hoʻoilina paragraph impl/pairs, Common Voice/FLORES+ license probe, HK statutes, tier-a promotion, stage 3 paragraph stage, LABSE policy). Prior 2026-05-03T20:55:00Z: Merged R17 linus-stage2-r17-canonical-consolidation. Prior 2026-05-03T20:45:08Z: Merged R16 linus-stage2-r16-hash-determinism-policy. Prior 2026-05-03T20:38:30Z: Merged R15 linus-stage2-r15-dedup-edge-fixes. Prior 2026-05-03T20:33:14Z: Merged R14 linus-stage2-r14-contamination-wired. Prior 2026-05-03T11:00Z: Merged R7 linus-stage2-paraphrase-grouping. Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy. Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy.
+
 >
 
 ---
+
+# Frontier Eval Harness — GitHub Models + Semantic Kernel
+
+**Date:** 2026-05-04T07:17:38Z  
+**Owner:** Rusty (NLP Researcher)  
+**Status:** ✅ Implemented (mock/dry-run only; user will execute against live API)
+
+## Context
+
+The project needs to evaluate frontier chat models (OpenAI GPT, Anthropic Claude) as baselines for Stage 0/1 local HF model evals. The goal is to use the SAME eval contract (frozen `stage0.v1` prompt suite, human_fetch translation probe, orthography metrics) for direct comparison on metrics both model types support.
+
+## Decision
+
+Build a frontier eval harness using:
+1. **GitHub Models API** as the model endpoint
+2. **GitHub token** (`gh auth token`) as the auth mechanism
+3. **Semantic Kernel (Python)** as the provider-agnostic orchestration layer
+4. **Same eval contract** as Stage 0/1
+
+## Deliverables
+
+| Component | Path | Purpose | Status |
+|---|---|---|---|
+| **Requirements** | `requirements-eval-frontier.txt` | Pinned: semantic-kernel, httpx, tenacity, openai | ✅ |
+| **Eval module** | `code/llm_hawaii/eval_frontier.py` | Frontier eval logic | ✅ |
+| **Shell wrapper** | `scripts/run_frontier_eval.sh` | Multi-model sweep | ✅ |
+| **Tests** | `code/tests/test_eval_frontier.py` | 9 unit tests, all pass | ✅ |
+| **Docs** | `docs/eval_pipeline.md` §9 | Frontier baselines section | ✅ |
+
+## Honesty on PPL
+
+**Hawaiian PPL:** Marked `not_supported` for closed frontier APIs.
+- Chat-completions endpoints do not expose token-level log probabilities.
+- This is an **intrinsic API limitation**, not a missing feature.
+
+## What WORKS
+
+- **Generations:** Full prompt suite (7 samples: 1 English + 6 Hawaiian)
+- **Orthography:** ʻokina, kahakō, NFC integrity, diacritic density
+- **Translation probe:** en↔haw char-bigram F1
+- **W1 probe:** Metadata/validation status
+
+## Schema Parity
+
+Frontier eval emits `stage0_eval.v2` with `provider: github-models`, `is_local: false`, `supports_logprobs: false`, `hawaiian_ppl.status: not_supported`.
+
+## Auth
+
+Primary: GitHub Models + `gh auth token` (requires `copilot` or `models:read` scope).
+Fallback (stubs): Direct OpenAI / Anthropic keys.
+
+## Default Models
+
+- `gpt-4o` — OpenAI flagship
+- `claude-3.5-sonnet` — Anthropic fast
+- `claude-opus-4` — Anthropic reasoning
+
+User override: `MODELS="gpt-4o,gpt-5" ./scripts/run_frontier_eval.sh`
+
+## Testing
+
+9 unit tests, all passing, all mocked (no live API calls).
+
+## Comparison Contract
+
+**Comparable to Stage 0/1 on:**
+- Translation F1 (en→haw, haw→en)
+- Orthography metrics
+- Prompt suite generations (qualitative)
+- W1 metadata/validation
+
+**NOT comparable on:**
+- Hawaiian PPL (not_supported)
+- Tokenizer-opaque metrics
+
+## Session Constraints
+
+✅ No live API calls  
+✅ Stage 0 contract FROZEN  
+✅ Schema FROZEN  
+✅ Honest about PPL gap  
+
+## Next Actions (User)
+
+1. Verify token scope: `gh auth status`
+2. Verify model availability on GitHub Models marketplace
+3. Dry-run: `DRY_RUN=1 ./scripts/run_frontier_eval.sh`
+4. Execute: `./scripts/run_frontier_eval.sh`
+5. Compare frontier F1 + orthography vs Stage 0 anchor
+
+---
+
+# Rusty — Stage 1 Checkpoint-10100 Eval Blocker
+
+**Date:** 2026-05-04T07:03:09Z  
+**Owner:** Rusty (NLP Researcher)  
+**Status:** BLOCKED — full eval requires GPU + authenticated private checkpoint access
+
+## Checkpoint Correction
+
+The requested checkpoint is **checkpoint-10100** (corrects prior checkpoint-10140 mention).
+
+## Confirmed
+
+- Frozen eval bundle: `schema_version="stage0_eval.v2"`
+- Frozen prompt suite: `PROMPT_SUITE_ID="stage0.v1"`, hash `2683027f538ae8fb2910f758f2865596355893cc91c85dbdfe9ced130797bce6`
+- Eval input exists: `data/evals/fineweb2_haw/dev.jsonl`, 621 scored records
+- `human_fetch` translation probe exists locally
+- **No local checkpoint-10100** under `runs/` or `data/`
+- **Local runtime not viable:** no torch, no CUDA, no HF_TOKEN
+- HF API probes return `401` for private repos:
+  - `yashasg/llama31-8b-stage1-haw`
+  - `RainbowMassacre/llama31-hawaii-checkpoints`
+
+## To Unblock
+
+GPU access (A100/Lambda preferred, Kaggle T4x2 acceptable) with:
+- Read access to private checkpoint repo
+- HuggingFace token auth
+- torch/CUDA environment
+
+## Stage 0 → Stage 1 Comparison
+
+| Metric | Stage 0 base | Stage 1 checkpoint-10100 | Status |
+|---|---:|---:|---|
+| Hawaiian PPL | 7.9152 | blocked | awaiting inference |
+| human_fetch en→haw F1 | 0.329114 | blocked | awaiting inference |
+| human_fetch haw→en F1 | 0.469799 | blocked | awaiting inference |
+
+## Interpretation
+
+No Stage 1 learning claim yet. Only valid statement: **comparison blocked before inference**. Without checkpoint-10100 + GPU, any S0→S1 delta would be fabricated.
+
+## Coordination
+
+Basher: Provide GPU eval target with HF read access to private checkpoint repo, then run `scripts/run_stage1_eval.sh`. Return Stage 1 summary JSON for final S0→S1 delta report.
+
+---
+
 
 # Stage 2 Hoʻoilina Strict Resplit & SFT Emit — v3 Manifest Final
 
