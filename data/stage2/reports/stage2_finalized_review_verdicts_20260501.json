@@ -1,32 +1,39 @@
 {
   "report_type": "stage2_finalized_review_verdicts",
-  "generated_at": "2026-05-02T03:02:17.724525+00:00",
+  "generated_at": "2026-05-03T07:08:27.893422+00:00",
   "pass_id": "stage2-finalized-reviews-20260501",
   "manifest_in": "data/stage2/reviewed_stage2_manifest_final_capped.jsonl",
   "manifest_out": "data/stage2/reviewed_stage2_manifest_finalized_reviews.jsonl",
-  "total_rows": 34811,
+  "total_rows": 38131,
   "split_counts": {
-    "review-pending": 34193,
-    "train": 603,
+    "held-out": 33830,
+    "train": 4286,
     "dev": 15
   },
   "verdict_counts": {
     "andrews-dictionary-fragment-rejected": 1194,
-    "bible-cap-overflow": 31583,
+    "bible-cap-overflow": 31042,
     "bible-quality-reject": 31,
-    "kaikki-quality-reject": 139,
-    "train-ready": 603,
+    "kaikki-quality-reject": 48,
+    "train-ready": 4286,
     "frozen-dev": 15,
-    "tatoeba-quality-reject": 9,
+    "tatoeba-quality-reject": 1,
+    "opus-tatoeba-upstream-duplicate": 118,
+    "opus-wikimedia-language-reject": 6,
+    "opus-wikimedia-quality-heldout": 188,
+    "wikimedia-cx-rights-alignment-heldout": 16,
     "hk-quality-reject": 359,
-    "hooilina-para-deferred": 68,
-    "hk-legal-cap-overflow": 810
+    "hooilina-para-superseded-excluded": 68,
+    "opus-qed-language-mismatch-reject": 16,
+    "opus-ubuntu-misaligned-reject": 4,
+    "weblate-software-l10n-quality-reject": 4,
+    "hk-legal-cap-overflow": 735
   },
   "source_breakdown": {
     "andrews-1865-en-haw-vocab-appendix": {
       "total": 1194,
       "by_split": {
-        "review-pending": 1194
+        "held-out": 1194
       },
       "by_verdict": {
         "andrews-dictionary-fragment-rejected": 1194
@@ -35,114 +42,158 @@
     "baibala-hemolele-1839": {
       "total": 10221,
       "by_split": {
-        "review-pending": 10210,
-        "train": 11
+        "held-out": 10119,
+        "train": 102
       },
       "by_verdict": {
-        "bible-cap-overflow": 10179,
+        "bible-cap-overflow": 10088,
         "bible-quality-reject": 31,
-        "train-ready": 11
+        "train-ready": 102
       }
     },
     "baibala-hemolele-1868": {
       "total": 20852,
       "by_split": {
-        "train": 50,
-        "review-pending": 20802
+        "train": 488,
+        "held-out": 20364
       },
       "by_verdict": {
-        "train-ready": 50,
-        "bible-cap-overflow": 20802
+        "train-ready": 488,
+        "bible-cap-overflow": 20364
       }
     },
     "gospel_john_1854": {
       "total": 602,
       "by_split": {
-        "review-pending": 602
+        "train": 12,
+        "held-out": 590
       },
       "by_verdict": {
-        "bible-cap-overflow": 602
+        "train-ready": 12,
+        "bible-cap-overflow": 590
       }
     },
     "hk_constitution_1852": {
       "total": 74,
       "by_split": {
-        "review-pending": 74
+        "held-out": 68,
+        "train": 6
       },
       "by_verdict": {
         "hk-quality-reject": 3,
-        "hk-legal-cap-overflow": 71
+        "train-ready": 6,
+        "hk-legal-cap-overflow": 65
       }
     },
     "hk_statutes_1897": {
       "total": 1103,
       "by_split": {
-        "review-pending": 1095,
-        "train": 8
+        "held-out": 1026,
+        "train": 77
       },
       "by_verdict": {
         "hk-quality-reject": 356,
-        "train-ready": 8,
-        "hk-legal-cap-overflow": 739
+        "train-ready": 77,
+        "hk-legal-cap-overflow": 670
       }
     },
     "hooilina": {
       "total": 128,
       "by_split": {
-        "review-pending": 68,
+        "held-out": 68,
         "train": 60
       },
       "by_verdict": {
-        "hooilina-para-deferred": 68,
+        "hooilina-para-superseded-excluded": 68,
         "train-ready": 60
       }
     },
     "ia-hawaiian-phrase-book-1881": {
-      "total": 224,
+      "total": 2516,
       "by_split": {
-        "train": 224
+        "train": 2516
       },
       "by_verdict": {
-        "train-ready": 224
+        "train-ready": 2516
       }
     },
     "kaikki-haw-en-wiktionary": {
       "total": 292,
       "by_split": {
-        "review-pending": 139,
-        "train": 153
+        "held-out": 48,
+        "train": 244
       },
       "by_verdict": {
-        "kaikki-quality-reject": 139,
-        "train-ready": 153
+        "kaikki-quality-reject": 48,
+        "train-ready": 244
+      }
+    },
+    "opus-haw-subsets": {
+      "total": 894,
+      "by_split": {
+        "train": 562,
+        "held-out": 332
+      },
+      "by_verdict": {
+        "train-ready": 562,
+        "opus-tatoeba-upstream-duplicate": 118,
+        "opus-wikimedia-language-reject": 6,
+        "opus-wikimedia-quality-heldout": 188,
+        "opus-qed-language-mismatch-reject": 16,
+        "opus-ubuntu-misaligned-reject": 4
       }
     },
     "tatoeba": {
       "total": 121,
       "by_split": {
-        "train": 97,
+        "train": 105,
         "dev": 15,
-        "review-pending": 9
+        "held-out": 1
       },
       "by_verdict": {
-        "train-ready": 97,
+        "train-ready": 105,
         "frozen-dev": 15,
-        "tatoeba-quality-reject": 9
+        "tatoeba-quality-reject": 1
+      }
+    },
+    "weblate-en-haw": {
+      "total": 107,
+      "by_split": {
+        "held-out": 4,
+        "train": 103
+      },
+      "by_verdict": {
+        "weblate-software-l10n-quality-reject": 4,
+        "train-ready": 103
+      }
+    },
+    "wikimedia-cx-en-haw": {
+      "total": 27,
+      "by_split": {
+        "train": 11,
+        "held-out": 16
+      },
+      "by_verdict": {
+        "train-ready": 11,
+        "wikimedia-cx-rights-alignment-heldout": 16
       }
     }
   },
   "validation": {
-    "total_rows": 34811,
-    "train_count": 603,
+    "total_rows": 38131,
+    "train_count": 4286,
     "dev_count": 15,
-    "review_pending_count": 34193,
-    "sft_eligible_rows": 618,
+    "review_pending_count": 0,
+    "held_out_count": 33830,
+    "sft_eligible_rows": 4301,
     "no_missing_fields": true,
     "no_pending_verdicts": true,
+    "no_review_pending_splits": true,
+    "no_deferred_statuses": true,
     "no_hooilina_dev_rows": true,
     "hooilina_train_count": 60,
-    "bible_actual_share": 0.299131,
-    "hk_actual_share": 0.148252,
+    "bible_actual_share": 0.299895,
+    "hk_actual_share": 0.149903,
     "caps_pass": true
   },
   "verdict_legend": {
@@ -153,10 +204,18 @@
     "hk-legal-cap-overflow": "Excluded: passed hk1897-legal-clean-v1 filter but exceeded fixed-point HK legal-register cap (≤15%).",
     "hk-quality-reject": "Excluded: failed hk1897 quality filters (ratio / length bounds).",
     "andrews-dictionary-fragment-rejected": "Rejected under Rusty §1.1: dictionary-fragment SFT unsuitable; all 1,194 rows fail minimum token count.",
-    "hooilina-para-deferred": "Deferred: Hoʻoilina paragraph/section-level row superseded by sentence-level pipeline; W1 native review required (Rusty §1.4).",
+    "hooilina-para-superseded-excluded": "Excluded: Hoʻoilina paragraph/section-level row superseded by sentence-level pipeline and held out of this training cut.",
     "hooilina-sentence-quality-reject": "Excluded: Hoʻoilina sentence-level paragraph pair failed promotion gate (tokens/ratio/dedup).",
     "kaikki-quality-reject": "Excluded: Kaikki/Wiktionary entry failed stage2 quality gate.",
     "tatoeba-quality-reject": "Excluded: Tatoeba pair failed stage2 quality gate.",
-    "phrase-book-1881-quality-reject": "Excluded: Bishop 1881 Hawaiian Phrase Book row failed phrase-book-1881-clean-v1 promotion gate (alignment type / token band / ratio / nonhaw / dedup)."
+    "phrase-book-1881-quality-reject": "Excluded: Bishop 1881 Hawaiian Phrase Book row failed phrase-book-1881-clean-v1 promotion gate (alignment type / token band / ratio / nonhaw / dedup).",
+    "opus-qed-language-mismatch-reject": "Excluded: OPUS QED haw slice is language-mislabeled, not en↔haw bitext.",
+    "opus-ubuntu-misaligned-reject": "Excluded: OPUS Ubuntu rows are row-misaligned / loan-heavy software strings.",
+    "opus-tatoeba-upstream-duplicate": "Excluded: OPUS-Tatoeba duplicates the upstream Tatoeba lane after normalized-text dedup.",
+    "opus-wikimedia-language-reject": "Excluded: OPUS-wikimedia row failed language sanity checks.",
+    "opus-wikimedia-quality-heldout": "Excluded: OPUS-wikimedia row did not pass the conservative source-line alignment promotion gate.",
+    "opus-corpus-policy-heldout": "Excluded: OPUS corpus not covered by an accepted Stage-2 policy.",
+    "wikimedia-cx-rights-alignment-heldout": "Excluded: Wikimedia CX partial-stub rows lack hard train clearance for alignment + attribution.",
+    "weblate-software-l10n-policy-heldout": "Excluded: Weblate software-l10n rows lack approved register cap / context-quality gate for this cut."
   }
 }

@@ -368,3 +368,18 @@ python scripts/330_emit_stage2_sft_jsonl.py \
 
 **Key Learning:** 1600-token safety margin (vs 2048 cap) is necessary when re-splitting oversized pairs. First attempt at 1900 tokens produced 3 violations (2069, 2149, 2842 tokens); tightening to 1600 tokens eliminated all violations. The Llama tokenizer produces higher token counts than whitespace-based estimates (~54% more: 589K vs 382K tokens).
 
+
+
+---
+
+### 2026-05-04T06:31:26Z: Stage 2 v3 SFT emit dry-run blocked
+**By:** Linus (Data Engineer)  
+**Status:** BLOCKED — no emit performed
+
+Read `scripts/330_emit_stage2_sft_jsonl.py`: train/both dry-run from `data/stage2/reviewed_stage2_manifest_final_capped_v3.jsonl` kept only 2,715 pairs / 5,430 directional rows under default review filtering, not the expected 6,272 / 12,544. With `--allow-review-required`, it kept 6,087 pairs / 12,174 rows but still skipped 185 TRAIN Hoʻoilina resplit rows with blank EN or HAW text.
+
+Current stale `data/stage2/stage2_sft.jsonl` was left untouched at 7,871,636 bytes / 8,572 rows. Blocker written to `.squad/decisions/inbox/linus-stage2-sft-emit-blocker.md`; needed follow-up is to fix/decide the 185 blank-side TRAIN rows and whether review-required v3 train rows should be emitted.
+
+### Stage-2 Hoʻoilina strict resplit replacement
+
+The original v3 Hoʻoilina resplit used `scripts/resplit_hooilina_outliers.py` plus `scripts/build_stage2_manifest_v3_hooilina_recovery.py` and chunked EN/HAW independently enough to admit half-blank TRAIN children. Replacing those children must remove old `manual_review_reasons=["recovered_from_seq_len_outlier_resplit"]` rows first, then rebuild from the 25 parent rows with paragraph-number/occurrence matching and no orphan-side emission. The strict v3 repair snapshots `reviewed_stage2_manifest_final_capped_v3_pre_strict_resplit.jsonl`, admits 725 aligned children, ejects 136 old child rows as unsalvageable, leaves 0 TRAIN blanks, and emits 12,272 bidirectional SFT rows with no text-missing skips.

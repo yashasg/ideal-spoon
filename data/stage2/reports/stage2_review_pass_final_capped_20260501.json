@@ -1,6 +1,6 @@
 {
   "report_type": "stage2_review_pass_final_capped",
-  "generated_at": "2026-05-02T03:02:13.501007+00:00",
+  "generated_at": "2026-05-03T07:08:20.018944+00:00",
   "policy_source": "rusty-review-pending-policy.md (2026-05-03)",
   "owner": "Danny (Lead/Architect)",
   "manifest_in": "/Users/yashasgujjar/dev/ideal-spoon/data/stage2/stage2_manifest.jsonl",
@@ -31,11 +31,12 @@
     }
   },
   "fixed_point_solution": {
-    "derivation": "B/T<=0.30 and H/T<=0.15 with T=N+H+B yields H_max=3N/11, B_max=6N/11, T=20N/11",
-    "N_nonbible_nonhk_tokens": 6102,
-    "H_target_tokens": 1664.18,
-    "B_target_tokens": 3328.36,
-    "verification_iterations": 2
+    "derivation": "S/T<=0.15, B/T<=0.30, H/T<=0.15. Select software-l10n first with S_max=3N/8, then set M=N+S and solve H_max=3M/11, B_max=6M/11.",
+    "N_uncapped_tokens": 60894,
+    "S_target_tokens": 22835.25,
+    "H_target_tokens": 17024.18,
+    "B_target_tokens": 34048.36,
+    "verification_iterations": 1
   },
   "bible_dedup_stats": {
     "b1868_total_candidates": 31101,
@@ -50,103 +51,203 @@
   "bible_cap": {
     "algorithm": "Pool 1839-train + 1868-net-new-quality + john-1854-verse-dedup; sort sha256_pair asc; greedy <= B_target; verify against artifact and drop tail until <=30%",
     "bible_pool_total": 25885,
-    "bible_train_kept": 61,
-    "bible_1839_kept": 11,
-    "bible_1868_kept": 50,
-    "bible_john_1854_kept": 0,
-    "bible_capped_to_review": 25824,
-    "bible_1839_capped": 4420,
-    "bible_1868_capped": 20802,
-    "bible_john_1854_capped": 602,
-    "bible_train_tokens": 3303,
-    "bible_actual_share": 0.299131,
+    "bible_train_kept": 602,
+    "bible_1839_kept": 102,
+    "bible_1868_kept": 488,
+    "bible_john_1854_kept": 12,
+    "bible_capped_to_review": 25283,
+    "bible_1839_capped": 4329,
+    "bible_1868_capped": 20364,
+    "bible_john_1854_capped": 590,
+    "bible_train_tokens": 34024,
+    "bible_actual_share": 0.299895,
     "cap_satisfied": true
   },
   "hk_cap": {
     "algorithm": "Filter by Rusty §1.5; sort sha256_pair asc; greedy <= H_target; verify against artifact",
     "hk_eligible_pool": 818,
-    "hk_train_kept": 8,
-    "hk_capped_to_review": 810,
-    "hk_train_tokens": 1637,
-    "hk_actual_share": 0.148252,
+    "hk_train_kept": 83,
+    "hk_capped_to_review": 735,
+    "hk_train_tokens": 17007,
+    "hk_actual_share": 0.149903,
+    "cap_satisfied": true
+  },
+  "software_l10n_cap": {
+    "algorithm": "Filter permissive-license Weblate PO rows; sort sha256_pair asc; greedy <= S_target; verify against artifact",
+    "software_l10n_eligible_pool": 103,
+    "software_l10n_train_kept": 103,
+    "software_l10n_capped_to_review": 0,
+    "software_l10n_quality_rejected": 4,
+    "software_l10n_train_tokens": 1528,
+    "software_l10n_actual_share": 0.013468,
     "cap_satisfied": true
   },
   "promotion_summary": {
-    "tatoeba_promoted_to_train": 16,
-    "kaikki_promoted_to_train": 0,
+    "tatoeba_promoted_to_train": 24,
+    "kaikki_promoted_to_train": 91,
     "andrews_promoted": 0,
     "hooilina_sentence_promoted": 60,
     "hooilina_sentence_rejected": 0,
     "hooilina_para_deferred": 68,
-    "phrase_book_1881_train": 224,
+    "phrase_book_1881_train": 2516,
     "phrase_book_1881_rejected": 0,
-    "hk1897_train": 8,
-    "bible1868_new_train": 50
+    "opus_wikimedia_tmx_train": 275,
+    "hk1897_train": 83,
+    "bible1868_new_train": 488,
+    "weblate_software_l10n_train": 103,
+    "weblate_software_l10n_rejected": 4,
+    "wikimedia_cx_high_human_train": 2,
+    "wikimedia_cx_held_out": 12
+  },
+  "remaining_source_hard_finalization": {
+    "opus-haw-subsets": {
+      "QED_held_out": 16,
+      "Tatoeba_held_out": 93,
+      "Ubuntu_held_out": 4,
+      "wikimedia_held_out": 99,
+      "wikimedia_train": 275
+    },
+    "weblate-en-haw": {
+      "quality_rejected": 4
+    },
+    "wikimedia-cx-en-haw": {
+      "held_out": 12
+    }
+  },
+  "source_level_hard_blockers": {
+    "nllb-mined-haw-eng": {
+      "report_path": "/Users/yashasgujjar/dev/ideal-spoon/data/stage2/reports/nllb_mined_haw_eng_probe_report.json",
+      "verdict": "ENDPOINT_INVALID_NO_HAW_COVERAGE",
+      "candidate_rows_emitted": 0,
+      "train_ready_rows_added": 0,
+      "manifest_mutation": "none",
+      "blockers": [
+        "allenai/nllb lang-pair table has no haw_Latn entry.",
+        "datasets-server haw_Latn-eng_Latn and eng_Latn-haw_Latn configs return 404.",
+        "Do not substitute hau_Latn (Hausa) or hat_Latn (Haitian Creole) for Hawaiian."
+      ]
+    },
+    "wiki-haw-en-langlinks": {
+      "report_path": "/Users/yashasgujjar/dev/ideal-spoon/data/stage2/reports/wiki_haw_en_langlinks_probe_report.json",
+      "verdict": "OK_RAW_PROBE_LANGLINKS_RECORDED",
+      "candidate_rows_emitted": 0,
+      "train_ready_rows_added": 0,
+      "manifest_mutation": "none",
+      "blockers": [
+        "alignment_method=labse required (LaBSE/LASER not available in this repo).",
+        "Comparable-not-parallel: pairs cannot be ingested into stage2_manifest.jsonl as train-ready until a scored alignment pass exists.",
+        "Wikimedia ToS = CC BY-SA 4.0 / GFDL: prototype_only=true, release_eligible=false until rights review confirms attribution carry-through."
+      ]
+    },
+    "sanitary-instructions-1881": {
+      "report_path": "/Users/yashasgujjar/dev/ideal-spoon/data/stage2/reports/sanitary_instructions_1881_probe_report.json",
+      "verdict": "raw_probe_landed_blocked_on_labse",
+      "candidate_rows_emitted": 0,
+      "train_ready_rows_added": 0,
+      "manifest_mutation": "none",
+      "blockers": [
+        "alignment_method=labse required; LaBSE/LASER not wired in this repo.",
+        "Comparable paired volumes: chapter-level pairing is plausible after OCR repair, but paragraph/sentence pairing is not deterministic because paragraph counts diverge.",
+        "Do not emit review-pending sentence rows until a scored alignment pass exists."
+      ]
+    },
+    "wikisource-haw-en-comparable": {
+      "report_path": "/Users/yashasgujjar/dev/ideal-spoon/data/stage2/reports/wikisource_haw_en_comparable_probe_report.json",
+      "verdict": "ENDPOINT_INVALID_HAW_WIKISOURCE_REDIRECTS_TO_MULTILINGUAL",
+      "candidate_rows_emitted": 0,
+      "train_ready_rows_added": 0,
+      "manifest_mutation": "none",
+      "blockers": [
+        "Plan endpoint https://haw.wikisource.org/w/api.php redirects to multilingual wikisource.org and returns HTML, not a haw-specific API JSON endpoint.",
+        "A replacement adapter must target multilingual Wikisource explicitly and define a defensible Hawaiian-page enumeration strategy before fetching full text.",
+        "Even after endpoint repair, alignment_method=labse is required before sentence candidates can be emitted.",
+        "Hard-escalate cultural categories must be filtered before any future full-text pull."
+      ]
+    }
   },
   "counts_by_source": {
     "andrews-1865-en-haw-vocab-appendix": {
       "review-pending": 1194
     },
     "baibala-hemolele-1839": {
-      "review-pending": 10210,
-      "train": 11
+      "review-pending": 10119,
+      "train": 102
     },
     "baibala-hemolele-1868": {
-      "train": 50,
-      "review-pending": 20802
+      "train": 488,
+      "review-pending": 20364
     },
     "gospel_john_1854": {
-      "review-pending": 602
+      "train": 12,
+      "review-pending": 590
     },
     "hk_constitution_1852": {
-      "review-pending": 74
+      "review-pending": 68,
+      "train": 6
     },
     "hk_statutes_1897": {
-      "review-pending": 1095,
-      "train": 8
+      "review-pending": 1026,
+      "train": 77
     },
     "hooilina": {
       "review-pending": 68,
       "train": 60
     },
     "ia-hawaiian-phrase-book-1881": {
-      "train": 224
+      "train": 2516
     },
     "kaikki-haw-en-wiktionary": {
-      "review-pending": 139,
-      "train": 153
+      "review-pending": 48,
+      "train": 244
+    },
+    "opus-haw-subsets": {
+      "train": 562,
+      "review-pending": 332
     },
     "tatoeba": {
-      "train": 97,
+      "train": 105,
       "dev": 15,
-      "review-pending": 9
+      "review-pending": 1
+    },
+    "weblate-en-haw": {
+      "review-pending": 4,
+      "train": 103
+    },
+    "wikimedia-cx-en-haw": {
+      "train": 11,
+      "review-pending": 16
     }
   },
   "totals": {
-    "train": 603,
+    "train": 4286,
     "dev": 15,
-    "review_pending": 34193,
-    "grand_total": 34811,
-    "directional_sft_estimate": 1206
+    "review_pending": 33830,
+    "grand_total": 38131,
+    "directional_sft_estimate": 8572
   },
   "token_totals": {
-    "total_train_tokens": 11042,
-    "bible_train_tokens": 3303,
-    "hk_train_tokens": 1637,
-    "nonbible_nonhk_train_tokens": 6102,
-    "bible_actual_share": 0.299131,
-    "hk_actual_share": 0.148252
+    "total_train_tokens": 113453,
+    "bible_train_tokens": 34024,
+    "hk_train_tokens": 17007,
+    "software_l10n_train_tokens": 1528,
+    "uncapped_train_tokens": 60894,
+    "bible_actual_share": 0.299895,
+    "hk_actual_share": 0.149903,
+    "software_l10n_actual_share": 0.013468
   },
   "notes": [
     "Caps verified directly against the emitted artifact, not a reference denominator.",
     "Frozen Tatoeba dev (15 rows) untouched. No promoted review-pending row enters dev/test.",
     "Andrews 1865 (1,194 rows) remains review-pending: 0 promoted.",
     "Hoʻoilina: 60 sentence-level rows promoted to train (prototype-only); 68 paragraph-level rows remain deferred (future-work-native-review).",
-    "Phrase Book 1881 (Bishop 4th ed., U.S. PD): 224 phrase-pair rows promoted to train (release-eligible, NOT prototype-only); uncapped non-Bible/non-HK contributor to N. Adapter at scripts/326_build_phrase_book_candidates.py.",
+    "Phrase Book 1881 (Bishop 4th ed., U.S. PD): 2516 phrase-pair rows promoted to train (release-eligible, NOT prototype-only); uncapped non-Bible/non-HK contributor to N. Adapter at scripts/328_build_phrase_book_candidates.py.",
     "1850/1869 HK pair stays inventory-only per Linus year-mismatch flag.",
     "Bible 1839 historical-orthography accepted rows that exceed cap are quarantined to review-pending with 'dropped-by-bible-cap-v2-fixedpoint'; the canonical manifest is unchanged.",
     "SFT emitter requires --allow-review-required because HK 1897 and Hoʻoilina sentence rows carry alignment_review_required=true at ingestion despite passing their promotion rules.",
     "N denominator now includes Hoʻoilina sentence + Phrase Book 1881 train tokens, slightly increasing Bible/HK cap budgets.",
+    "Weblate permissive-license software-l10n rows: 103 promoted under a <=15% software-l10n token cap; 0 cap-held and 4 quality-held.",
+    "OPUS Wikimedia source-line-aligned rows: 275 scorer-accepted rows promoted; remaining OPUS rows hard-held with concrete verdicts.",
+    "Wikimedia CX high-human/no-MT rows: 2 promoted; 12 held out under the conservative CX train gate.",
     "This is NOT a path to 80k by review-pending promotion alone; NLLB-mined and synthetic BT remain required (per Rusty §4 and Linus ulukau-sft-vetting)."
   ]
 }

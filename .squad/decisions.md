@@ -1,11 +1,76 @@
 # Decisions
 
-> Updated 2026-05-04T06:06:29Z: Merged decision inbox files: linus-stage2-hooilina-resplit-v3.md, copilot-directive-20260504-stage2-consolidate.md. Prior 2026-05-04T05:29:51Z: Merged decision inbox files: copilot-directive-2026-05-04T03-49-hooilina-paragraphs-only.md, linus-hooilina-paragraph-impl.md, linus-hooilina-paragraph-pairs.md, linus-stage2-common-voice-license-probe.md, linus-stage2-flores-plus-license-probe.md, linus-stage2-hk-statutes-extended.md, linus-stage2-tier-a-promotion.md, linus-stage3-paragraph-stage.md, rusty-hooilina-labse-policy.md. Prior 2026-05-03T20:55:00Z: Merged R17 linus-stage2-r17-canonical-consolidation (canonical helpers consolidated to single source of truth in `code/llm_hawaii/stage2_canonical.py`: canonical_en, canonical_haw, canonical_pair; 25 files refactored (adapters, audit, dedup, legacy normalizer); NFC normalize, strip invisibles, collapse whitespace, preserve case, EN folds curly quotes/hyphens, HAW ʻokina folding; 60/60 tests pass, 37,084 rows stable, strict audit pass, commit bf4b57e; future adapters MUST import from stage2_canonical, no local canonicalization helpers). Prior 2026-05-03T20:45:08Z: Merged R16 linus-stage2-r16-hash-determinism-policy (EN-side hash canonicalization contract locked: NFC normalize, strip invisibles, collapse whitespace, preserve case, fold EN curly quotes/hyphens to ASCII, keep U+02BC/U+02BB/em-en-dashes, HAW ʻokina folding HAW-only; 7 determinism tests added; FLORES+ and Common Voice probed RED/SKIP for Hawaiian; 37,084 rows stable, all suites green, commit 85ba2e5). Prior 2026-05-03T20:38:30Z: Merged R15 linus-stage2-r15-dedup-edge-fixes (fallback exact-pair ordering uses canonical source priority not alphabetical; near-dupe matching strips invisible controls U+00AD/U+200B/U+200C/U+200D/U+FEFF; manifest validation rejects whitespace/invisible-only refs; audit reports 7 invisible-control rows, 3 NBSP rows, 37,084 rows stable, all suites green). Prior 2026-05-03T20:33:14Z: Merged R14 linus-stage2-r14-contamination-wired (train-side eval-contamination filter now enforcing gate; `--eval-hashes` loads explicit eval ledgers before dedup, drops matches before cross-source/side/near-duplicate dedup, missing ledger hard error, writes contamination_report.json sidecar, all regression suites green). Prior 2026-05-03T1100Z: Merged R7 linus-stage2-paraphrase-grouping (161 EN/32 HAW exact groups accepted as lexical diversity, 395 rows annotated, zero drops, copilot user directive captured). Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
+> Updated 2026-05-04T06:40:10Z: Merged decision inbox file: linus-stage2-resplit-stricter-v3-emit.md (strict Hoʻoilina resplit under v3 manifest, 861→725 children, 185 blank dropped, 0 new collisions, 6,136 final TRAIN pairs, Bible 26.18% / HK 13.45%, SFT emit 12,272 rows). Prior 2026-05-04T06:06:29Z: Merged decision inbox files: linus-stage2-hooilina-resplit-v3.md, copilot-directive-20260504-stage2-consolidate.md. Prior 2026-05-04T05:29:51Z: Merged decision inbox files: copilot-directive-2026-05-04T03-49-hooilina-paragraphs-only.md, linus-hooilina-paragraph-impl.md, linus-hooilina-paragraph-pairs.md, linus-stage2-common-voice-license-probe.md, linus-stage2-flores-plus-license-probe.md, linus-stage2-hk-statutes-extended.md, linus-stage2-tier-a-promotion.md, linus-stage3-paragraph-stage.md, rusty-hooilina-labse-policy.md. Prior 2026-05-03T20:55:00Z: Merged R17 linus-stage2-r17-canonical-consolidation (canonical helpers consolidated to single source of truth in `code/llm_hawaii/stage2_canonical.py`: canonical_en, canonical_haw, canonical_pair; 25 files refactored (adapters, audit, dedup, legacy normalizer); NFC normalize, strip invisibles, collapse whitespace, preserve case, EN folds curly quotes/hyphens, HAW ʻokina folding; 60/60 tests pass, 37,084 rows stable, strict audit pass, commit bf4b57e; future adapters MUST import from stage2_canonical, no local canonicalization helpers). Prior 2026-05-03T20:45:08Z: Merged R16 linus-stage2-r16-hash-determinism-policy (EN-side hash canonicalization contract locked: NFC normalize, strip invisibles, collapse whitespace, preserve case, fold EN curly quotes/hyphens to ASCII, keep U+02BC/U+02BB/em-en-dashes, HAW ʻokina folding HAW-only; 7 determinism tests added; FLORES+ and Common Voice probed RED/SKIP for Hawaiian; 37,084 rows stable, all suites green, commit 85ba2e5). Prior 2026-05-03T20:38:30Z: Merged R15 linus-stage2-r15-dedup-edge-fixes (fallback exact-pair ordering uses canonical source priority not alphabetical; near-dupe matching strips invisible controls U+00AD/U+200B/U+200C/U+200D/U+FEFF; manifest validation rejects whitespace/invisible-only refs; audit reports 7 invisible-control rows, 3 NBSP rows, 37,084 rows stable, all suites green). Prior 2026-05-03T20:33:14Z: Merged R14 linus-stage2-r14-contamination-wired (train-side eval-contamination filter now enforcing gate; `--eval-hashes` loads explicit eval ledgers before dedup, drops matches before cross-source/side/near-duplicate dedup, missing ledger hard error, writes contamination_report.json sidecar, all regression suites green). Prior 2026-05-03T1100Z: Merged R7 linus-stage2-paraphrase-grouping (161 EN/32 HAW exact groups accepted as lexical diversity, 395 rows annotated, zero drops, copilot user directive captured). Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
 >
 
 ---
 
-# Stage 2 Hoʻoilina Resplit Recovery — v3 Manifest
+# Stage 2 Hoʻoilina Strict Resplit & SFT Emit — v3 Manifest Final
+
+**Date:** 2026-05-04T06:38:49Z  
+**Owner:** Linus (Data Engineer)  
+**Status:** ✅ Complete & Emitted
+
+## Context
+
+Following the initial v3 Hoʻoilina resplit recovery that re-admitted 861 loosely resplit children, a stricter rebuild was requested to eliminate half-blank chunks and re-align paragraphs by their numbered structure (EN: § 1, 2, 3; HAW: matching sections). This refinement preserved the v3 philosophy while raising consistency standards.
+
+## Decision
+
+Replace in-place all 861 loose Hoʻoilina children in the v3 manifest (`reviewed_stage2_manifest_final_capped_v3.jsonl`) with a stricter paragraph-aligned rebuild. Pre-snapshot the prior v3 before modification.
+
+## Results
+
+| Metric | Loose → Strict | Value |
+|--------|---|---|
+| Loose children (TRAIN) | 861 | — |
+| Half-blank children (dropped) | 185 | — |
+| Strict children (admitted) | 725 | ✅ |
+| Unsalvageable rows (ejected) | 136 | — |
+| New dedup collisions | 0 | ✅ |
+| Final TRAIN pairs | — | 6,136 |
+| Bible % | — | 26.18% (≤30%) ✅ |
+| HK/legal % | — | 13.45% (≤15%) ✅ |
+| Rows > 2048 tokens | — | 0 ✅ |
+
+## Manifest Artifacts
+
+- **Updated v3 manifest:** `data/stage2/reviewed_stage2_manifest_final_capped_v3.jsonl` (manifest hash: `4cff0b826c5c423ba57bcdb3e83d20a3def2bcb4b49fa64fd6ac72c65fd55ff1`)
+- **Pre-strict snapshot:** `data/stage2/reviewed_stage2_manifest_final_capped_v3_pre_strict_resplit.jsonl` (source hash: `1c0bdf803676c0eac5093ca53bebf1afdca7f80071608ff11ba696244ad39a27`)
+
+## SFT Emit Outcome
+
+```bash
+python3 scripts/330_emit_stage2_sft_jsonl.py \
+  --manifest data/stage2/reviewed_stage2_manifest_final_capped_v3.jsonl \
+  --out data/stage2/stage2_sft.jsonl \
+  --splits train \
+  --directions both \
+  --allow-review-required
+```
+
+**Output:** 
+- File: `data/stage2/stage2_sft.jsonl`
+- Pairs: 6,136 (12,272 SFT rows)
+- Size: 12.1 MiB
+
+## Gating Status
+
+✅ All Stage 2 gates satisfied:
+1. Max sequence length ≤2048 tokens (actual max 1,946)
+2. Bible % < 30%
+3. HK/legal % < 15%
+4. Zero blank TRAIN rows
+5. Zero new dedup collisions
+6. Parent→child lineage preserved
+
+## Recommendation
+
+**APPROVED FOR IMMEDIATE USE.** Stage 2 SFT data is production-ready.
+
+---
+
+# Stage 2 Hoʻoilina Resplit Recovery — v3 Manifest (Prior)
 
 **Date:** 2026-05-04  
 **Owner:** Linus (Data Engineer)  

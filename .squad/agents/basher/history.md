@@ -1157,3 +1157,26 @@ Rusty's manifest builder now handles all policy scoring. Basher's emitter needs 
 | stage2_manifest.jsonl not overwritten | git status clean; file has 11,828 rows (no hooilina), output is a separate file | ✅ |
 
 **Status:** Approved.
+
+---
+
+## 2026-05-04 — Stage 2 SFT Data Ready (Team Update from Scribe)
+
+**Status:** Ready for training
+
+Stage 2 SFT training data is now available at `data/stage2/stage2_sft.jsonl` following Linus's strict Hoʻoilina resplit completion. 
+
+**Data Summary:**
+- Pairs: 6,136 (both directions: 12,272 rows)
+- Max sequence length: 1,946 tokens (limit: 2,048)
+- Bible %: 26.18% (cap: 30%)
+- HK/legal %: 13.45% (cap: 15%)
+- Blank EN/HAW rows: 0
+- Size: 12.1 MiB
+
+**Manifest lineage:**
+- Input: `reviewed_stage2_manifest_final_capped_v3.jsonl` (strict resplit applied)
+- Snapshot (pre-strict): `reviewed_stage2_manifest_final_capped_v3_pre_strict_resplit.jsonl`
+
+All Stage 2 gates are satisfied. Proceed with loading into training pipeline when ready.
+
