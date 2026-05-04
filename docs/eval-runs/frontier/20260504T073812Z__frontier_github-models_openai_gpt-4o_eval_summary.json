@@ -1,0 +1,260 @@
+{
+  "stage": "frontier_baseline",
+  "schema_version": "stage0_eval.v2",
+  "provider": "github-models",
+  "model_id": "openai/gpt-4o",
+  "endpoint": "https://models.github.ai/inference/chat/completions",
+  "full_artifact": "data/eval_runs/frontier/20260504T073812Z__frontier_github-models_openai_gpt-4o_eval.json",
+  "full_artifact_sha256": "c2db04461eeca26009aa699db387e479f1c10de7c974ffa8e869f2aa078abf43",
+  "identity": {
+    "provider": "github-models",
+    "model_id": "openai/gpt-4o",
+    "endpoint": "https://models.github.ai/inference/chat/completions",
+    "api_version": "2024-12-01-preview",
+    "is_local": false,
+    "supports_logprobs": false
+  },
+  "decoding": {
+    "do_sample": false,
+    "max_new_tokens": 64,
+    "temperature": 0.0,
+    "top_p": 1.0,
+    "greedy": true
+  },
+  "prompt_suite": {
+    "suite_id": "stage0.v1",
+    "suite_sha256": "2683027f538ae8fb2910f758f2865596355893cc91c85dbdfe9ced130797bce6",
+    "items": [
+      {
+        "id": "en_control_1",
+        "prompt_sha256": "2d0b23f9dc4839af2c6d7194e78ac8240c60d43cfbc439fe64f3c3c723abdf2c",
+        "prompt_len_chars": 66,
+        "prompt_diacritics": 0,
+        "diacritic_density_bin": "none"
+      },
+      {
+        "id": "haw_low_1",
+        "prompt_sha256": "d7dfa0b5b6cea896c001a79991f198c960f1fc869fb9bfccb38ac72910f6a508",
+        "prompt_len_chars": 16,
+        "prompt_diacritics": 1,
+        "diacritic_density_bin": "low"
+      },
+      {
+        "id": "haw_low_2",
+        "prompt_sha256": "90cfb759b4a1df09c35875ce904f5f1a3925afd45df23a24aaa5a580e8550a67",
+        "prompt_len_chars": 28,
+        "prompt_diacritics": 2,
+        "diacritic_density_bin": "low"
+      },
+      {
+        "id": "haw_medium_1",
+        "prompt_sha256": "851aa55b1ad59aacc76634a110b686d287ef5c7aaff2243d09248b9a75f596a3",
+        "prompt_len_chars": 30,
+        "prompt_diacritics": 3,
+        "diacritic_density_bin": "medium"
+      },
+      {
+        "id": "haw_medium_2",
+        "prompt_sha256": "16bac8ae4e9d0ef85f9cc7fed217c7877d345fc90e7bece0a3347d3e34b86797",
+        "prompt_len_chars": 20,
+        "prompt_diacritics": 3,
+        "diacritic_density_bin": "medium"
+      },
+      {
+        "id": "haw_high_1",
+        "prompt_sha256": "ebe312a9235d3cfdad033ec7d7fcc09f0dd950b9eb58fa42eb1857a23ca00520",
+        "prompt_len_chars": 125,
+        "prompt_diacritics": 13,
+        "diacritic_density_bin": "high"
+      },
+      {
+        "id": "haw_high_2",
+        "prompt_sha256": "7012f20f1b0b3bcb4c3a820585cea3a2603e38b5d83d28462b76e185af560970",
+        "prompt_len_chars": 131,
+        "prompt_diacritics": 12,
+        "diacritic_density_bin": "high"
+      }
+    ]
+  },
+  "generation_count": 7,
+  "generation_sha256": {
+    "sample_0": "947a366623312871be838d00fb26b7cb6627630384b5425415f60b061ab09a22",
+    "sample_1": "d9ef970f6d01a1e0a380991b3b24912aec165f2bf22301d34f24d211a2254dd5",
+    "sample_2": "95aa74b259ebee505934a42dfe2b1ccd80fe620019f157ac65658bcc7378de14",
+    "sample_3": "035c2182dd513b4f13b5cca755d8742c23fd583d70f1cae4cd1c49d6e9666fb6",
+    "sample_4": "870ccb396ae2706f7626d4e91c7afea25d3874d216f10bfd3ac20b1c09f5f573",
+    "sample_5": "72797e9724cf93b9dba2d7454f1b176aadfd77a287fdbbc6b983b89354e3603c",
+    "sample_6": "03b0ebfafbf8005924e710f839ed0250d0bccd08827c46ebf68cd4870f46c161"
+  },
+  "metrics": {
+    "hawaiian_ppl": {
+      "status": "not_supported",
+      "reason": "no logprobs from chat-completions API; closed frontier models do not expose token-level probabilities"
+    },
+    "hawaiian_ppl_by_source": {
+      "status": "not_supported",
+      "reason": "depends on hawaiian_ppl"
+    },
+    "english_ppl": {
+      "status": "not_supported",
+      "reason": "no logprobs from chat-completions API"
+    },
+    "manual_w1": {
+      "path": "data/evals/manual_w1/w1-haw-micro-eval.jsonl",
+      "scoring_status": "not_wired",
+      "scoring_reason": "W1 row-level model scoring not wired; metadata/validation only — accepted_count is NOT a task-accuracy benchmark",
+      "schema_version_seen": "manual-w1-jsonl-v1",
+      "jsonl_sha256": "fe255f9de850d70adbb3d9c016165af0638127d9c4075bc24581c219207f8157",
+      "jsonl_size_bytes": 4832,
+      "row_count": 5,
+      "review_status_counts": {
+        "draft": 5
+      },
+      "accepted_count": 0,
+      "eval_consumable_count": 0,
+      "nfc_normalized_false_count": 0,
+      "accepted_category_counts": {},
+      "accepted_diacritic_density_bin_counts": {},
+      "accepted_item_hashes": [],
+      "w1_suite_sha256": null,
+      "status": "draft_only",
+      "reason": "no review_status=accepted rows; drafts/reviewed rows are not reportable as eval results"
+    },
+    "human_fetch_translation": {
+      "schema": "human-fetch-translation-probe-v1",
+      "path": "data/tokenizer_audit/ulukau_nupepa/human_fetch.jsonl",
+      "eval_eligible": true,
+      "training_eligible": false,
+      "source_jsonl_sha256": "203935a3dd1a444715897d4f67ba2a1a8fa0a7a31915edcad791ab9e5dcc8067",
+      "source_jsonl_size_bytes": 3527,
+      "pair_count": 1,
+      "pair_sha256": {
+        "en": "5ef0173e06b98e1137ef134d3fee64da99c96a908c165b89357958b5c9ab3589",
+        "haw": "e7ced0ae2eb6aa04f94b11271b8722fce509e2eac1cb4924b56cfb5a2f77565c"
+      },
+      "template_sha256": {
+        "en_to_haw": "c0d99bc26e7cc96bf66b7dc8809c03451b9d881d5f16abaae214c69685b2f1ff",
+        "haw_to_en": "5a9c8eab29913723967249dbb4ec4b3866f22b7767159d9d0163d199e7a72e59"
+      },
+      "directions": {
+        "en_to_haw": {
+          "prompt_sha256": "aba86f5fe8437c21711502dbb9738a3ed1f20ce923926806639c9c6efc4a65fc",
+          "generation_sha256": "5706b1a26a70d475d87ad5d23c6ef8b176e552325265aa2edaf6ebf56c397065",
+          "reference_sha256": "e7ced0ae2eb6aa04f94b11271b8722fce509e2eac1cb4924b56cfb5a2f77565c",
+          "metric": "char_ngram_f1_baseline",
+          "char_f1": 0.398827,
+          "char_precision": 0.871795,
+          "char_recall": 0.258555,
+          "ngram_order": 2
+        },
+        "haw_to_en": {
+          "prompt_sha256": "9f74c9cacfa5e77c80ed17fbcb1b0c6f04a0c3e703e17d61be46be0db4e71352",
+          "generation_sha256": "9290fce24038fabdb46b5b1b30360e96bdc9772c15da4224a6d68c2f50550c11",
+          "reference_sha256": "5ef0173e06b98e1137ef134d3fee64da99c96a908c165b89357958b5c9ab3589",
+          "metric": "char_ngram_f1_baseline",
+          "char_f1": 0.617021,
+          "char_precision": 0.847403,
+          "char_recall": 0.48513,
+          "ngram_order": 2
+        }
+      },
+      "status": "evaluated"
+    },
+    "orthography_metrics": {
+      "sample_0": {
+        "is_nfc": true,
+        "okina": 0,
+        "wrong_okina": 0,
+        "kahako": 0,
+        "diacritic_density": 0,
+        "diacritic_density_bin": "none",
+        "combining_macron": 0,
+        "len": 345
+      },
+      "sample_1": {
+        "is_nfc": true,
+        "okina": 1,
+        "wrong_okina": 0,
+        "kahako": 1,
+        "diacritic_density": 2,
+        "diacritic_density_bin": "low",
+        "combining_macron": 0,
+        "len": 54
+      },
+      "sample_2": {
+        "is_nfc": true,
+        "okina": 1,
+        "wrong_okina": 0,
+        "kahako": 4,
+        "diacritic_density": 5,
+        "diacritic_density_bin": "medium",
+        "combining_macron": 0,
+        "len": 51
+      },
+      "sample_3": {
+        "is_nfc": true,
+        "okina": 9,
+        "wrong_okina": 0,
+        "kahako": 7,
+        "diacritic_density": 16,
+        "diacritic_density_bin": "high",
+        "combining_macron": 0,
+        "len": 183
+      },
+      "sample_4": {
+        "is_nfc": true,
+        "okina": 7,
+        "wrong_okina": 0,
+        "kahako": 8,
+        "diacritic_density": 15,
+        "diacritic_density_bin": "high",
+        "combining_macron": 0,
+        "len": 175
+      },
+      "sample_5": {
+        "is_nfc": true,
+        "okina": 8,
+        "wrong_okina": 0,
+        "kahako": 8,
+        "diacritic_density": 16,
+        "diacritic_density_bin": "high",
+        "combining_macron": 0,
+        "len": 167
+      },
+      "sample_6": {
+        "is_nfc": true,
+        "okina": 6,
+        "wrong_okina": 0,
+        "kahako": 4,
+        "diacritic_density": 10,
+        "diacritic_density_bin": "high",
+        "combining_macron": 0,
+        "len": 206
+      }
+    },
+    "orthography_aggregate": {
+      "n": 7,
+      "okina_total": 32,
+      "wrong_okina_total": 0,
+      "kahako_total": 32,
+      "combining_macron_total": 0,
+      "nfc_failures": 0,
+      "diacritic_density_bin_counts": {
+        "none": 1,
+        "low": 1,
+        "medium": 1,
+        "high": 4
+      },
+      "kahako_collapse_on_high_diacritic": 0
+    }
+  },
+  "tripwires": {
+    "wrong_okina_nonzero": false,
+    "nfc_failures": 0,
+    "combining_macron_nonzero": false,
+    "kahako_collapse_on_high_diacritic": 0,
+    "generation_count": 7,
+    "prompt_suite_sha256": "2683027f538ae8fb2910f758f2865596355893cc91c85dbdfe9ced130797bce6",
+    "prompt_suite_id": "stage0.v1"
+  }
+}
