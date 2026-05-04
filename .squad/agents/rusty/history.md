@@ -9,6 +9,12 @@ Condensed older entries; newest detailed entries remain below.
 
 ---
 
+## 2026-05-04T08:20:53Z — W1 manual micro-eval rows accepted
+
+Frank completed the W1 acceptance pass: all 5 current manual W1 rows are now `review_status=accepted` and `eval_consumable=true`, with NFC normalization, U+02BB ʻokina/kahakō handling, and stored normalized hashes verified. Future eval reporting may cite W1 as `status=evaluated`, `accepted_count=5`, `schema_version_seen=manual-w1-jsonl-v1`, with `scoring_status=not_wired`.
+
+---
+
 ## 2026-05-04T08:13:26Z — Frontier PPL policy and Stage 1 checkpoint-10140 row
 
 Rusty sync spawns clarified chart policy and updated the frontier comparison artifact. Frontier PPL is not 1:1 with local checkpoint PPL because closed chat-completions APIs do not expose token logprobs; frontier charts should mark PPL `N/A` / `not_supported` or omit it, while local Stage 0/1 PPL remains diagnostics-only.
