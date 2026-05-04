@@ -1,7 +1,132 @@
 # Decisions
 
-> Updated 2026-05-04T05:29:51Z: Merged decision inbox files: copilot-directive-2026-05-04T03-49-hooilina-paragraphs-only.md, linus-hooilina-paragraph-impl.md, linus-hooilina-paragraph-pairs.md, linus-stage2-common-voice-license-probe.md, linus-stage2-flores-plus-license-probe.md, linus-stage2-hk-statutes-extended.md, linus-stage2-tier-a-promotion.md, linus-stage3-paragraph-stage.md, rusty-hooilina-labse-policy.md. Prior 2026-05-03T20:55:00Z: Merged R17 linus-stage2-r17-canonical-consolidation (canonical helpers consolidated to single source of truth in `code/llm_hawaii/stage2_canonical.py`: canonical_en, canonical_haw, canonical_pair; 25 files refactored (adapters, audit, dedup, legacy normalizer); NFC normalize, strip invisibles, collapse whitespace, preserve case, EN folds curly quotes/hyphens, HAW ʻokina folding; 60/60 tests pass, 37,084 rows stable, strict audit pass, commit bf4b57e; future adapters MUST import from stage2_canonical, no local canonicalization helpers). Prior 2026-05-03T20:45:08Z: Merged R16 linus-stage2-r16-hash-determinism-policy (EN-side hash canonicalization contract locked: NFC normalize, strip invisibles, collapse whitespace, preserve case, fold EN curly quotes/hyphens to ASCII, keep U+02BC/U+02BB/em-en-dashes, HAW ʻokina folding HAW-only; 7 determinism tests added; FLORES+ and Common Voice probed RED/SKIP for Hawaiian; 37,084 rows stable, all suites green, commit 85ba2e5). Prior 2026-05-03T20:38:30Z: Merged R15 linus-stage2-r15-dedup-edge-fixes (fallback exact-pair ordering uses canonical source priority not alphabetical; near-dupe matching strips invisible controls U+00AD/U+200B/U+200C/U+200D/U+FEFF; manifest validation rejects whitespace/invisible-only refs; audit reports 7 invisible-control rows, 3 NBSP rows, 37,084 rows stable, all suites green). Prior 2026-05-03T20:33:14Z: Merged R14 linus-stage2-r14-contamination-wired (train-side eval-contamination filter now enforcing gate; `--eval-hashes` loads explicit eval ledgers before dedup, drops matches before cross-source/side/near-duplicate dedup, missing ledger hard error, writes contamination_report.json sidecar, all regression suites green). Prior 2026-05-03T1100Z: Merged R7 linus-stage2-paraphrase-grouping (161 EN/32 HAW exact groups accepted as lexical diversity, 395 rows annotated, zero drops, copilot user directive captured). Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
+> Updated 2026-05-04T06:06:29Z: Merged decision inbox files: linus-stage2-hooilina-resplit-v3.md, copilot-directive-20260504-stage2-consolidate.md. Prior 2026-05-04T05:29:51Z: Merged decision inbox files: copilot-directive-2026-05-04T03-49-hooilina-paragraphs-only.md, linus-hooilina-paragraph-impl.md, linus-hooilina-paragraph-pairs.md, linus-stage2-common-voice-license-probe.md, linus-stage2-flores-plus-license-probe.md, linus-stage2-hk-statutes-extended.md, linus-stage2-tier-a-promotion.md, linus-stage3-paragraph-stage.md, rusty-hooilina-labse-policy.md. Prior 2026-05-03T20:55:00Z: Merged R17 linus-stage2-r17-canonical-consolidation (canonical helpers consolidated to single source of truth in `code/llm_hawaii/stage2_canonical.py`: canonical_en, canonical_haw, canonical_pair; 25 files refactored (adapters, audit, dedup, legacy normalizer); NFC normalize, strip invisibles, collapse whitespace, preserve case, EN folds curly quotes/hyphens, HAW ʻokina folding; 60/60 tests pass, 37,084 rows stable, strict audit pass, commit bf4b57e; future adapters MUST import from stage2_canonical, no local canonicalization helpers). Prior 2026-05-03T20:45:08Z: Merged R16 linus-stage2-r16-hash-determinism-policy (EN-side hash canonicalization contract locked: NFC normalize, strip invisibles, collapse whitespace, preserve case, fold EN curly quotes/hyphens to ASCII, keep U+02BC/U+02BB/em-en-dashes, HAW ʻokina folding HAW-only; 7 determinism tests added; FLORES+ and Common Voice probed RED/SKIP for Hawaiian; 37,084 rows stable, all suites green, commit 85ba2e5). Prior 2026-05-03T20:38:30Z: Merged R15 linus-stage2-r15-dedup-edge-fixes (fallback exact-pair ordering uses canonical source priority not alphabetical; near-dupe matching strips invisible controls U+00AD/U+200B/U+200C/U+200D/U+FEFF; manifest validation rejects whitespace/invisible-only refs; audit reports 7 invisible-control rows, 3 NBSP rows, 37,084 rows stable, all suites green). Prior 2026-05-03T20:33:14Z: Merged R14 linus-stage2-r14-contamination-wired (train-side eval-contamination filter now enforcing gate; `--eval-hashes` loads explicit eval ledgers before dedup, drops matches before cross-source/side/near-duplicate dedup, missing ledger hard error, writes contamination_report.json sidecar, all regression suites green). Prior 2026-05-03T1100Z: Merged R7 linus-stage2-paraphrase-grouping (161 EN/32 HAW exact groups accepted as lexical diversity, 395 rows annotated, zero drops, copilot user directive captured). Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
 >
+
+---
+
+# Stage 2 Hoʻoilina Resplit Recovery — v3 Manifest
+
+**Date:** 2026-05-04  
+**Owner:** Linus (Data Engineer)  
+**Status:** ✅ Implemented & Verified
+
+## Context
+
+25 Hoʻoilina rows were quarantined in v2_dedup_quarantined because their concatenated EN+HAW token length exceeded the new `max_seq_len=2048` limit. These were full-document constitutional/historical texts (e.g., Hawaiian Kingdom Statutes 1851) that bypassed the original paragraph splitter. The audit report indicated they were "recoverable as 100-200 sentence/paragraph pairs".
+
+Side issue: Removing them broke cap shares:
+- Bible: 25.54% → 39.71% (cap: 30%)
+- HK-Legal: 13.01% → 20.23% (cap: 15%)
+
+Re-admitting non-Bible/non-HK Hoʻoilina content would mechanically restore caps.
+
+## Decision
+
+Re-split 25 quarantined Hoʻoilina rows using a length-aware strategy and re-admit them to TRAIN split.
+
+**Strategy:**
+1. Primary: numbered-paragraph split (`\n(?=\d+\.[ \t])`) per existing Hoʻoilina pipeline
+2. Fallback: sentence split (period/question/exclamation + space + capital) for paragraphs still >2048 tokens
+3. Hard-chunk: At sentence boundaries for any sentence pairs still >2048 tokens, maintaining EN↔HAW alignment
+4. Safety margin: Target ≤1600 tokens per chunk (leaves 448 tokens headroom for special tokens/template)
+
+**Implementation:**
+- Created `scripts/resplit_hooilina_outliers.py` to re-split 25 parent rows
+- Created `scripts/build_stage2_manifest_v3_hooilina_recovery.py` to merge resplit candidates into v3 manifest
+- Used Llama-3.1-8B tokenizer for accurate token counts
+
+## Results
+
+### Re-split Output
+- 25 parent rows → 864 child chunks
+- 3 collisions with existing manifest (deduped)
+- 861 new rows admitted to TRAIN split
+
+### Manifest Transformation: v2 → v3
+
+| Metric | v2 (Quarantined) | v3 (Recovered) | Change |
+|--------|------------------|----------------|--------|
+| TRAIN rows | 5,411 | 6,272 | +861 |
+| Pair tokens | 382,760 | 589,370 | +206,610 |
+| Max seq_len | 1,947 | 1,946 | -1 ✓ |
+| Rows > 2048 | 0 | 0 | ✓ |
+| Bible % | 39.71% | 25.56% | -14.15% ✓ |
+| HK-Legal % | 20.23% | 13.13% | -7.10% ✓ |
+
+### Cap Verification ✅
+
+Both caps are now **under** their limits:
+- Bible: 25.56% < 30% ✓
+- HK-Legal: 13.13% < 15% ✓
+
+The Hoʻoilina recovery diluted the over-represented capped sources back to healthy levels.
+
+### Sequence Length Verification ✅
+
+All 6,272 TRAIN rows are ≤2048 tokens (max=1946). The 1600-token safety margin in the resplitter was sufficient.
+
+## Parent Row Tracking
+
+25 quarantined parent rows remain in `split="review-pending"` with:
+- Updated reason: `"seq_len_outlier_paragraph_split_failure_resplit_into_children"`
+- New field: `child_sha256_pairs: [...]` pointing to 861 child rows
+- Example: `5716fa6955f0018b...` → 45 child chunks
+
+## Artifacts
+
+- **v3 Manifest:** `data/stage2/reviewed_stage2_manifest_final_capped_v3.jsonl` (38,930 rows)
+- **Resplit Candidates:** `data/stage2/candidates/hooilina_resplit.jsonl` (864 rows)
+- **Verification Report:** `data/stage2/reports/hooilina_resplit_v3_20260504.json`
+- **Scripts:**
+  - `scripts/resplit_hooilina_outliers.py` (re-splitter)
+  - `scripts/build_stage2_manifest_v3_hooilina_recovery.py` (v3 builder)
+
+## Usage
+
+To emit Stage 2 SFT training data from v3 manifest:
+
+```bash
+python scripts/330_emit_stage2_sft_jsonl.py \
+  --manifest data/stage2/reviewed_stage2_manifest_final_capped_v3.jsonl \
+  --out data/stage2/stage2_sft_v3.jsonl \
+  --splits train,dev \
+  --directions both
+```
+
+## Recommendation
+
+**APPROVED FOR USE.** v3 manifest passes all gates:
+1. ✅ All TRAIN rows ≤2048 tokens
+2. ✅ Bible % < 30%
+3. ✅ HK-Legal % < 15%
+4. ✅ Dedup enforced (3 collisions removed)
+5. ✅ Parent→child lineage preserved
+
+Proceed with Stage 2 training using v3 manifest.
+
+## Next
+
+If caps need further tightening, consider:
+- Lower Bible cap (e.g., 25%)
+- Lower HK-Legal cap (e.g., 12%)
+- Add more non-capped parallel sources (Tatoeba refresh, OPUS-TildeMODEL, etc.)
+
+---
+
+### 2026-05-04T05:30:30Z: User directive — consolidate row + paragraph training into Stage 2
+**By:** Yashas (via Copilot)
+**What:** Do not split into Stage 2 (rows) + Stage 3 (paragraphs). Stage 2 will hold both sentence/verse-grain rows AND paragraph-grain pairs. We don't have enough data to justify a separate Stage 3. Reverses the Stage 3 proposal previously evaluated by Linus (file `linus-stage3-paragraph-stage.md` in this inbox).
+**Why:** Insufficient unique long-form parallel data to support a standalone curriculum stage; consolidation avoids extra training run + eval surface and keeps all SFT material in one mix.
+**Implications:**
+- Stage 2 mix must accommodate both grains (length-aware sampler or simple length bucketing).
+- `max_seq_len` may need to grow from 1024 to fit longest paragraph pairs, OR long pairs get chunked.
+- Hoʻoilina paragraph-primary policy (decision already in place) carries over: paragraphs win, derived sentences excluded to avoid duplicate-token training.
+- Other paragraph-grain sources (HK statute sections, gospel_john sections, eventual nupepa articles) admitted into Stage 2 alongside row-grain sources.
+
+---
+
+
 
 ## Verdict
 
