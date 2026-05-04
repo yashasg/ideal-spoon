@@ -1,4 +1,4 @@
-"""eval_frontier.py — Frontier model evaluation via GitHub Models + Semantic Kernel.
+"""eval_frontier.py — Frontier model evaluation via GitHub Models/Azure + Semantic Kernel.
 
 Evaluates frontier chat models (OpenAI GPT, Anthropic Claude, etc.) using the
 FROZEN Stage 0/1 eval contract: same `stage0.v1` prompt suite, same W1 probe,
@@ -9,11 +9,11 @@ same human_fetch translation probe, same orthography metrics. Emits the same
 - `hawaiian_ppl` marked `not_supported` (closed APIs have no logprobs)
 - Generation/translation/orthography probes work normally
 
-Auth: GitHub Models API endpoint (`https://models.inference.ai.azure.com`)
-using `gh auth token` as the bearer token.
+Auth: GitHub Models uses `gh auth token`. Azure OpenAI uses
+`AZURE_OPENAI_API_KEY` plus an Azure deployment name.
 
 Orchestration: Semantic Kernel `OpenAIChatCompletion` connector pointed at
-GitHub Models (OpenAI-compatible API).
+GitHub Models or Azure OpenAI through OpenAI-compatible clients.
 
 DO NOT run live API calls in this session — mocked/dry-run/test only.
 """
@@ -49,6 +49,13 @@ from .evaluate import (
 
 # Default GitHub Models endpoint (OpenAI-compatible)
 DEFAULT_GITHUB_MODELS_ENDPOINT = "https://models.github.ai/inference/chat/completions"
+DEFAULT_GITHUB_MODELS_API_VERSION = "2024-12-01-preview"
+
+# Azure OpenAI defaults for GPT-5 frontier evals. Azure uses deployment names
+# in place of model names.
+DEFAULT_AZURE_OPENAI_ENDPOINT = "https://aifoundry672407977528-resource.openai.azure.com/"
+DEFAULT_AZURE_OPENAI_API_VERSION = "2024-10-21"
+DEFAULT_AZURE_OPENAI_GPT5_DEPLOYMENT = "gpt-5-chat"
 
 # Default frontier models to evaluate (curated for GitHub Models catalog)
 # Flagged for user verification — best-effort from documented models.
@@ -66,6 +73,49 @@ def _require(pkg: str, install_hint: str) -> Any:
         raise RuntimeError(
             f"Missing optional dependency '{pkg}'. Install with: {install_hint}"
         ) from e
+
+
+def _normalize_provider(provider: str | None) -> str:
+    """Normalize provider aliases used by scripts/env vars."""
+    value = (provider or "github-models").strip().lower().replace("_", "-")
+    if value in {"github", "github-model", "github-models"}:
+        return "github-models"
+    if value in {"azure", "azure-openai"}:
+        return "azure"
+    return value
+
+
+def _is_azure_provider(provider: str | None) -> bool:
+    return _normalize_provider(provider) == "azure"
+
+
+def _default_endpoint_for_provider(provider: str) -> str:
+    if _is_azure_provider(provider):
+        return os.environ.get("AZURE_OPENAI_ENDPOINT", DEFAULT_AZURE_OPENAI_ENDPOINT)
+    return os.environ.get("GITHUB_MODELS_ENDPOINT", DEFAULT_GITHUB_MODELS_ENDPOINT)
+
+
+def _default_api_version_for_provider(provider: str) -> str:
+    if _is_azure_provider(provider):
+        return os.environ.get("AZURE_OPENAI_API_VERSION", DEFAULT_AZURE_OPENAI_API_VERSION)
+    return DEFAULT_GITHUB_MODELS_API_VERSION
+
+
+def _default_azure_deployment() -> str:
+    """Resolve the Azure OpenAI deployment name used as the model argument."""
+    return (
+        os.environ.get("AZURE_OPENAI_GPT5_DEPLOYMENT")
+        or os.environ.get("AZURE_OPENAI_DEPLOYMENT")
+        or DEFAULT_AZURE_OPENAI_GPT5_DEPLOYMENT
+    )
+
+
+def _get_azure_openai_key(api_key: str | None = None) -> str:
+    """Get Azure OpenAI API key from explicit arg or env."""
+    token = api_key or os.environ.get("AZURE_OPENAI_API_KEY")
+    if token:
+        return token
+    raise RuntimeError("Azure OpenAI key not found. Set AZURE_OPENAI_API_KEY.")
 
 
 def _get_gh_token() -> str:
@@ -110,11 +160,17 @@ class FrontierChatService:
         model_id: str,
         endpoint: str | None = None,
         api_key: str | None = None,
+        api_version: str | None = None,
     ):
-        self.provider = provider
+        self.provider = _normalize_provider(provider)
         self.model_id = model_id
-        self.endpoint = endpoint or DEFAULT_GITHUB_MODELS_ENDPOINT
-        self.api_key = api_key or _get_gh_token()
+        self.endpoint = (endpoint or _default_endpoint_for_provider(self.provider)).rstrip("/")
+        self.api_version = api_version or _default_api_version_for_provider(self.provider)
+        self.api_key = (
+            _get_azure_openai_key(api_key)
+            if _is_azure_provider(self.provider)
+            else (api_key or _get_gh_token())
+        )
         
         # Lazy-import Semantic Kernel
         self._sk = _require(
@@ -122,16 +178,22 @@ class FrontierChatService:
             "pip install semantic-kernel>=1.13.0 (see requirements-eval-frontier.txt)",
         )
         
-        # Create SK chat completion client
-        # GitHub Models uses OpenAI-compatible API
+        # Create SK chat completion client. GitHub Models uses the generic
+        # OpenAI-compatible client; Azure OpenAI requires the Azure client.
         from semantic_kernel.connectors.ai.open_ai import OpenAIChatCompletion
         import openai
         
-        # Create custom AsyncOpenAI client pointing to GitHub Models
-        async_client = openai.AsyncOpenAI(
-            api_key=self.api_key,
-            base_url=self.endpoint.replace("/chat/completions", ""),  # base URL without path
-        )
+        if _is_azure_provider(self.provider):
+            async_client = openai.AsyncAzureOpenAI(
+                api_key=self.api_key,
+                azure_endpoint=self.endpoint,
+                api_version=self.api_version,
+            )
+        else:
+            async_client = openai.AsyncOpenAI(
+                api_key=self.api_key,
+                base_url=self.endpoint.replace("/chat/completions", ""),
+            )
         
         self._client = OpenAIChatCompletion(
             ai_model_id=model_id,
@@ -188,19 +250,24 @@ def _frontier_identity(
     provider: str,
     model_id: str,
     endpoint: str,
+    api_version: str | None = None,
 ) -> dict:
     """Identity descriptor for frontier model eval."""
+    normalized_provider = _normalize_provider(provider)
     is_reasoning = _is_reasoning_model(model_id)
-    return {
-        "provider": provider,
+    identity = {
+        "provider": normalized_provider,
         "model_id": model_id,
         "endpoint": endpoint,
-        "api_version": "2024-12-01-preview",  # GitHub Models API version
+        "api_version": api_version or _default_api_version_for_provider(normalized_provider),
         "is_local": False,
         "supports_logprobs": False,
         "determinism": "non_deterministic" if is_reasoning else "deterministic_temp_0",
         "reasoning_model": is_reasoning,
     }
+    if _is_azure_provider(normalized_provider):
+        identity["deployment_name"] = model_id
+    return identity
 
 
 def _human_fetch_translation_probe_frontier(
@@ -336,6 +403,7 @@ def evaluate_frontier_model(
     model_id: str,
     endpoint: str | None = None,
     api_key: str | None = None,
+    api_version: str | None = None,
     prompts: list[str] | None = None,
     use_prompt_suite: bool = True,
     max_new_tokens: int = 64,
@@ -356,6 +424,7 @@ def evaluate_frontier_model(
         model_id=model_id,
         endpoint=endpoint,
         api_key=api_key,
+        api_version=api_version,
     )
     
     report: dict = {
@@ -365,9 +434,10 @@ def evaluate_frontier_model(
     }
     
     report["identity"] = _frontier_identity(
-        provider=provider,
+        provider=service.provider,
         model_id=model_id,
         endpoint=service.endpoint,
+        api_version=service.api_version,
     )
     
     is_reasoning = _is_reasoning_model(model_id)
@@ -474,29 +544,34 @@ def evaluate_frontier_model(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Evaluate frontier chat models via GitHub Models + Semantic Kernel."
+        description="Evaluate frontier chat models via GitHub Models/Azure + Semantic Kernel."
     )
     parser.add_argument(
         "--provider",
-        default="github-models",
-        help="Provider (default: github-models)",
+        default=os.environ.get("FRONTIER_PROVIDER", os.environ.get("PROVIDER", "github-models")),
+        help="Provider: github-models or azure (default: github-models; env FRONTIER_PROVIDER)",
     )
     parser.add_argument(
         "--model-id",
         "--model",
         dest="model_id",
-        required=True,
-        help="Model ID (e.g., gpt-4o, claude-3.5-sonnet)",
+        required=False,
+        help="Model ID or Azure deployment name (default for Azure: AZURE_OPENAI_GPT5_DEPLOYMENT or gpt-5-chat)",
     )
     parser.add_argument(
         "--endpoint",
         default=None,
-        help=f"API endpoint (default: {DEFAULT_GITHUB_MODELS_ENDPOINT})",
+        help="API endpoint (default depends on provider)",
     )
     parser.add_argument(
         "--api-key",
         default=None,
-        help="API key (default: from GITHUB_TOKEN or gh CLI)",
+        help="API key (default: GitHub token for github-models; AZURE_OPENAI_API_KEY for azure)",
+    )
+    parser.add_argument(
+        "--api-version",
+        default=None,
+        help=f"Azure OpenAI API version (default: AZURE_OPENAI_API_VERSION or {DEFAULT_AZURE_OPENAI_API_VERSION})",
     )
     parser.add_argument(
         "--prompt",
@@ -536,12 +611,19 @@ def main(argv: list[str] | None = None) -> int:
         help="Disable human_fetch bidirectional translation probe.",
     )
     ns = parser.parse_args(argv)
+    ns.provider = _normalize_provider(ns.provider)
+    if not ns.model_id:
+        if _is_azure_provider(ns.provider):
+            ns.model_id = _default_azure_deployment()
+        else:
+            parser.error("--model-id/--model is required for github-models")
     
     report = evaluate_frontier_model(
         provider=ns.provider,
         model_id=ns.model_id,
         endpoint=ns.endpoint,
         api_key=ns.api_key,
+        api_version=ns.api_version,
         prompts=ns.prompt,
         use_prompt_suite=not ns.no_prompt_suite,
         max_new_tokens=ns.max_new_tokens,

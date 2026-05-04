@@ -20,9 +20,14 @@ from llm_hawaii.eval_frontier import (
     evaluate_frontier_model,
     _frontier_identity,
     _is_reasoning_model,
+    _normalize_provider,
+    _default_endpoint_for_provider,
+    _default_azure_deployment,
     EVAL_SCHEMA_VERSION,
     PROMPT_SUITE_ID,
     DEFAULT_PROMPT_SUITE,
+    DEFAULT_AZURE_OPENAI_ENDPOINT,
+    DEFAULT_AZURE_OPENAI_API_VERSION,
 )
 from llm_hawaii.evaluate import (
     compute_prompt_suite_descriptor,
@@ -68,6 +73,41 @@ class TestFrontierIdentity(unittest.TestCase):
         
         self.assertEqual(identity["determinism"], "non_deterministic")
         self.assertTrue(identity["reasoning_model"])
+
+    def test_identity_azure_deployment(self):
+        """Verify Azure identity records deployment name and API version."""
+        identity = _frontier_identity(
+            provider="azure-openai",
+            model_id="gpt-5-chat-prod",
+            endpoint=DEFAULT_AZURE_OPENAI_ENDPOINT.rstrip("/"),
+            api_version=DEFAULT_AZURE_OPENAI_API_VERSION,
+        )
+
+        self.assertEqual(identity["provider"], "azure")
+        self.assertEqual(identity["model_id"], "gpt-5-chat-prod")
+        self.assertEqual(identity["deployment_name"], "gpt-5-chat-prod")
+        self.assertEqual(identity["api_version"], DEFAULT_AZURE_OPENAI_API_VERSION)
+
+
+class TestProviderConfig(unittest.TestCase):
+    def test_provider_aliases(self):
+        """Verify provider aliases are normalized for CLI/env friendliness."""
+        self.assertEqual(_normalize_provider("github"), "github-models")
+        self.assertEqual(_normalize_provider("github_models"), "github-models")
+        self.assertEqual(_normalize_provider("azure-openai"), "azure")
+
+    @patch.dict("os.environ", {"AZURE_OPENAI_ENDPOINT": "https://example.openai.azure.com/"}, clear=True)
+    def test_azure_endpoint_from_env(self):
+        """Verify Azure endpoint can come from env without CLI flags."""
+        self.assertEqual(
+            _default_endpoint_for_provider("azure"),
+            "https://example.openai.azure.com/",
+        )
+
+    @patch.dict("os.environ", {"AZURE_OPENAI_DEPLOYMENT": "hawaii-gpt5"}, clear=True)
+    def test_azure_deployment_fallback_env(self):
+        """Verify generic Azure deployment env var is accepted."""
+        self.assertEqual(_default_azure_deployment(), "hawaii-gpt5")
 
 
 class TestFrontierChatService(unittest.TestCase):

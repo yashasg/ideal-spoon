@@ -1,9 +1,9 @@
 #!/bin/sh
-# run_frontier_eval.sh — run frontier model eval via GitHub Models + Semantic Kernel.
+# run_frontier_eval.sh — run frontier model eval via GitHub Models/Azure + Semantic Kernel.
 #
-# This wraps `python -m llm_hawaii.eval_frontier` with the GitHub Models
-# endpoint and the frozen Stage 0 eval contract (stage0.v1 prompt suite,
-# W1 manual micro-eval metadata probe, human_fetch translation probe).
+# This wraps `python -m llm_hawaii.eval_frontier` with the frozen Stage 0
+# eval contract (stage0.v1 prompt suite, W1 manual micro-eval metadata probe,
+# human_fetch translation probe).
 #
 # Outputs written to:
 #   data/eval_runs/frontier/<stamp>__frontier_<provider>_<model>_eval.json (ignored)
@@ -12,8 +12,10 @@
 # Usage:
 #   ./scripts/run_frontier_eval.sh
 #   MODELS="gpt-4o,claude-opus-4" ./scripts/run_frontier_eval.sh
+#   FRONTIER_PROVIDER=azure ./scripts/run_frontier_eval.sh
 #   DRY_RUN=1 ./scripts/run_frontier_eval.sh
 #   GITHUB_TOKEN=gho_... ./scripts/run_frontier_eval.sh
+#   AZURE_OPENAI_API_KEY=... FRONTIER_PROVIDER=azure ./scripts/run_frontier_eval.sh
 
 set -eu
 
@@ -22,12 +24,69 @@ REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 cd "$REPO_ROOT"
 
 PYTHON=${PYTHON:-python3}
-PROVIDER=${PROVIDER:-github-models}
+ENV_FILE=${ENV_FILE:-data/.env}
+
+load_local_env() {
+    env_file="$1"
+    [ -f "$env_file" ] || return 0
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            ""|\#*) continue ;;
+        esac
+        key=${line%%=*}
+        value=${line#*=}
+        [ "$key" != "$line" ] || continue
+        case "$key" in
+            FRONTIER_PROVIDER|PROVIDER|MODELS|ENDPOINT|GITHUB_MODELS_ENDPOINT|GITHUB_TOKEN|GH_TOKEN|AZURE_OPENAI_ENDPOINT|AZURE_OPENAI_API_KEY|AZURE_OPENAI_GPT5_DEPLOYMENT|AZURE_OPENAI_DEPLOYMENT|AZURE_OPENAI_API_VERSION)
+                case "$value" in
+                    \"*\") value=${value#\"}; value=${value%\"} ;;
+                    \'*\') value=${value#\'}; value=${value%\'} ;;
+                esac
+                case "$key" in
+                    FRONTIER_PROVIDER) current=${FRONTIER_PROVIDER:-} ;;
+                    PROVIDER) current=${PROVIDER:-} ;;
+                    MODELS) current=${MODELS:-} ;;
+                    ENDPOINT) current=${ENDPOINT:-} ;;
+                    GITHUB_MODELS_ENDPOINT) current=${GITHUB_MODELS_ENDPOINT:-} ;;
+                    GITHUB_TOKEN) current=${GITHUB_TOKEN:-} ;;
+                    GH_TOKEN) current=${GH_TOKEN:-} ;;
+                    AZURE_OPENAI_ENDPOINT) current=${AZURE_OPENAI_ENDPOINT:-} ;;
+                    AZURE_OPENAI_API_KEY) current=${AZURE_OPENAI_API_KEY:-} ;;
+                    AZURE_OPENAI_GPT5_DEPLOYMENT) current=${AZURE_OPENAI_GPT5_DEPLOYMENT:-} ;;
+                    AZURE_OPENAI_DEPLOYMENT) current=${AZURE_OPENAI_DEPLOYMENT:-} ;;
+                    AZURE_OPENAI_API_VERSION) current=${AZURE_OPENAI_API_VERSION:-} ;;
+                esac
+                if [ -z "$current" ]; then
+                    export "$key=$value"
+                fi
+                ;;
+        esac
+    done < "$env_file"
+    echo ">> loaded local env: $env_file (secrets redacted)"
+}
+
+load_local_env "$ENV_FILE"
+
+PROVIDER=${FRONTIER_PROVIDER:-${PROVIDER:-github-models}}
 # Default model sweep — curated for GitHub Models catalog (best-effort).
 # User should verify these models are available at the endpoint before
 # running in production.
-MODELS=${MODELS:-gpt-4o,claude-3.5-sonnet,claude-opus-4}
-ENDPOINT=${ENDPOINT:-https://models.github.ai/inference/chat/completions}
+case "$PROVIDER" in
+    azure|azure-openai)
+        PROVIDER=azure
+        MODELS=${MODELS:-${AZURE_OPENAI_GPT5_DEPLOYMENT:-${AZURE_OPENAI_DEPLOYMENT:-gpt-5-chat}}}
+        ENDPOINT=${ENDPOINT:-${AZURE_OPENAI_ENDPOINT:-https://aifoundry672407977528-resource.openai.azure.com/}}
+        ;;
+    github|github-model|github-models)
+        PROVIDER=github-models
+        MODELS=${MODELS:-gpt-4o,claude-3.5-sonnet,claude-opus-4}
+        ENDPOINT=${ENDPOINT:-${GITHUB_MODELS_ENDPOINT:-https://models.github.ai/inference/chat/completions}}
+        ;;
+    *)
+        echo "error: unsupported provider '$PROVIDER' (expected github-models or azure)" >&2
+        exit 1
+        ;;
+esac
 OUTPUT_DIR=${OUTPUT_DIR:-data/eval_runs/frontier}
 SUMMARY_DIR=${SUMMARY_DIR:-docs/eval-runs/frontier}
 MANUAL_W1_JSONL=${MANUAL_W1_JSONL:-data/evals/manual_w1/w1-haw-micro-eval.jsonl}
@@ -42,21 +101,24 @@ if ! command -v "$PYTHON" >/dev/null 2>&1; then
     exit 1
 fi
 
-# Get GitHub token
-if [ -n "${GITHUB_TOKEN:-}" ]; then
-    GH_TOKEN="$GITHUB_TOKEN"
-elif [ -n "${GH_TOKEN:-}" ]; then
-    GH_TOKEN="$GH_TOKEN"
-elif command -v gh >/dev/null 2>&1; then
-    GH_TOKEN=$(gh auth token 2>/dev/null || echo "")
-else
-    GH_TOKEN=""
-fi
+GH_TOKEN_VALUE=""
+if [ "$PROVIDER" = "github-models" ]; then
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        GH_TOKEN_VALUE="$GITHUB_TOKEN"
+    elif [ -n "${GH_TOKEN:-}" ]; then
+        GH_TOKEN_VALUE="$GH_TOKEN"
+    elif command -v gh >/dev/null 2>&1; then
+        GH_TOKEN_VALUE=$(gh auth token 2>/dev/null || echo "")
+    fi
 
-if [ -z "$GH_TOKEN" ]; then
-    echo "error: GitHub token not found. Set GITHUB_TOKEN env var or run:" >&2
-    echo "  gh auth refresh -s models:read" >&2
-    echo "  export GITHUB_TOKEN=\$(gh auth token)" >&2
+    if [ -z "$GH_TOKEN_VALUE" ]; then
+        echo "error: GitHub token not found. Set GITHUB_TOKEN env var or run:" >&2
+        echo "  gh auth refresh -s models:read" >&2
+        echo "  export GITHUB_TOKEN=\$(gh auth token)" >&2
+        exit 1
+    fi
+elif [ -z "${AZURE_OPENAI_API_KEY:-}" ]; then
+    echo "error: Azure OpenAI key not found. Set AZURE_OPENAI_API_KEY or add it to data/.env" >&2
     exit 1
 fi
 
@@ -92,7 +154,11 @@ fi
 build_cmd() {
     local model_id="$1"
     local output="$2"
-    echo "PYTHONPATH=code GITHUB_TOKEN=\$GITHUB_TOKEN $PYTHON -m llm_hawaii.eval_frontier \\"
+    if [ "$PROVIDER" = "azure" ]; then
+        echo "PYTHONPATH=code FRONTIER_PROVIDER=azure AZURE_OPENAI_ENDPOINT='$ENDPOINT' AZURE_OPENAI_API_KEY=<redacted> $PYTHON -m llm_hawaii.eval_frontier \\"
+    else
+        echo "PYTHONPATH=code GITHUB_TOKEN=<redacted> $PYTHON -m llm_hawaii.eval_frontier \\"
+    fi
     echo "  --provider '$PROVIDER' \\"
     echo "  --model-id '$model_id' \\"
     echo "  --endpoint '$ENDPOINT' \\"
@@ -151,7 +217,11 @@ for model_id in $MODELS; do
         set -- "$@" --human-fetch-jsonl "$HUMAN_FETCH_JSONL"
     fi
     
-    PYTHONPATH=code GITHUB_TOKEN="$GH_TOKEN" "$PYTHON" -m llm_hawaii.eval_frontier "$@" > "$tmp_output" && EVAL_RC=0 || EVAL_RC=$?
+    if [ "$PROVIDER" = "azure" ]; then
+        PYTHONPATH=code FRONTIER_PROVIDER=azure AZURE_OPENAI_ENDPOINT="$ENDPOINT" "$PYTHON" -m llm_hawaii.eval_frontier "$@" > "$tmp_output" && EVAL_RC=0 || EVAL_RC=$?
+    else
+        PYTHONPATH=code GITHUB_TOKEN="$GH_TOKEN_VALUE" "$PYTHON" -m llm_hawaii.eval_frontier "$@" > "$tmp_output" && EVAL_RC=0 || EVAL_RC=$?
+    fi
     
     cat "$tmp_output"
     mv "$tmp_output" "$output"
