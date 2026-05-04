@@ -1,8 +1,58 @@
 # Decisions
 
-> Updated 2026-05-04T07:17:38Z: Merged frontier eval harness (Semantic Kernel + GitHub Models, frozen stage0.v1 contract, 9/9 tests pass, no live API) + S1 checkpoint-10100 blocker (GPU + private repo access needed). Prior 2026-05-04T06:40:10Z: Merged linus-stage2-resplit-stricter-v3-emit.md (strict Hoʻoilina resplit, 861→725 children, 6,136 final TRAIN pairs, Bible 26.18% / HK 13.45%). Prior 2026-05-04T06:06:29Z: Merged linus-stage2-hooilina-resplit-v3.md, copilot-directive-20260504-stage2-consolidate.md. Prior 2026-05-04T05:29:51Z: Merged 9 inbox files (Hoʻoilina paragraph impl/pairs, Common Voice/FLORES+ license probe, HK statutes, tier-a promotion, stage 3 paragraph stage, LABSE policy). Prior 2026-05-03T20:55:00Z: Merged R17 linus-stage2-r17-canonical-consolidation. Prior 2026-05-03T20:45:08Z: Merged R16 linus-stage2-r16-hash-determinism-policy. Prior 2026-05-03T20:38:30Z: Merged R15 linus-stage2-r15-dedup-edge-fixes. Prior 2026-05-03T20:33:14Z: Merged R14 linus-stage2-r14-contamination-wired. Prior 2026-05-03T11:00Z: Merged R7 linus-stage2-paraphrase-grouping. Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy. Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy.
+> Updated 2026-05-04T08:13:26Z: Merged Rusty frontier inbox: gpt-4o live baseline, GPT-5 parameter/determinism handling, GPT-5-chat rate-limit blocker, frontier PPL chart policy, and Stage 1 checkpoint-10140 comparison row.
 
 >
+
+
+---
+
+# Rusty Frontier Eval Follow-ups — Live Baseline, GPT-5 Blocker, PPL Policy, Stage 1 Row
+
+**Date:** 2026-05-04T08:13:26Z  
+**Owner:** Rusty (NLP Researcher)  
+**Status:** ✅ Merged; GPT-5-chat remains blocked by rate limits
+
+## Live frontier baseline
+
+Rusty corrected the GitHub Models catalog/inference endpoint to `https://models.github.ai/inference/chat/completions` and successfully ran the frozen `stage0.v1` eval contract against `openai/gpt-4o`.
+
+| Metric | Stage 0 Llama-3.1-8B | openai/gpt-4o | Delta |
+|---|---:|---:|---:|
+| EN→HAW char-F1 | 0.329114 | 0.398827 | +21.2% |
+| HAW→EN char-F1 | 0.469799 | 0.617021 | +31.3% |
+| Wrong ʻokina | 0 | 0 | 0 |
+| Kahakō | 34 | 32 | -2 |
+| Hawaiian PPL | 7.9152 | N/A | not_supported |
+
+Artifacts: `docs/eval-runs/frontier/20260504T073812Z__frontier_github-models_openai_gpt-4o_eval_summary.json`, `docs/eval-runs/frontier/20260504T074014Z__s0_vs_frontier_comparison.md`, and `data/evals/eval_hashes.jsonl`.
+
+## GPT-5 family handling
+
+`code/llm_hawaii/eval_frontier.py` now routes GPT-5/o-series models through reasoning-model settings: `max_completion_tokens`, no `temperature`, no `top_p`, and identity/decoding metadata marking outputs as non-deterministic. GPT-4o and standard chat models remain deterministic with `temperature=0` and `max_tokens`.
+
+`openai/gpt-5-chat` smoke-tested successfully, but full eval is blocked by GitHub Models rate limits. Retries at `2026-05-04T07:59:05Z`, `2026-05-04T08:01:15Z`, and `2026-05-04T08:09:11Z` failed before complete artifacts. No GPT-5-chat metrics are copied, inferred, or fabricated.
+
+## Frontier PPL chart policy
+
+Frontier comparison charts must not present Hawaiian PPL as a direct GPT/Claude/Gemini comparison metric. Use `N/A` / `not_supported` or omit PPL from frontier comparison views because closed chat-completions APIs do not expose token logprobs over arbitrary held-out text. Local Stage 0/1/2 PPL remains an our-model-only checkpoint diagnostic.
+
+1:1 frontier/local comparison metrics remain: frozen `human_fetch` EN→HAW and HAW→EN char-F1, orthography aggregates (wrong ʻokina, kahakō, NFC), prompt-suite generations, and tripwires.
+
+## Stage 1 checkpoint-10140 row
+
+The frontier comparison report now includes Stage 1 `checkpoint-10140` from `data/eval_runs/stage1/20260504T080245Z__stage1_checkpoint-10140_eval.json`.
+
+| Cell | Value |
+|---|---:|
+| EN→HAW char-F1 | 0.443894 |
+| HAW→EN char-F1 | 0.346667 |
+| Wrong ʻokina | 0 |
+| Kahakō | 53 |
+| NFC failures | 0 |
+| Tripwires | pass |
+
+Local checkpoint diagnostic PPL: Stage 0 `7.9152` → Stage 1 `3.6229` (`-54.2%`). This is not a frontier-chart column.
 
 ---
 
