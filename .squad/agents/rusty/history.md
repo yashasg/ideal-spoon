@@ -491,6 +491,14 @@ Lesson: when writing contracts that prefer JSONL but allow TSV fallback, spell o
 
 ## Learnings
 
+### 2026-05-04 — Frontier chart PPL policy
+
+Clarified for Yashas: frontier chat APIs are not a 1:1 PPL comparison with local HF checkpoints because `code/llm_hawaii/eval_frontier.py:evaluate_frontier_model()` explicitly marks `hawaiian_ppl`, `hawaiian_ppl_by_source`, and `english_ppl` as `not_supported`/`no logprobs`. Local PPL is computed separately in `code/llm_hawaii/evaluate.py:perplexity()` via teacher-forced model loss over held-out Hawaiian JSONL and wired by `evaluate_checkpoint()` before the independent prompt-suite generation/orthography path. Chart policy: prompt-suite generation metrics (human_fetch F1, orthography, NFC/tripwires) are the comparable frontier columns; PPL stays our-model-only diagnostic or N/A for frontier.
+
+### 2026-05-04 — Stage 1 frontier comparison row
+
+The synced Stage 1 artifact `data/eval_runs/stage1/20260504T080245Z__stage1_checkpoint-10140_eval.json` is reportable for the frozen `stage0.v1` generation comparison: human_fetch en→haw F1 `0.443894`, haw→en F1 `0.346667`, orthography aggregate `wrong_okina_total=0`, `kahako_total=53`, `nfc_failures=0`, and tripwires pass. Keep Hawaiian PPL (`7.9152 → 3.6229`, `-54.2%`) in internal diagnostics only, not the cross-model frontier table. GPT-5-chat retry at `2026-05-04T08:09:11Z` still hit GitHub Models rate limits before a complete artifact; leave GPT-5 cells pending rather than filling partial or fabricated metrics.
+
 ### 2026-04-30 — W1 / Stage 0 revision review (Linus)
 
 **Outcome:** APPROVE. Verdict at

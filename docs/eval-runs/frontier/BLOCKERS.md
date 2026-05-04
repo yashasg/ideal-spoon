@@ -33,8 +33,9 @@ affect your rights, please review our Terms of Service
 **Retry attempts:** 
 - Retry #1 @ 2026-05-04T07:59:05Z (initial attempt after prior spawn's rate limit)
 - Retry #2 @ 2026-05-04T08:01:15Z (60s cooldown, still rate-limited)
+- Retry #3 @ 2026-05-04T08:09:11Z (cooldown elapsed; still rate-limited during `human_fetch` probe before a complete JSON artifact could be emitted)
 
-**Cooldown window:** Rate limits persist beyond 60s. Likely requires extended reset period (estimated 24h or next billing cycle).
+**Cooldown window:** Rate limits persist beyond the latest retry. Likely requires extended reset period (estimated 24h or next billing cycle).
 
 ### Retry Plan
 
@@ -103,7 +104,7 @@ curl -H "Authorization: Bearer $(gh auth token)" \
 | Model | Smoke Test | Full Eval | Blocker |
 |-------|------------|-----------|---------|
 | `openai/gpt-4o` | ✅ | ✅ | None (completed last spawn) |
-| `openai/gpt-5-chat` | ✅ | ❌ | Rate limits |
+| `openai/gpt-5-chat` | ✅ | ❌ | Rate limits; latest retry 2026-05-04T08:09:11Z |
 | `openai/gpt-5` | ❌ | ❌ | 500 error (API unstable) |
 | `claude-opus-4.7` | ❌ | ❌ | Not in catalog |
 
