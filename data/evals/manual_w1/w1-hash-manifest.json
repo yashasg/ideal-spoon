@@ -1,0 +1,69 @@
+{
+  "all_rows": {
+    "by_category": {
+      "generation_sanity": 1,
+      "kahako_retention": 1,
+      "okina_survival": 1,
+      "tokenizer_survival": 1,
+      "unicode_nfc": 1
+    },
+    "by_diacritic_density_bin": {
+      "high": 3,
+      "medium": 2
+    },
+    "by_review_status": {
+      "accepted": 5
+    },
+    "rows": 5
+  },
+  "categories": [
+    "okina_survival",
+    "kahako_retention",
+    "unicode_nfc",
+    "tokenizer_survival",
+    "generation_sanity"
+  ],
+  "default_included_statuses": [
+    "accepted"
+  ],
+  "diacritic_density_bins": [
+    "none",
+    "low",
+    "medium",
+    "high"
+  ],
+  "eval_hashes": "data/evals/eval_hashes.jsonl",
+  "hash_material": "NFC(prompt) + U+000A + NFC(reference)",
+  "include_draft_for_local_ledger": false,
+  "input": "data/evals/manual_w1/w1-haw-micro-eval.tsv",
+  "ledger_rows": {
+    "by_category": {
+      "generation_sanity": 1,
+      "kahako_retention": 1,
+      "okina_survival": 1,
+      "tokenizer_survival": 1,
+      "unicode_nfc": 1
+    },
+    "by_diacritic_density_bin": {
+      "high": 3,
+      "medium": 2
+    },
+    "by_review_status": {
+      "accepted": 5
+    },
+    "rows": 5
+  },
+  "ledger_update": {
+    "combined_rows": 893,
+    "existing_rows": 893,
+    "new_origin_rows": 5,
+    "preserved_rows": 888,
+    "replaced_origin_rows": 5
+  },
+  "normalization_method": "NFC",
+  "note": "Rows with review_status != accepted are prototype-local and not eval-consumable.",
+  "pipeline_stage": "315_hash_manual_w1_eval",
+  "schema_version": "eval-hashes-jsonl-v1",
+  "source_id": "manual_w1",
+  "timestamp": "2026-05-04T08:17:39.476408Z"
+}

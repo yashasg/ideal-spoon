@@ -53,3 +53,12 @@ W1 manual micro-eval TSV spec finalized and repo scaffold committed. **Planning 
 - Smoke artifacts archived to `data/raw/fineweb2_haw/_smoke_validation_backup_20260429/` before the full fetch — raw bytes preserved per provenance policy.
 - Decision note: `.squad/decisions/inbox/frank-fineweb2-fetch.md` (incl. parquet/pyarrow tradeoff for Linus).
 - Per-row schema in `data/raw/fineweb2_haw/<date>/{split}.jsonl` carries `text`, `fineweb2_row_id`, `cc_dump`, `cc_date`, `cc_file_path`, `source_url`, `language*`, `raw_whitespace_token_count`, `license_*`, `prototype_only=true`, `release_eligible=false`.
+
+## Learnings — 2026-05-04 W1 manual micro-eval acceptance pass
+
+- Accepted `w1-okina-001`: `Hawaiʻi` uses U+02BB ʻokina, NFC text, expected source/schema/provenance fields, and preserved hash `7d57c8d3212b18ac9e411094080fa4c0408362fe9a3ab65639c40472bd434ad6`.
+- Accepted `w1-kahako-001`: `mālama i ka ʻōlelo Hawaiʻi` has correct precomposed kahakō + U+02BB ʻokina, NFC text, expected source/schema/provenance fields, and preserved hash `bd034c0707a618ca8926c291f9409c447ea447912888b74098ef4160d2681f87`.
+- Accepted `w1-unicode-001`: `ā ē ī ō ū ʻ` is an NFC/token-codepoint probe with precomposed kahakō vowels and U+02BB ʻokina, expected source/schema/provenance fields, and preserved hash `a37592484526a0588d5a9abd8592662ba8e2c0a84c092ffd5f93b454aac68042`.
+- Accepted `w1-tokenizer-001`: `ʻĀā ʻĒē ʻĪī ʻŌō ʻŪū` uses U+02BB before precomposed upper/lower kahakō vowels, NFC text, expected source/schema/provenance fields, and preserved hash `790a236ac5020477d5ceb58ad55b2392cc8325701d7e6aeb2e388caa52090834`.
+- Accepted `w1-generation-001`: prompt `E pane pōkole ma ka ʻōlelo Hawaiʻi no ke aloha ʻohana.` is orthographically clean Hawaiian with empty reference allowed by the manual W1 generation-sanity schema, expected source/schema/provenance fields, and preserved hash `1cc56b3669d5084dc0d59ba10a288c9adb17b91badd44ce0974aa2bf9a81211e`.
+- Acceptance criteria applied: NFC-normalized prompt/reference, no combining macron, no wrong ʻokina/apostrophe codepoints, stable `manual-w1-jsonl-v1` schema, `source_id=manual_w1`, TSV provenance path retained, `sha256_normalized` recomputed to the existing value, and only `review_status=accepted` rows become eval-consumable/reportable.
