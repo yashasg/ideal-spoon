@@ -88,6 +88,18 @@ python3 scripts/320_build_stage2_manifest.py --dry-run              # 33925 rows
 
 ## Learnings
 
+### Stage 3 paragraph SFT should wait for Stage 2 plateau
+
+Verdict: yes in principle, but only after Stage 2 has plateaued and only with Stage 2 kept sentence/verse-primary. The real paragraph/document pool is Hoʻoilina paragraphs/recovery, HK legal sections/constitution, Bible chapter-scale pairs if built, gospel_john_1854 chapter/section aggregates, and possibly aligned nupepa articles; that is likely mid-six-figure to low-seven-figure pair tokens depending on Bible/nupepa inclusion, not a clean 40k-row substitute. Main risks are current Stage 2 `max_seq_len=1024` truncating longer chapters/articles and duplicate-token exposure if sentence splits and parent paragraphs both train; acceptable as curriculum only if tracked with overlap metadata, lower LR, and regression evals for sentence-level translation.
+
+### Hoʻoilina paragraph pairs should be primary, sentence splits fallback
+
+Yashas asked whether Hoʻoilina should emit paragraph pairs now that LaBSE is soft metadata only. Verified current artifacts and script reports: `hooilina.jsonl` has 68 parent/section rows (`parallel-doc`), `hooilina_sentences.jsonl` has 60 sentence rows (`parallel-sentence`), and no current Hoʻoilina row has LaBSE model/score. The sentence builder loads 68 parents, finds only 6 parents with matched numbered-paragraph counts, inspects 36 paragraph pairs, skips 8 paragraph pairs for sentence-count mismatch, sees 61 sentence pairs, emits 60, and rejects 1 short pair.
+
+If we emitted paragraph-level pairs from those 6 matched parents, we would get 36 raw paragraph rows, or 35 if reusing the current min-3-tokens/side gate. Paragraph lengths are safe: EN avg 49.92 tokens / max 168; HAW avg 64.83 / max 236; 0 exceed 256 whitespace tokens on either side and 0 exceed 512. They are mostly small paragraphs, not pages: EN avg 2.83 sentences/paragraph, HAW avg 2.58; 26/36 EN and 28/36 HAW paragraphs have ≤3 sentences, max 9 EN / 8 HAW. Recommendation: switch to paragraph-primary with sentence fallback/auxiliary, not sentence-only. Paragraphs match the human translation granularity, avoid sentence-split alignment risk, and the row-count loss is only 60 sentences versus 36 paragraphs in the trusted matched-parent subset.
+
+Unmatched-parent recovery is real but separate from the first implementation. Of the 62 parents skipped by the sentence builder, 20 have paragraph-count diff 1 and 10 diff 2; explicit paragraph-number matching plus length/orthography sanity finds 155 plausible paragraph pairs in the diff≤2 group and 526 plausible numbered paragraph pairs across all 62. That should be a second, review-pending recovery pass, not an automatic train promotion.
+
 ### LaBSE review band (0.55–0.75) requires full pipeline verification for train promotion
 
 The review band correctly flags rows needing manual/policy review, not just "marginal quality" rows. Of 124 review-band rows audited in Round 1:
@@ -139,6 +151,12 @@ Round 2 added `scripts/340_audit_stage2_candidate_normalization.py` to audit all
 Round 3 added `scripts/341_normalize_legacy_candidates.py` to re-emit Stage-2 candidate JSONLs through the canonical `320_build_stage2_manifest.py` schema. The script is dry-run by default; `--apply` rewrites only `data/stage2/candidates/*.jsonl`, creates sibling `.jsonl.bak` copies first, and never touches `data/raw/`. It folds HAW ʻokina before clean hashes, preserves EN apostrophes, maps legacy enum values to schema-compatible values while preserving detail in `notes`, nulls `license_inferred`, fixes prototype/release lineage violations, recomputes clean/pair hashes, and applies the Stage-2 quality policy fields so both raw and post-policy audit validation are clean.
 
 Verification after applying to the local candidate artifacts: `scripts/340_audit_stage2_candidate_normalization.py --strict` reported 0 HAW ʻokina-fold rows, 0 hash mismatches, and 0 raw/post-policy schema violations; `scripts/320_build_stage2_manifest.py --dry-run` emitted 37,761 rows with 0 skipped schema violations. Cross-source exact pair dup groups remain (100 after canonical hash recomputation) and are the next policy target.
+
+### Stage-2 review-pending tiering: promote policy-approved rows, sample uncertain sources
+
+Tier A is already policy-approved review-pending content: historical-orthography accept rows, hk1897 legal-clean rows, and trusted whitelist sources (Hoʻoilina, Wikimedia CX, Weblate, Tatoeba). Promote Tier A in `sha256_pair` order, but enforce Bible ≤30%, HK/legal ≤15%, and software-l10n ≤15% against final train-side pair-token share; evict only newly admitted rows, never existing train/dev. Tier B is cap-evicted high-quality content and should be counted only until policy changes. Tier C (Andrews vocab, OPUS, Kaikki, Gospel John 1854, HK Constitution 1852) needs Yashas review from samples before train promotion. Tier D terminal failures (`side_too_short`, `length_ratio_extreme`, `haw_nonhaw_letters_high`) stay rejected.
+
+Edge cases found on 2026-05-04: 8 whitelist review-pending rows were exact pair duplicates of existing train rows (7 Wikimedia CX self-duplicates, 1 Tatoeba duplicated by OPUS-Tatoeba), so they must not be double-promoted. Source confidence ordering for this pile is: policy-approved historical/legal rows subject to caps; Hoʻoilina paragraph/doc rows; direct source lanes Wikimedia CX/Weblate/Tatoeba; then Tier C sample-only sources after human decision.
 
 ### Cross-source exact-pair dedup policy belongs before cap math
 
@@ -219,3 +237,15 @@ Round 4 codified exact `sha256_pair` cross-source preference in `code/llm_hawaii
 ## 2026-05-03 — Stage-2 canonical helper consolidation (Round 17)
 
 **Task:** Promote R16 clean-text canonicalization into a single import surface and remove adapter/audit drift, with no new sourcing and no `data/` edits. **Implementation:** added `code/llm_hawaii/stage2_canonical.py` with `canonical_en`, `canonical_haw`, `canonical_pair`, shared hash helpers, and the U+2016 pair delimiter. `scripts/320_build_stage2_manifest.py` now re-exports/imports that surface; `eval_contamination.py` uses `canonical_pair` for pair ledger content; `stage2_dedup.py`, normalization audit/legacy patcher, Stage-2 candidate builders, Weblate/Tatoeba refresh, and reviewed-manifest promotion paths now delegate canonical text to the helper instead of open-coding ʻokina/quote/whitespace folds. `340 --strict` keeps canonicalization-delta counts advisory while failing on post-policy schema/contamination. **Verification:** `test_stage2_canonical` 4/4, `test_stage2_dedup` 17/17, `test_hash_determinism` 7/7, `test_eval_contamination` 5/5, `test_manifest_contamination_filter` 2/2, Taxi1500 6/6, Global-PIQA 5/5, Weblate 7/7, Tatoeba refresh 7/7. Manifest dry-run still emits 37,084 rows; strict normalization audit exits 0. Decision artifact: `.squad/decisions/inbox/linus-stage2-r17-canonical-consolidation.md`. **Next:** Round 18 should build an end-to-end dry-run smoke harness or run a source-coverage gap analysis.
+
+---
+
+## 2026-05-04 — Hoʻoilina paragraph-only implementation
+
+**Task:** Implement Yashas directive: Hoʻoilina emits paragraph pairs only; sentence pairs are retired as duplicate derived content. LaBSE remains metadata-only for Hoʻoilina.
+
+**Code changes:** Renamed `scripts/325_build_hooilina_sentence_candidates.py` → `scripts/325_build_hooilina_paragraph_candidates.py`. Script now consumes section-level parents from `data/stage2/candidates/hooilina_parent_sections.jsonl` (or one-time legacy `hooilina.jsonl`), emits primary paragraph pairs to `data/stage2/candidates/hooilina.jsonl`, and emits review-only paragraph-number recoveries to `data/stage2/candidates/hooilina_recovered.jsonl`. `scripts/324_build_hooilina_candidates.py` now writes the parent-section sidecar. `scripts/320_build_stage2_manifest.py` excludes Hoʻoilina parent/recovery/retired sentence sidecars from default manifest ingestion. Final-review scripts were updated from Hoʻoilina sentence wording to paragraph wording.
+
+**Counts:** Before: 60 Hoʻoilina sentence rows (`hooilina_sentences.jsonl`) from 68 parent rows. After primary paragraph build: 25 paragraph rows from 6 count-matched parents (36 paragraph pairs inspected; 11 rejected: 1 too short, 10 >80 tokens). Recovery pass over the 62 unmatched parents: 36 recovery-eligible parents, 27 parents with output, 186 paragraph-number matches inspected, 137 recovered rows emitted to `hooilina_recovered.jsonl` with `review_required=true` / `alignment_review_required=true`; not included in default manifest.
+
+**Validation:** `python3 -m py_compile` passed for changed scripts. `python3 scripts/325_build_hooilina_paragraph_candidates.py --self-test` passed (24 assertions). `--execute` wrote 25 primary + 137 recovery rows. `python3 scripts/320_build_stage2_manifest.py --dry-run` succeeded with 36,981 rows, 0 schema violations. Source breakdown after dedup: Bible 1839 5, Bible 1868 30,969, Wikimedia CX 14, OPUS haw subsets 388, Hoʻoilina 25, all other sources 5,580. Parallel-train Bible token share: 5,765 / 66,127 = 8.72%, under the ≤30% cap. Stage-2 remains below the 40k-row target by 3,019 rows; canonical-pair count is 36,981, above 20k.

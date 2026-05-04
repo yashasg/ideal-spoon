@@ -1,7 +1,539 @@
 # Decisions
 
-> Updated 2026-05-03T20:55:00Z: Merged R17 linus-stage2-r17-canonical-consolidation (canonical helpers consolidated to single source of truth in `code/llm_hawaii/stage2_canonical.py`: canonical_en, canonical_haw, canonical_pair; 25 files refactored (adapters, audit, dedup, legacy normalizer); NFC normalize, strip invisibles, collapse whitespace, preserve case, EN folds curly quotes/hyphens, HAW ʻokina folding; 60/60 tests pass, 37,084 rows stable, strict audit pass, commit bf4b57e; future adapters MUST import from stage2_canonical, no local canonicalization helpers). Prior 2026-05-03T20:45:08Z: Merged R16 linus-stage2-r16-hash-determinism-policy (EN-side hash canonicalization contract locked: NFC normalize, strip invisibles, collapse whitespace, preserve case, fold EN curly quotes/hyphens to ASCII, keep U+02BC/U+02BB/em-en-dashes, HAW ʻokina folding HAW-only; 7 determinism tests added; FLORES+ and Common Voice probed RED/SKIP for Hawaiian; 37,084 rows stable, all suites green, commit 85ba2e5). Prior 2026-05-03T20:38:30Z: Merged R15 linus-stage2-r15-dedup-edge-fixes (fallback exact-pair ordering uses canonical source priority not alphabetical; near-dupe matching strips invisible controls U+00AD/U+200B/U+200C/U+200D/U+FEFF; manifest validation rejects whitespace/invisible-only refs; audit reports 7 invisible-control rows, 3 NBSP rows, 37,084 rows stable, all suites green). Prior 2026-05-03T20:33:14Z: Merged R14 linus-stage2-r14-contamination-wired (train-side eval-contamination filter now enforcing gate; `--eval-hashes` loads explicit eval ledgers before dedup, drops matches before cross-source/side/near-duplicate dedup, missing ledger hard error, writes contamination_report.json sidecar, all regression suites green). Prior 2026-05-03T1100Z: Merged R7 linus-stage2-paraphrase-grouping (161 EN/32 HAW exact groups accepted as lexical diversity, 395 rows annotated, zero drops, copilot user directive captured). Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
+> Updated 2026-05-04T05:29:51Z: Merged decision inbox files: copilot-directive-2026-05-04T03-49-hooilina-paragraphs-only.md, linus-hooilina-paragraph-impl.md, linus-hooilina-paragraph-pairs.md, linus-stage2-common-voice-license-probe.md, linus-stage2-flores-plus-license-probe.md, linus-stage2-hk-statutes-extended.md, linus-stage2-tier-a-promotion.md, linus-stage3-paragraph-stage.md, rusty-hooilina-labse-policy.md. Prior 2026-05-03T20:55:00Z: Merged R17 linus-stage2-r17-canonical-consolidation (canonical helpers consolidated to single source of truth in `code/llm_hawaii/stage2_canonical.py`: canonical_en, canonical_haw, canonical_pair; 25 files refactored (adapters, audit, dedup, legacy normalizer); NFC normalize, strip invisibles, collapse whitespace, preserve case, EN folds curly quotes/hyphens, HAW ʻokina folding; 60/60 tests pass, 37,084 rows stable, strict audit pass, commit bf4b57e; future adapters MUST import from stage2_canonical, no local canonicalization helpers). Prior 2026-05-03T20:45:08Z: Merged R16 linus-stage2-r16-hash-determinism-policy (EN-side hash canonicalization contract locked: NFC normalize, strip invisibles, collapse whitespace, preserve case, fold EN curly quotes/hyphens to ASCII, keep U+02BC/U+02BB/em-en-dashes, HAW ʻokina folding HAW-only; 7 determinism tests added; FLORES+ and Common Voice probed RED/SKIP for Hawaiian; 37,084 rows stable, all suites green, commit 85ba2e5). Prior 2026-05-03T20:38:30Z: Merged R15 linus-stage2-r15-dedup-edge-fixes (fallback exact-pair ordering uses canonical source priority not alphabetical; near-dupe matching strips invisible controls U+00AD/U+200B/U+200C/U+200D/U+FEFF; manifest validation rejects whitespace/invisible-only refs; audit reports 7 invisible-control rows, 3 NBSP rows, 37,084 rows stable, all suites green). Prior 2026-05-03T20:33:14Z: Merged R14 linus-stage2-r14-contamination-wired (train-side eval-contamination filter now enforcing gate; `--eval-hashes` loads explicit eval ledgers before dedup, drops matches before cross-source/side/near-duplicate dedup, missing ledger hard error, writes contamination_report.json sidecar, all regression suites green). Prior 2026-05-03T1100Z: Merged R7 linus-stage2-paraphrase-grouping (161 EN/32 HAW exact groups accepted as lexical diversity, 395 rows annotated, zero drops, copilot user directive captured). Prior 2026-05-03T10:55:58Z: Merged R6 linus-stage2-short-variant-policy (37,223→37,084 rows; length-aware N=2 cap for short exact variants ≤3 tokens, 161 EN/32 HAW groups remain). Prior 2026-05-03T10:50:51Z: Merged R5 linus-stage2-near-dupe-policy (37,661→37,223 rows; 306 near-dupe groups collapsed, strong Bible-Gospel-John signal).
 >
+
+---
+
+### 2026-05-04T03:49:30Z: User directive — Hoʻoilina paragraph-only emission
+**By:** Yashas (via Copilot)
+**What:** For Hoʻoilina, emit paragraph pairs only. Drop sentence-pair emission. Sentence pairs are derived from paragraphs, so emitting both trains on duplicate content; paragraphs carry more tokens and richer context per row.
+**Why:** User decision — avoid duplicate content in Stage-2 SFT and prefer the longer, translator-aligned unit.
+
+---
+
+# Implementation: Hoʻoilina paragraph-only candidates
+
+**Owner:** Linus  
+**Date:** 2026-05-04  
+**Status:** Implemented  
+**Requested by:** Yashas
+
+## Decision implemented
+
+Hoʻoilina now emits paragraph pairs only. Sentence-pair emission is retired because those rows are derived from paragraph pairs and duplicate content at a less trusted alignment unit. LaBSE remains metadata-only for Hoʻoilina; no LaBSE threshold gates these rows.
+
+## Code/path changes
+
+- Renamed `scripts/325_build_hooilina_sentence_candidates.py` to `scripts/325_build_hooilina_paragraph_candidates.py`.
+- `scripts/325_build_hooilina_paragraph_candidates.py`:
+  - reads section-level parent rows from `data/stage2/candidates/hooilina_parent_sections.jsonl`;
+  - falls back once to legacy parent rows in `data/stage2/candidates/hooilina.jsonl` and preserves them to the parent sidecar before overwriting;
+  - writes primary paragraph-pair rows to `data/stage2/candidates/hooilina.jsonl`;
+  - writes review-only recovered paragraph-number rows to `data/stage2/candidates/hooilina_recovered.jsonl`.
+- `scripts/324_build_hooilina_candidates.py` now writes `hooilina_parent_sections.jsonl`, not the train-candidate path.
+- `scripts/320_build_stage2_manifest.py` excludes `hooilina_parent_sections.jsonl`, `hooilina_recovered.jsonl`, and retired `hooilina_sentences.jsonl` from default candidate ingestion.
+- `scripts/333_build_reviewed_manifest_final_capped.py` and `scripts/334_finalize_stage2_review_verdicts.py` were updated from Hoʻoilina sentence promotion wording to paragraph promotion wording.
+
+## Hard gates retained
+
+The paragraph builder keeps the existing deterministic gates and drops only sentence splitting:
+
+- parent count match for primary paragraph emission;
+- explicit paragraph-number matching for recovery;
+- min 3 tokens per side;
+- max 80 tokens per side;
+- Hawaiian/English token ratio 0.5–2.5;
+- boilerplate rejection;
+- Hawaiian orthography/OCR non-Hawaiian-letter share ≤0.25;
+- deduplication by `sha256_pair`;
+- Hawaiian-only ʻokina normalization via Stage-2 canonicalization;
+- `compute_pair_hash` reused from `scripts/320_build_stage2_manifest.py`.
+
+## Before/after counts
+
+| Artifact | Before | After |
+|---|---:|---:|
+| Hoʻoilina parent sections | 68 | 68 sidecar rows (`hooilina_parent_sections.jsonl`) |
+| Primary Hoʻoilina sentence rows | 60 | retired / excluded from default manifest |
+| Primary Hoʻoilina paragraph rows | 0 | 25 (`hooilina.jsonl`) |
+| Review-only recovered rows | 0 | 137 (`hooilina_recovered.jsonl`) |
+
+Primary build details:
+
+- parent rows loaded: 68
+- parent rows count-matched/splittable: 6
+- parent rows not splittable: 62
+- paragraph pairs inspected: 36
+- paragraph pairs emitted: 25
+- rejected: 11 total = 1 too short + 10 too long (>80 tokens)
+
+Recovery details:
+
+- recovery-eligible unmatched parents: 36
+- parents with recovered output: 27
+- paragraph-number matches inspected: 186
+- recovered rows emitted: 137
+- recovery quality rejected: 49
+- recovered rows are tagged `review_required=true` and `alignment_review_required=true`
+- recovered rows are not included in default Stage-2 manifest ingestion
+
+## Manifest dry-run result
+
+`python3 scripts/320_build_stage2_manifest.py --dry-run` after the change:
+
+- total Stage-2 rows: 36,981
+- schema violations: 0
+- split counts: review-pending 34,387; train 2,350; dev 244
+
+Source breakdown after dedup:
+
+| Source | Rows |
+|---|---:|
+| Bible 1839 (`baibala-hemolele-1839`) | 5 |
+| Bible 1868 (`baibala-hemolele-1868`) | 30,969 |
+| Wikimedia CX (`wikimedia-cx-en-haw`) | 14 |
+| OPUS haw subsets (`opus-haw-subsets`) | 388 |
+| Hoʻoilina | 25 |
+| Other sources combined | 5,580 |
+| **Total** | **36,981** |
+
+Bible cap check on parallel-train rows:
+
+- parallel-train tokens: 66,127
+- Bible train tokens: 5,765
+- Bible share: 8.72%
+- cap status: satisfied (≤30%)
+
+Target status:
+
+- 40k-row Stage-2 target: **not met**; short by 3,019 rows.
+- 20k canonical-pair target: met; dry-run manifest has 36,981 canonical rows after dedup.
+
+## Validation commands
+
+```bash
+python3 -m py_compile scripts/324_build_hooilina_candidates.py scripts/325_build_hooilina_paragraph_candidates.py scripts/320_build_stage2_manifest.py scripts/333_build_reviewed_manifest_final_capped.py scripts/334_finalize_stage2_review_verdicts.py
+python3 scripts/325_build_hooilina_paragraph_candidates.py --self-test
+python3 scripts/325_build_hooilina_paragraph_candidates.py --execute
+python3 scripts/320_build_stage2_manifest.py --dry-run
+```
+
+---
+
+# Proposal: Hoʻoilina Paragraph-Pair Emission
+
+**Owner:** Linus  
+**Date:** 2026-05-04  
+**Status:** Proposed  
+**Requested by:** Yashas
+
+## Decision
+
+Use **paragraph-primary with sentence fallback/auxiliary** for Hoʻoilina.
+
+Hoʻoilina should emit paragraph-level candidate rows for deterministically matched numbered paragraph pairs. Sentence-level rows can remain as auxiliary/fallback training material, but they should no longer be the primary representation for this source.
+
+## Current state
+
+Current artifacts:
+
+| Artifact | Rows | Unit | Alignment type | LaBSE |
+|---|---:|---|---|---|
+| `data/stage2/candidates/hooilina.jsonl` | 68 | parent/section row, often multiple numbered paragraphs | `parallel-doc` | none |
+| `data/stage2/candidates/hooilina_sentences.jsonl` | 60 | sentence pair | `parallel-sentence` | none |
+
+Current sentence-builder stats from `data/stage2/reports/hooilina_sentence_build_report_20260501.json` and re-run analysis of `scripts/325_build_hooilina_sentence_candidates.py`:
+
+- Parent rows loaded: 68
+- Parent rows with matched numbered-paragraph counts and >1 paragraph: 6
+- Parent rows not splittable by current gate: 62
+- Paragraph pairs inspected from the 6 matched parents: 36
+- Paragraph pairs skipped because EN/HAW sentence counts differ: 8
+- Sentence pairs seen: 61
+- Sentence pairs emitted: 60
+- Sentence-pair quality rejects: 1 (`too_short`)
+
+No current Hoʻoilina row has `alignment_model` or `alignment_score`; LaBSE is not being used for Hoʻoilina selection.
+
+## Paragraph-pair yield from the trusted matched parents
+
+If we emit one row per paragraph pair from the same 6 parents with matched paragraph counts:
+
+- Raw deterministic paragraph-pair rows: **36**
+- Rows after reusing the sentence builder's min-3-tokens/side gate: **35** (one 1-token/1-token pair drops)
+- EN token length: avg **49.92**, median **34**, max **168**, min **1**
+- HAW token length: avg **64.83**, median **44.5**, max **236**, min **1**
+- Paragraphs over 80 tokens on either side: **10/36**
+- Paragraphs over 128 tokens on either side: **6/36**
+- Paragraphs over 256 tokens on either side: **0/36**
+- Paragraphs over 512 tokens on either side: **0/36**
+- Sentence count: EN avg **2.83**, max **9**; HAW avg **2.58**, max **8**
+- Paragraphs with ≤3 sentences: EN **26/36**, HAW **28/36**
+
+Conclusion: these are normal short-to-medium paragraphs, not full pages. They are safely below the repo's training sequence regimes (`max_length=1024` for SFT tokenization defaults; training configs commonly use `max_seq_len=2048`). Even allowing tokenizer expansion, the largest observed paragraph pair is not a sequence-length problem.
+
+## Tradeoff
+
+Paragraph-level pros:
+
+- Zero sentence-alignment risk inside the trusted paragraph unit.
+- Preserves the human translators' actual alignment granularity.
+- Preserves discourse context useful for Hawaiian particles, references, and phrase ordering.
+- Avoids English/Hawaiian sentence splitter errors; current pipeline already drops 8/36 paragraph pairs only because sentence counts differ.
+
+Sentence-level pros:
+
+- More rows in this subset: 60 sentence rows versus 36 paragraph rows.
+- Shorter examples are cheaper and easier for pure sentence-level translation pattern learning.
+- Some SFT recipes prefer atomic source/target units.
+
+For this source, the paragraph argument wins. The row-count argument is weak: 60 versus 36 is not enough gain to justify introducing splitter/alignment risk after deciding to trust the human paragraph translations. This is Hawaiian low-resource data; preserving high-confidence aligned content matters more than maximizing row count by splitting.
+
+## Unmatched-parent recovery
+
+The current hard gate skips 62 parents before sentence splitting because paragraph counts do not match or the parent has only one paragraph.
+
+Observed recovery signals:
+
+- 7 skipped parents are 1 EN paragraph / 1 HAW paragraph; 5 pass basic paragraph length/ratio/orthography sanity.
+- 20 skipped parents have paragraph-count diff 1.
+- 10 skipped parents have paragraph-count diff 2.
+- Diff ≤2 group: explicit paragraph-number matching plus length/orthography sanity finds **155** plausible paragraph pairs.
+- All 62 skipped parents: explicit paragraph-number matching plus sanity checks finds **526** plausible numbered paragraph pairs.
+
+This is not a license to auto-promote all recovered rows. It is a strong reason to build a separate review-pending recovery mode that matches explicit paragraph numbers and applies length-ratio/OCR sanity checks. Paragraph-pairing gives a recovery path where sentence splitting currently gives none.
+
+## Recommendation
+
+Implement, if approved:
+
+1. Add a Hoʻoilina paragraph-pair builder/output.
+2. Make paragraph rows the primary Hoʻoilina representation for matched numbered paragraphs.
+3. Keep sentence rows as auxiliary/fallback only, preferably derived from paragraph rows and not used to override paragraph-primary policy.
+4. For the first pass, emit the 36 deterministic paragraph pairs from the 6 matched parents.
+5. Add a second review-pending recovery pass for explicit paragraph-number matches in the 62 skipped parents; do not promote recovered rows without review.
+
+Bottom line: **paragraph-primary with sentence fallback**.
+
+---
+
+# Stage-2 license-first probe: Mozilla Common Voice Hawaiian metadata
+
+- Date: 2026-05-03
+- Probe owner: Linus, Stage-2 round 16
+- Network scope: metadata/license/robots only; no audio, no clips TSV, no bulk download, no `--execute`.
+
+## URL
+
+- HF dataset card checked: https://huggingface.co/datasets/mozilla-foundation/common_voice_17_0
+- Common Voice robots: https://commonvoice.mozilla.org/robots.txt
+- Common Voice metadata endpoint checked: https://commonvoice.mozilla.org/api/v1/datasets/languages
+- Mozilla Data Collective Common Voice page: https://mozilladatacollective.com/organization/cmfh0j9o10006ns07jq45h7xk
+- Mozilla Data Collective robots: https://mozilladatacollective.com/robots.txt
+- CC0 reference page: https://creativecommons.org/publicdomain/zero/1.0/
+
+## License observed verbatim
+
+- Mozilla Data Collective Common Voice table shows dataset license cells as `CC0-1.0`.
+- Creative Commons deed title: `CC0 1.0 Universal`.
+- Creative Commons deed notice: `The Commons Deed is not a legal instrument. It is simply a handy reference for understanding the CC0 Legal Code`.
+
+## Robots / access
+
+- `https://commonvoice.mozilla.org/robots.txt`: `User-agent: *`, `Disallow: /spontaneous-speech/`.
+- `https://mozilladatacollective.com/robots.txt`: `User-Agent: *`, `Allow: /`.
+- Probe used a polite UA and sleeps. No audio or clip archives were downloaded.
+
+## Schema / coverage
+
+- HF card page is reachable but did not expose `haw`, `Hawaiian`, `CC0`, clips, or duration in card text.
+- Common Voice `/api/v1/languages` returned 431 language entries with no `haw` / `Hawaiian` match.
+- Common Voice `/api/v1/datasets/languages` returned 137 dataset-language entries with no `haw` / `Hawaiian` match.
+- Hawaiian locale status: not observed. Total clips/duration: `0 / not available` for Hawaiian in observed metadata.
+
+## Contamination risk vs existing sources
+
+- Audio is out of scope for text Stage-2.
+- If Common Voice later exposes Hawaiian validated text prompts/sentences, they may be monolingual HAW or prompt text, not guaranteed parallel EN↔HAW.
+- Prompt text may overlap public-domain sentence lists or other Common Voice prompt sources; it needs side-hash contamination checks before any use.
+
+## Verdict
+
+- RED for current Stage-2 ingestion: no Hawaiian locale observed in metadata.
+- License posture for Common Voice generally looks GREEN (`CC0-1.0`), but absent Hawaiian coverage makes this source unusable now.
+
+## Routing
+
+- Current routing: SKIP.
+- Future routing if Hawaiian appears: consider monolingual/prompt-ledger first, not parallel train; only promote to TRAIN if prompt text is actually CC0, Hawaiian text is present, no TOS restriction conflicts, and contamination checks pass.
+
+## Adapter sketch
+
+- No adapter now.
+- Future probe should pin a Common Voice release, record robots/TOS/license snapshots, read metadata only first, and refuse audio downloads.
+- Candidate path, if ever justified, should emit prompt strings as monolingual HAW or paired metadata only after confirming schema fields and license; no blind EN↔HAW parallel assumption.
+
+---
+
+# Stage-2 license-first probe: FLORES+ haw_Latn
+
+- Date: 2026-05-03
+- Probe owner: Linus, Stage-2 round 16
+- Network scope: license/card/robots only; no dataset download, no `--execute`.
+
+## URL
+
+- Dataset card: https://huggingface.co/datasets/openlanguagedata/flores_plus
+- Dataset metadata checked for file/config names only: https://huggingface.co/api/datasets/openlanguagedata/flores_plus
+- License page: https://creativecommons.org/licenses/by-sa/4.0/
+- Robots: https://huggingface.co/robots.txt
+
+## License observed verbatim
+
+- HF card metadata: `cc-by-sa-4.0`
+- HF card text: `FLORES+ is a multilingual machine translation benchmark released under CC BY-SA 4.0.`
+- Creative Commons deed title: `Attribution-ShareAlike 4.0 International`
+- Creative Commons condition: `ShareAlike — If you remix, transform, or build upon the material, you must distribute your contributions under the same license as the original.`
+
+## Robots / access
+
+- `https://huggingface.co/robots.txt`: `User-agent: *` / `Allow: /`.
+- Probe used a polite UA and sleeps. No data files were downloaded.
+
+## Schema / coverage
+
+- HF card says FLORES+ has `228 language varieties`.
+- HF card says each included language has `997 sentences for the dev split and 1012 sentences for the devtest split`.
+- Metadata check found `siblings 480`, `haw []`, and `configs haw []`.
+- Result for Hawaiian: `haw_Latn` not present in observed card/metadata. Row count for Hawaiian is therefore `0 / not available`, not 997+1012.
+
+## Contamination risk vs existing sources
+
+- If Hawaiian is added later, risk is high for train contamination because FLORES is a standard MT benchmark and should be kept out of training.
+- No current collision work is needed because no haw_Latn rows were observed.
+
+## Verdict
+
+- RED for current Stage-2 ingestion: Hawaiian absent.
+- If future `haw_Latn` appears: YELLOW / EVAL-only due benchmark status and CC-BY-SA share-alike obligations.
+
+## Routing
+
+- Current routing: SKIP.
+- Future routing if haw_Latn appears: EVAL ledger only; never train candidates.
+
+## Adapter sketch
+
+- No adapter now.
+- Future adapter must require exact dataset revision pin, exact `cc-by-sa-4.0` confirmation, local ToS/license snapshot, and `--execute`.
+- It should hash EN and HAW sentences into `data/evals/eval_hashes.jsonl` before any train ingest, mark `eval_only=true`, and refuse writes under `data/stage2/candidates/`.
+
+---
+
+# Linus — Stage-2 HK statutes Round 8 extension
+
+## Legal/TOS check
+
+- Host for 1869/1859/1846 is the same as the already-processed 1897 pair: `archive.org`.
+- Existing IA ToS snapshot inherited: `data/raw/hawaiian-kingdom-statutes-paired-imprints/20260501/_tos/ia_terms.html`, snapshot id `ia_terms`, fetched `2026-05-01T21:14:22Z`, sha256 `4bbba9062696abf26a594e0c9fb3e84101cf05321f557b9d8baf862f863ada7b`.
+- Rights status: public domain for the legal text (pre-1929 public-domain term + sovereign-edicts doctrine for government legal edicts). IA ToS governs hosted scan/OCR bytes.
+- No live fetch was performed in Round 8; only already-local raw OCR and manifests were inspected.
+
+## Editions added to source registry / adapter pins
+
+- 1869 Penal Code: EN `https://archive.org/details/esrp475081650`; HAW `https://archive.org/details/esrp468790723`; status `blocked-content-mismatch` because HAW OCR filename is `1850.002_djvu.txt` and prior sampling found mismatched content. Dry-run parsed 38 EN sections / 2 HAW sections / 1 common / 0 emitted.
+- 1859 Civil Code: EN `https://archive.org/details/civilcodehawaii00armsgoog`; HAW `https://archive.org/details/hekumukanawaiam00hawagoog`; status `in-progress-dryrun-only` pending manual Pauku range mapping. Dry-run parsed 195 EN sections / 80 HAW sections / 21 common / 0 emitted.
+- 1846 Statute Laws: EN `https://archive.org/details/statutelawshism00ricogoog`; HAW `https://archive.org/details/kanawaiikauiaek00ricogoog`; status `in-progress-dryrun-only` pending act/chapter segmentation because section numbers repeat across acts. Dry-run parsed 633 EN section markers / 36 HAW markers / 0 common / 0 emitted.
+
+## Shipped
+
+- `scripts/325_build_hk_statutes_candidates.py` is now edition-parameterized (`--edition 1897|1869|1859|1846`).
+- `--execute` remains allowed only for 1897; non-1897 editions are dry-run/inventory only until alignment blockers are cleared.
+- Added `data-sources/hk-statutes/source_registry.json` with license/TOS, source URLs, access timestamps, raw sha256 values, and edition status.
+- Added stdlib unittest with mocked HTTP layer to verify User-Agent/rate-limit behavior without live network.
+
+---
+
+# Stage-2 Tier A Review-Pending Promotion
+
+**Owner:** Linus  
+**Date:** 2026-05-04  
+**Status:** Proposed / implemented as additive v2 artifact
+
+## Decision proposal
+
+Promote only review-pending rows that are already policy-approved:
+
+- `manual_review_reasons` contains `Accepted under historical-orthography policy`
+- `manual_review_reasons` contains `Eligible under hk1897-legal-clean-v1`
+- Source whitelist: `hooilina`, `wikimedia-cx-en-haw`, `weblate-en-haw`, `tatoeba`
+
+Then enforce train-side caps by pair-token share, using whitespace tokens on `text_en + text_haw`:
+
+- Bible-family sources ≤ 30%
+- HK/legal sources ≤ 15%
+- software-l10n sources ≤ 15%
+
+Existing train rows are frozen. Newly admitted Tier A rows are greedily considered in `sha256_pair` order; if a cap is breached, evict the highest-`sha256_pair` newly admitted row from that cap group until the final artifact passes. Dev rows are untouched.
+
+## Audit result
+
+Input: `data/stage2/reviewed_stage2_manifest_final_capped.jsonl`
+
+- Splits before: train 4,286; review-pending 33,830; dev 15
+- Train pair tokens before: 113,453
+- Review-pending pair tokens before: 2,227,600
+- Tier A identified: 7,632 rows / 724,253 pair tokens
+  - historical orthography accepted: 6,873 rows / 460,504 tokens
+  - hk1897 legal-clean eligible: 670 rows / 140,578 tokens
+  - whitelist: 89 rows / 123,171 tokens
+- Dedup skip: 8 whitelist rows already had exact pair hashes in train (7 Wikimedia CX, 1 Tatoeba)
+- Tier A after dedup: 7,624 rows / 723,283 tokens
+- Cap evicted from newly admitted set: 6,412 rows / 501,390 tokens
+- Promoted in v2: 1,212 rows / 221,893 tokens
+
+## What got promoted
+
+Output: `data/stage2/reviewed_stage2_manifest_final_capped_v2.jsonl`
+
+Per-source promoted deltas:
+
+| Source | Rows | Pair tokens |
+|---|---:|---:|
+| baibala-hemolele-1839 | 975 | 66,570 |
+| hk_statutes_1897 | 156 | 33,122 |
+| hooilina | 68 | 120,940 |
+| weblate-en-haw | 4 | 354 |
+| wikimedia-cx-en-haw | 9 | 907 |
+
+New train state:
+
+- Train rows: 5,498
+- Train pair tokens: 335,346
+- Review-pending rows: 32,618
+- Dev rows: 15, unchanged
+
+Cap shares after promotion:
+
+- Bible: 100,594 / 335,346 = 29.9971%
+- HK/legal: 50,129 / 335,346 = 14.9484%
+- software-l10n: 1,882 / 335,346 = 0.5612%
+
+## Count-only and sample-only piles
+
+Tier B remains blocked by cap policy, count-only:
+
+- `dropped-by-bible-cap-v2-fixedpoint`: 25,283 rows / 1,450,151 tokens
+- `dropped-by-hk-legal-cap-v2-fixedpoint`: 735 rows / 149,234 tokens
+- `historical_orthography_sub_cap_reached`: 5,399 rows / 361,128 tokens
+
+Tier C was sampled only, no promotion:
+
+- Andrews vocab: 1,194 rows / 5,785 tokens
+- OPUS haw subsets: 332 rows / 8,994 tokens
+- Kaikki Wiktionary: 48 rows / 1,362 tokens
+- Gospel John 1854: 590 rows / 32,713 tokens
+- HK Constitution 1852: 68 rows / 9,030 tokens
+
+Sample files are under `data/stage2/reports/tier_c_samples_*_20260504.jsonl`.
+
+Tier D stays rejected: terminal quality failures (`side_too_short`, `length_ratio_extreme`, `haw_nonhaw_letters_high`).
+
+## Verification
+
+- `python3 -m py_compile scripts/335_promote_tier_a_review_pending.py`
+- `python3 scripts/335_promote_tier_a_review_pending.py`
+- Re-read v2 manifest: row count unchanged, dev rows byte-identical, only `split` changed on promoted rows, all caps pass.
+
+Primary report: `data/stage2/reports/stage2_tier_a_promotion_20260504.json`.
+
+---
+
+# Linus verdict — Stage 3 paragraph SFT
+
+**Requested by:** Yashas  
+**Owner:** Linus  
+**Status:** Recommendation
+
+## Verdict
+
+Yes in principle, but not now: keep Stage 2 sentence/verse/row-grain and add a paragraph/document Stage 3 only after Stage 2 plateaus and passes regression gates.
+
+## Rationale
+
+The data supports a real longer-context lane, but it is a different training objective, not a replacement for Stage 2 row SFT. Plausible paragraph/document sources are Hoʻoilina paragraph pairs plus recovery rows, HK statute sections and constitution articles, Bible whole-chapter aggregates if built, gospel_john_1854 chapter/section aggregates, and nupepa articles if alignment is strong enough. That pool is probably mid-six-figure to low-seven-figure pair tokens depending on whether Bible chapters and nupepa are included; Hoʻoilina alone is tiny, HK sections are useful but register-skewed, and Bible/nupepa dominate scale.
+
+## Curriculum tradeoff
+
+Benefit: Stage 3 can teach longer-context translation/generation, paragraph coherence, document register, and less choppy sentence-by-sentence behavior. Cost: it is another run, another eval surface, and another forgetting vector for Stage 2 sentence-level translation quality. Treat it as late curriculum with lower LR/short epochs and explicit regression evals, not as a data-volume hack.
+
+## Sequence length and dedup hazards
+
+Current serious Stage 2 config is `code/configs/stage2_prototype.json` with `max_seq_len=1024`; smoke is 256. HK sections and Hoʻoilina paragraphs are mostly safe, but Bible chapters and nupepa articles can exceed 1024 once prompt+source+target are concatenated and would need filtering, packing policy, chunking, or a Stage 3 config with longer sequence length. If Stage 2 trains sentence splits and Stage 3 trains source paragraphs, the model sees overlapping content twice; that is acceptable as curriculum only when overlap is intentional and measured, otherwise it becomes memorization and source-register overweighting.
+
+## Recommendation
+
+Do not interrupt Stage 2 to build this now. Finish Stage 2 row SFT, evaluate plateau/forgetting, then run a Stage 3 paragraph prototype with length-aware admission, overlap metadata, and sentence-regression gates. If we need paragraphs sooner, fold a small capped paragraph lane into Stage 2 via a length-aware sampler rather than creating a premature new stage.
+
+---
+
+# Proposal: Hoʻoilina LaBSE Policy
+
+**Owner:** Rusty  
+**Date:** 2026-05-04  
+**Status:** Proposed  
+**Requested by:** Yashas
+
+## Decision
+
+For Hoʻoilina, keep LaBSE as a **soft metadata signal only**. Do not auto-reject or auto-demote Hoʻoilina rows solely because a LaBSE score falls below a generic threshold.
+
+Policy choice: **(b) Keep LaBSE as a soft signal — log the score, never auto-reject.**
+
+## Rationale
+
+Hoʻoilina is not a mined/comparable web source. It is a numbered-paragraph bilingual journal source where the English and Hawaiian were published together by human translators/editors. For this source class, the main risk is not whether the source texts mean the same thing; it is whether our extraction has paired the correct units.
+
+The current Hoʻoilina sentence builder (`scripts/325_build_hooilina_sentence_candidates.py`) does not use LaBSE. It uses deterministic filename pairing, numbered-paragraph counts, sentence-count agreement, length filters, boilerplate filters, non-Hawaiian-letter filters, and deduplication. Emitted rows carry no embedding score: `alignment_model=None`, `alignment_score=None`.
+
+Current measured Hoʻoilina builder stats:
+
+- 68 parent rows loaded
+- 6 parent rows splittable
+- 62 parent rows not splittable because EN/HAW paragraph counts fail the deterministic structure gate
+- 36 paragraph pairs inspected
+- 8 paragraph pairs skipped because sentence counts mismatch
+- 61 sentence pairs seen
+- 60 sentence pairs emitted
+- 1 sentence pair quality-rejected
+
+Current candidate-file annotations:
+
+- `data/stage2/candidates/hooilina.jsonl`: 68 rows, all review-pending; 18 accept-tier by deterministic/content checks, 50 review-tier mostly due to `side_too_long`; no LaBSE scores.
+- `data/stage2/candidates/hooilina_sentences.jsonl`: 60 rows, all review-pending; 59 accept-tier by deterministic/content checks, 1 review-tier due to `haw_nonhaw_letters_high`; no LaBSE scores.
+
+We have no Hoʻoilina-specific calibration showing LaBSE is reliable for Hawaiian journal translation. Prior LaBSE usage in this repo was for CX/OPUS/mined comparable triage, not for human-translated Hoʻoilina paragraphs. In the current environment the LaBSE scorer cannot run because `sentence_transformers` is not installed, so there are no local Hoʻoilina LaBSE distributions to cite.
+
+## Operational rule
+
+For Hoʻoilina:
+
+1. Structural gates remain hard:
+   - matched numbered-paragraph count
+   - matched sentence count within paragraph
+   - no boilerplate
+   - token length and length-ratio bands
+   - Hawaiian orthography/OCR sanity filters
+   - deduplication
+2. `prototype_only=True` and `release_eligible=False` remain until a release review changes that.
+3. If LaBSE is later run, store `labse_score` / `labse_verdict` or equivalent metadata, but do not map low score to automatic rejection.
+4. A very low score may add `manual_review_reasons += ["low_labse_soft_signal"]` for reviewer attention only.
+5. Hard LaBSE thresholds remain appropriate for mined/comparable sources such as OPUS-wikimedia, NLLB-style mined pairs, wiki langlinks, and other sources where parallelism is inferred rather than source-published.
+
+## Counter-risk
+
+Yashas is right about the source-level human translation quality, but source quality is not extraction quality. Bad rows can still arise from OCR corruption, footnote or copyright boilerplate, paragraph-mid splits, missing paragraph numbers, article headers, or sentence splitter errors. Those risks should be handled by deterministic structural extraction and content/OCR filters, not by letting an uncalibrated 109-language encoder overrule Hoʻoilina's human translators.
 
 ---
 

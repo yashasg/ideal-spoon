@@ -1035,3 +1035,21 @@ Add script-block + Hawaiian-alphabet sanity check to any future LaBSE pre-filter
 - Orchestration log: `.squad/orchestration-log/2026-05-02T10-30-00Z-rusty-labse-bringup.md`
 
 **Next:** Linus owns manifest merge + SFT re-emit. Coordinator should prioritize wiki-langlinks sentence extraction (P0, highest yield).
+
+---
+
+## Learnings — 2026-05-04 — Hoʻoilina LaBSE trust policy
+
+**Question:** Yashas challenged using LaBSE as a gate for Hoʻoilina because the source is a published bilingual journal with human translators.
+
+**Evidence read:** `scripts/325_build_hooilina_sentence_candidates.py`, `code/llm_hawaii/stage2_quality.py`, `scripts/336_score_comparable_with_labse.py`, current Hoʻoilina candidate files, and existing Stage-2 decisions/history.
+
+**Findings:**
+- For Hoʻoilina specifically, LaBSE is not the right hard gate. We have no local calibration evidence that LaBSE scores are reliable for Hawaiian journal translations, and the current environment cannot run the scorer because `sentence_transformers` is not installed. Existing LaBSE evidence is from CX/OPUS triage, not Hoʻoilina gold-ish bilingual journal pairs.
+- Current Hoʻoilina sentence builder does **not** compute LaBSE. It emits `alignment_model=None`, `alignment_score=None`, `alignment_review_required=True`, `prototype_only=True`, `release_eligible=False`. Current candidate files likewise have no LaBSE score. The general quality policy treats `filename-pair` as deterministic and uses content/length/orthography gates, not embedding scores.
+- The Hoʻoilina bottleneck is structural, not semantic. Dry-run stats: 68 parent rows → only 6 splittable parents; 62 skipped because EN/HAW numbered-paragraph counts do not match; 36 paragraph pairs inspected; 8 skipped for sentence-count mismatch; 61 sentence pairs seen; 60 emitted; 1 quality rejection. LaBSE cannot repair skipped parent/paragraph structure; it can only score pairs after our paragraph/sentence pairing decision.
+- Current files: `hooilina.jsonl` has 68 review-pending parent rows, 18 accept-tier by deterministic/content checks and 50 review-tier mostly `side_too_long`; `hooilina_sentences.jsonl` has 60 review-pending sentence rows, 59 accept-tier by deterministic/content checks and 1 review-tier for `haw_nonhaw_letters_high`. All are `prototype_only=True`, `release_eligible=False`.
+
+**Recommendation:** Adopt policy **(b) keep LaBSE as a soft signal only for Hoʻoilina**: record a score if/when scoring infra is available, but never auto-reject Hoʻoilina rows solely on LaBSE. Promotion should depend on deterministic structural alignment, length/orthography/OCR filters, provenance, and release/prototype caps. A low LaBSE score may create a review note, not a hard drop.
+
+**Counterpoint against Yashas:** Source human quality does not guarantee extracted pair quality. OCR errors, boilerplate/footnotes, article headers, paragraph-mid splits, missing numbered paragraphs, and sentence-count mismatches can still produce bad training rows. Those are real risks, but the fix is structural extraction and conservative deterministic filtering, not trusting an uncalibrated Hawaiian embedding score as judge over human translators.
