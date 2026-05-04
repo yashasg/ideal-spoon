@@ -30,7 +30,11 @@ affect your rights, please review our Terms of Service
 (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).
 ```
 
-**Retry attempts:** 2 (60s cooldown insufficient)
+**Retry attempts:** 
+- Retry #1 @ 2026-05-04T07:59:05Z (initial attempt after prior spawn's rate limit)
+- Retry #2 @ 2026-05-04T08:01:15Z (60s cooldown, still rate-limited)
+
+**Cooldown window:** Rate limits persist beyond 60s. Likely requires extended reset period (estimated 24h or next billing cycle).
 
 ### Retry Plan
 
