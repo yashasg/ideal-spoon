@@ -41,6 +41,43 @@ if [ ! -f "$EVAL_FILE" ]; then
     exit 1
 fi
 
+# Resolve CHECKPOINT to an absolute path when it points at a local directory.
+# transformers.AutoTokenizer.from_pretrained() falls back to treating its
+# argument as a HuggingFace repo id when the path does not exist locally,
+# producing a confusing HFValidationError if the relative path can't be found
+# from the current working directory. Resolving here makes failures obvious.
+case "$CHECKPOINT" in
+    /*)
+        CHECKPOINT_ABS="$CHECKPOINT"
+        ;;
+    *)
+        if [ -d "$CHECKPOINT" ]; then
+            CHECKPOINT_ABS=$(CDPATH= cd -- "$CHECKPOINT" && pwd)
+        else
+            CHECKPOINT_ABS="$CHECKPOINT"
+        fi
+        ;;
+esac
+
+# Local checkpoints look like a path (contain '/' but no '@' and aren't a bare
+# repo id). If it looks like a path and doesn't exist as a directory, bail out
+# before transformers misinterprets it as a HuggingFace repo id.
+case "$CHECKPOINT_ABS" in
+    */*)
+        # Treat as repo id only if it has exactly one '/' and the local dir
+        # doesn't exist (e.g. 'yashasg/llama31-8b-stage1-haw').
+        slashes=$(printf '%s' "$CHECKPOINT_ABS" | tr -cd '/' | wc -c | tr -d ' ')
+        if [ ! -d "$CHECKPOINT_ABS" ] && [ "$slashes" -gt 1 ]; then
+            echo "error: checkpoint path not found: $CHECKPOINT" >&2
+            echo "  resolved to: $CHECKPOINT_ABS" >&2
+            echo "  cwd:         $(pwd)" >&2
+            echo "Set CHECKPOINT to an absolute path or a HF repo id (namespace/name)." >&2
+            exit 1
+        fi
+        ;;
+esac
+CHECKPOINT="$CHECKPOINT_ABS"
+
 mkdir -p "$OUTPUT_DIR"
 mkdir -p "$SUMMARY_DIR"
 STAMP=$(date -u +"%Y%m%dT%H%M%SZ")
